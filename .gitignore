@@ -1,0 +1,7 @@
+node_modules/
+*.log
+
+# Выводы замеров: в репозитории живёт только тот, на котором стоит тест
+# разбора метки (`test/parse-marker.test.mjs`).
+tools/out/*
+!tools/out/probe-glm-5.1-full.json

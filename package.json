@@ -1,0 +1,11 @@
+{
+  "name": "st-academy",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "description": "Расширение SillyTavern: учебное заведение как механика — календарь, расписание, посещаемость, зачётка, сессия. core/ не знает про браузер и про ST.",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "license": "MIT"
+}

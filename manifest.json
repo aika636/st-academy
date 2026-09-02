@@ -1,0 +1,12 @@
+{
+    "display_name": "Academy",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "aika636",
+    "version": "0.0.1",
+    "homePage": "https://github.com/aika636/st-academy",
+    "auto_update": false
+}

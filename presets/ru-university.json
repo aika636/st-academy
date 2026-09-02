@@ -1,0 +1,518 @@
+{
+  "id": "ru-university",
+  "schemaVersion": 1,
+  "lang": "ru",
+  "displayName": "Российский вуз",
+  "vocab": {
+    "period": "пара",
+    "periodPlural": "пары",
+    "term": "семестр",
+    "teacher": "преподаватель",
+    "teacherPlural": "преподаватели",
+    "gradebook": "зачётка",
+    "debt": "хвост",
+    "debtPlural": "хвосты",
+    "examPeriod": "сессия",
+    "expulsion": "отчисление",
+    "expelled": "отчислена",
+    "warning": "вызов в деканат",
+    "warnInject": "Это уже случилось: её вызвали в деканат и предупредили, что следующий прогул означает отчисление. Отыграй последствия в следующем ответе.",
+    "expelInject": "Это уже случилось: приказ об отчислении подписан, она больше не студентка. Отыграй последствия в следующем ответе.",
+    "score": "средний балл"
+  },
+  "week": {
+    "studyDays": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "periodsPerDay": 4,
+    "maxPeriodsPerDay": 5
+  },
+  "bells": [
+    {
+      "start": "08:30",
+      "end": "10:05"
+    },
+    {
+      "start": "10:15",
+      "end": "11:50"
+    },
+    {
+      "start": "12:20",
+      "end": "13:55"
+    },
+    {
+      "start": "14:05",
+      "end": "15:40"
+    },
+    {
+      "start": "15:50",
+      "end": "17:25"
+    }
+  ],
+  "calendar": {
+    "termStart": "09-01",
+    "studyWeeks": 16,
+    "examWeeks": 3,
+    "vacations": [
+      {
+        "name": "ноябрьские",
+        "from": "11-04",
+        "to": "11-07"
+      }
+    ]
+  },
+  "grades": {
+    "values": [
+      {
+        "value": "5",
+        "points": 5,
+        "pass": true,
+        "label": "отлично"
+      },
+      {
+        "value": "4",
+        "points": 4,
+        "pass": true,
+        "label": "хорошо"
+      },
+      {
+        "value": "3",
+        "points": 3,
+        "pass": true,
+        "label": "удовлетворительно"
+      },
+      {
+        "value": "2",
+        "points": 2,
+        "pass": false,
+        "label": "неудовлетворительно"
+      },
+      {
+        "value": "зачёт",
+        "points": null,
+        "pass": true,
+        "label": "зачёт"
+      },
+      {
+        "value": "незачёт",
+        "points": null,
+        "pass": false,
+        "label": "незачёт"
+      },
+      {
+        "value": "автомат",
+        "points": 5,
+        "pass": true,
+        "label": "автомат"
+      }
+    ],
+    "aliases": {
+      "зачет": "зачёт",
+      "незачет": "незачёт",
+      "pass": "зачёт",
+      "fail": "незачёт",
+      "a": "5",
+      "b": "4",
+      "c": "3",
+      "f": "2"
+    },
+    "passMark": 3,
+    "startScore": 3
+  },
+  "exams": {
+    "kinds": [
+      {
+        "id": "credit",
+        "name": "зачёт",
+        "scale": "pass"
+      },
+      {
+        "id": "exam",
+        "name": "экзамен",
+        "scale": "points"
+      }
+    ],
+    "retakes": 2,
+    "autoPassScore": 4.5,
+    "weights": {
+      "score": 0.6,
+      "relation": 0.2,
+      "luck": 0.2
+    },
+    "maxLuck": 0.25
+  },
+  "relations": {
+    "min": -5,
+    "max": 5,
+    "start": 0,
+    "labels": [
+      {
+        "upTo": -4,
+        "label": "ненавидит"
+      },
+      {
+        "upTo": -2,
+        "label": "неприязнь"
+      },
+      {
+        "upTo": -1,
+        "label": "недоволен"
+      },
+      {
+        "upTo": 1,
+        "label": "ровно"
+      },
+      {
+        "upTo": 2,
+        "label": "симпатия"
+      },
+      {
+        "upTo": 4,
+        "label": "благоволит"
+      },
+      {
+        "upTo": 5,
+        "label": "любимица"
+      }
+    ]
+  },
+  "reputation": {
+    "min": 0,
+    "max": 100,
+    "start": 50,
+    "warnAt": 20,
+    "expelAt": 0,
+    "labels": [
+      {
+        "upTo": 0,
+        "label": "отчислена"
+      },
+      {
+        "upTo": 20,
+        "label": "под угрозой отчисления"
+      },
+      {
+        "upTo": 40,
+        "label": "на плохом счету"
+      },
+      {
+        "upTo": 60,
+        "label": "ничем не выделяется"
+      },
+      {
+        "upTo": 80,
+        "label": "на хорошем счету"
+      },
+      {
+        "upTo": 100,
+        "label": "гордость факультета"
+      }
+    ],
+    "delta": {
+      "skip": -4,
+      "late": -1,
+      "debt": -3,
+      "examFailed": -6,
+      "examPassed": 2,
+      "cheatingCaught": -8,
+      "praise": 3
+    }
+  },
+  "attendance": {
+    "relationDelta": {
+      "skip": -1,
+      "late": 0,
+      "excused": 0
+    },
+    "debtAfterSkips": 3,
+    "lateEqualsSkip": 3,
+    "inferHorizonDays": 7
+  },
+  "limits": {
+    "maxSubjects": 8,
+    "maxTeachers": 8,
+    "maxNumbersInPrompt": 6,
+    "idleWarnAfter": 10,
+    "journalSize": 200,
+    "minTraits": 1,
+    "maxTraits": 2,
+    "maxIdLength": 24,
+    "maxTimeShift": 30,
+    "maxLorebookEntries": 60,
+    "lorebookCharsPerToken": 3
+  },
+  "phrases": {
+    "exams": {
+      "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
+      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+      "failed": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
+      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} возможен. Провал на ровном месте отыгрывать запрещено.",
+      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} невозможен; {teacher} принимает на общих основаниях. Блестящую сдачу без испытания отыгрывать запрещено.",
+      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
+      "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
+      "scheduled": "{examPeriod}: назначено {count}.",
+      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся."
+    },
+    "lorebook": {
+      "teacher": "{name} — {teacher}, ведёт предмет «{subject}». Характер: {traits}. Отношение к студентке: {relation}.",
+      "charter": "{institution}. Учебный год делится на {term}ы; занятие называется «{period}». Итоги подводит {examPeriod}: оценки идут в документ «{gradebook}», несданное превращается в {debtPlural}. За прогулы и {debtPlural} следует {warning}, крайняя мера — {expulsion}. Сейчас о студентке в заведении думают так: {reputation}.",
+      "chronicleExam": "{day}. {subject}: {value}. Принимал {teacher}.",
+      "chronicleWarn": "{day}. {warning}. О студентке теперь думают так: {reputation}.",
+      "chronicleExpel": "{day}. {expulsion}: {expelled}.",
+      "chronicleRelation": "{day}. Отношение {teacher} к студентке изменилось: было «{from}», стало «{to}».",
+      "place": "{name}. {note}",
+      "npc": "{name}. {note}"
+    }
+  },
+  "labels": {
+    "weekdays": [
+      "понедельник",
+      "вторник",
+      "среда",
+      "четверг",
+      "пятница",
+      "суббота",
+      "воскресенье"
+    ],
+    "phases": {
+      "study": "",
+      "weekend": "выходной",
+      "vacation": "каникулы",
+      "break": "каникулы",
+      "exams": ""
+    },
+    "day": "{weekday}, {week}-я неделя",
+    "dayOutside": "{weekday}, {phase}",
+    "dayPhase": "{weekday}, {week}-я неделя, {phase}",
+    "now": "сейчас: {subject}{teacher}",
+    "next": "скоро: {subject}{teacher}",
+    "today": "сегодня: {list}",
+    "nowMark": "{subject} (сейчас)",
+    "teacherOf": " ({teacher})",
+    "debts": "{debtPlural}: {list}",
+    "score": "{scoreName}: {value}",
+    "exams": "{examPeriod}: не сдано {count}, дней осталось {days}",
+    "examsNoDays": "{examPeriod}: не сдано {count}",
+    "relation": "{teacher}: {label}",
+    "reputation": "{label}",
+    "glue": ". ",
+    "end": ".",
+    "listGlue": ", "
+  },
+  "prompts": {
+    "plan": {
+      "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
+      "user": "Составь учебный план.\nЭпоха: {era}. Страна: {country}. Тип заведения: {institution}. Направление: {faculty}. Курс: {year}. Язык названий и имён: {lang}.\nПредметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}.\nУ каждого предмета ровно один преподаватель. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}.\nФормат ответа:\n{\"subjects\":[{\"id\":\"chemistry\",\"name\":\"…\",\"teacherId\":\"petrova\"}],\"teachers\":[{\"id\":\"petrova\",\"name\":\"…\",\"traits\":[\"…\"]}]}"
+    },
+    "survey": {
+      "system": "Ты читаешь карточку персонажа ролевой игры и заполняешь анкету учебного заведения. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев. Чего в тексте нет — оставляй пустой строкой: пустое поле лучше выдумки.",
+      "user": "Прочитай карточку персонажа и первое сообщение и предположи, где и когда учится главный герой.\nИмя персонажа: {name}.\nКарточка:\n{card}\nПервое сообщение:\n{firstMessage}\nЗаполни шесть полей:\nera — эпоха или сеттинг (современность, фэнтези, киберпанк, 1980-е);\ncountry — страна или традиция (Россия, Япония, Британия, выдуманная);\ninstitution — тип заведения (школа, колледж, вуз, магическая академия);\nfaculty — направление или факультет;\nyear — курс или год обучения;\nlang — язык названий и имён, по умолчанию {lang}.\nЕсли чего-то в тексте нет — оставь поле пустым. Не выдумывай и не переспрашивай.\nФормат ответа:\n{\"era\":\"\",\"country\":\"\",\"institution\":\"\",\"faculty\":\"\",\"year\":\"\",\"lang\":\"{lang}\"}"
+    }
+  },
+  "ui": {
+    "week": "{n}-я неделя",
+    "weekBefore": "семестр ещё не начался",
+    "weekBreak": "перерыв между семестрами",
+    "termLine": "{name}",
+    "termNumber": "{n}-й семестр",
+    "phases": {
+      "study": "учебный день",
+      "weekend": "выходной",
+      "vacation": "каникулы",
+      "break": "между семестрами",
+      "exams": "сессия"
+    },
+    "silentVacation": "Каникулы — пар нет.",
+    "silentBreak": "Между семестрами — пар нет.",
+    "silentWeekend": "Выходной — пар нет.",
+    "silentExams": "Сессия — лекций нет, идут контрольные.",
+    "silentNight": "Ночь — пар нет.",
+    "silentEmpty": "На сегодня расписание пустое.",
+    "silentOver": "Пары на сегодня кончились.",
+    "nowTitle": "Сейчас",
+    "breakTitle": "Перемена, дальше",
+    "beforeTitle": "Сегодня начнём с",
+    "nextCardTitle": "Дальше",
+    "slot": "{ordinal}-я пара",
+    "slotTime": "{ordinal}-я пара, {start}–{end}",
+    "nextSoon": "сегодня, следующей парой",
+    "nextToday": "сегодня, {start}",
+    "nextDay": "{date}, {start}",
+    "nextDayNoTime": "{date}",
+    "noNext": "Следующей пары в ближайшие две недели нет.",
+    "dayTitle": "День целиком",
+    "shiftPeriod": "+1 пара",
+    "scoreLine": "{scoreName}: {value}",
+    "debtsLine": "{debtPlural}: {count}",
+    "subjectsLine": "предметов: {count}",
+    "examsLine": "несдано в сессию: {count}",
+    "examsTerm": "сессия: {name}",
+    "debtsTitle": "Хвосты",
+    "openExamsTitle": "Не сдано",
+    "debtTag": "хвост",
+    "passedTag": "сдано",
+    "expelledTag": "отчислена",
+    "warnedTag": "предупреждение",
+    "reputationTitle": "Репутация",
+    "expelledLine": "Отчислена.",
+    "warnedLine": "Есть предупреждение.",
+    "noSubjects": "Предметов нет. Заполните таблицу в настройках.",
+    "notStartedTitle": "Семестр не начат",
+    "noStateText": "Заполните анкету из шести полей и нажмите «начать семестр».",
+    "notStartedWithPlan": "Учебный план уже есть. Осталось нажать «начать семестр».",
+    "notStartedNoPlan": "Заполните анкету из шести полей и сгенерируйте учебный план.",
+    "brokenTitle": "Состояние повреждено",
+    "brokenText": "Расширение не берётся показывать семестр, который не сходится сам с собой. Проверьте список ниже; таблицу предметов можно поправить руками в настройках.",
+    "peopleCountLine": "преподавателей: {count}",
+    "peopleNone": "Преподавателей нет. Добавьте их в настройках.",
+    "traitsNone": "черты не заданы",
+    "subjectsNone": "предметов не ведёт",
+    "relationTitle": "Отношение",
+    "relationHistoryTitle": "Как менялось",
+    "relationNoHistory": "отношение ещё не менялось",
+    "relationShift": "{from} → {to}",
+    "orphanSubjectsTitle": "Предметы без преподавателя",
+    "tabToday": "Сегодня",
+    "tabGradebook": "Зачётка",
+    "tabPeople": "Люди",
+    "tabSettings": "Настройки",
+    "planSection": "Учебный план",
+    "planNote": "Таблица правится всегда, а не только когда генерация не удалась: вписать свой предмет, свести преподавателя с персонажем из карточки, переименовать под свой сеттинг.",
+    "planGenerate": "Сгенерировать учебный план",
+    "planGenerateOk": "План получен. Проверьте таблицу ниже.",
+    "teachersTitle": "Преподаватели",
+    "subjectsTitle": "Предметы",
+    "addTeacher": "Добавить преподавателя",
+    "addSubject": "Добавить предмет",
+    "noTeachersRow": "Преподавателей нет.",
+    "noSubjectsRow": "Предметов нет. Добавьте свои или сгенерируйте план.",
+    "teacherField": "Преподаватель",
+    "teacherNone": "— не назначен —",
+    "teacherNameHint": "Петрова Анна Сергеевна",
+    "traitsHint": "злопамятна, придирается к опозданиям",
+    "subjectNameHint": "аналитическая химия",
+    "startSection": "Начало семестра",
+    "startButton": "Начать семестр",
+    "startedButton": "Семестр идёт",
+    "startedOk": "Семестр начат.",
+    "startNote": "Расписание соберётся из таблицы выше по правилам пресета.",
+    "blockNoSubjects": "нет ни одного предмета",
+    "blockBadTable": "таблица предметов не сходится",
+    "blockStarted": "семестр уже начат",
+    "errTeacherName": "У преподавателя нет имени.",
+    "errTeacherDup": "Идентификатор «{id}» уже занят другим преподавателем.",
+    "errSubjectName": "У предмета нет названия.",
+    "errSubjectId": "Идентификатор «{id}»: нужны латиница, цифры, дефис и подчёркивание.",
+    "errSubjectDup": "Идентификатор «{id}» уже занят другим предметом.",
+    "errSubjectTeacher": "Предмет «{name}» ссылается на преподавателя «{teacherId}», которого нет в списке.",
+    "errManyTeachers": "Преподавателей {count}, потолок {max}.",
+    "errManySubjects": "Предметов {count}, потолок {max}.",
+    "errNoSubjects": "Ни одного предмета: семестр начать не из чего.",
+    "noteNoTraits": "У {name} не задано ни одной черты характера — из чего расти конфликту.",
+    "noteNoTeacher": "У предмета «{name}» нет преподавателя — отношения по нему считать не с кем.",
+    "surveySection": "Анкета",
+    "surveyNote": "Шесть полей, заполняются один раз. Анкета — источник истины, модель только заполняет пробелы.",
+    "surveyGuess": "Заполнить по карточке персонажа",
+    "surveyGuessNote": "Модель прочитает карточку и первое сообщение и предположит, где учится героиня. Предположение попадёт в поля выше — посмотрите и поправьте. В игру само не уйдёт ничего.",
+    "surveyGuessOk": "Поля заполнены предположением. Проверьте их.",
+    "surveyGuessEmpty": "Заполнить не удалось ничего: в карточке не нашлось ни одной подсказки. Впишите руками.",
+    "surveyGuessPartly": "Заполнено полей: {count}. Пустые — не ошибка, впишите их руками.",
+    "presetSection": "Пресет заведения",
+    "presetNote": "Слова, шкала оценок и виды контрольных берутся отсюда. Предметы, преподаватели и оценки от пресета не зависят: они лежат в состоянии семестра.",
+    "presetChange": "Сменить пресет",
+    "presetChanged": "Пресет сменён.",
+    "presetSameNote": "Этот пресет уже выбран.",
+    "presetDrift": "Учёба в этом чате собрана пресетом «{stateId}», а сейчас активен «{activeId}».",
+    "transferSection": "Выгрузка и загрузка",
+    "transferNote": "Состояние семестра одним файлом: перенести в другой чат, сохранить до починки, отдать другому человеку. Ключ API в файл не попадает.",
+    "exportButton": "Выгрузить состояние",
+    "exportOk": "Файл {filename} отдан браузеру.",
+    "importPick": "Выберите файл",
+    "importOk": "Состояние загружено.",
+    "importConfirmTitle": "Заменить то, что есть?",
+    "importConfirmYes": "Да, заменить",
+    "importConfirmNo": "Отмена",
+    "importCancelled": "Отменено, ничего не тронуто.",
+    "summaryCurrent": "Сейчас в чате",
+    "summaryIncoming": "Приедет из файла",
+    "summaryNothing": "пусто",
+    "summaryLine": "пресет {presetId}, день {day}, предметов {subjects}, оценок {grades}",
+    "summaryNotStarted": "не начат",
+    "importOccupiedStarted": "в этом чате уже идёт семестр ({subjects} предметов, день {day}) — он пропадёт без следа",
+    "importOccupiedEmpty": "в этом чате уже есть состояние вуза — оно будет заменено",
+    "presetMismatch": "состояние собрано с пресетом «{from}», сейчас активен «{to}». Предметы, преподаватели и оценки приедут как есть — они лежат в состоянии; а названия периодов, шкала оценок и виды контрольных возьмутся из активного пресета, поэтому знакомые вещи могут называться иначе",
+    "lorebookSection": "Лорбук вуза",
+    "lorebookToggle": "Вести лорбук вуза",
+    "lorebookNote": "Черты преподавателей, места и хроника уходят в World Info, где запись подгружается по ключу, а не висит в промпте постоянно. Выключено по умолчанию: чужой лорбук расширение своими записями не засоряет.",
+    "lorebookBound": "Лорбук «{name}» привязан к этому чату.",
+    "lorebookNoName": "Лорбук ещё не заведён: он появится с первым ответом модели.",
+    "lorebookBookField": "Имя лорбука",
+    "lorebookBookHint": "пусто — по имени чата",
+    "lorebookMeasure": "Записей {entries} из {cap}, примерно {tokens} токенов.",
+    "lorebookOverCap": "Записей больше потолка: лорбук начнёт вытеснять из контекста всё остальное. Уберите лишние средствами таверны.",
+    "lorebookRefresh": "Обновить лорбук",
+    "lorebookRefreshOk": "Лорбук обновлён.",
+    "lorebookSuggestTitle": "Предложенные записи",
+    "lorebookSuggestNote": "Расширение может только предложить запись про человека или место, а не сочинить её само. В лорбук она уйдёт по нажатию.",
+    "lorebookAccept": "Добавить",
+    "lorebookAcceptOk": "Запись добавлена в лорбук.",
+    "lorebookNoSuggest": "Предложений нет.",
+    "lorebookNewTitle": "Предложить запись",
+    "lorebookNewName": "Имя или название",
+    "lorebookNewNote": "Заметка",
+    "lorebookNewNameHint": "Маша Лебедева",
+    "lorebookNewNoteHint": "соседка по общежитию, староста группы",
+    "lorebookKindPeople": "человек",
+    "lorebookKindPlaces": "место",
+    "lorebookNewButton": "Предложить",
+    "lorebookNewOk": "Предложено. В лорбук уйдёт по кнопке «Добавить».",
+    "lorebookOrphansTitle": "Осиротевшие после свайпов",
+    "lorebookOrphansNote": "Записи про то, чего в нынешнем состоянии больше нет. Расширение их не стирает само: своё вы бы потеряли вместе с ними.",
+    "lorebookPrune": "Убрать осиротевшие ({count})",
+    "lorebookPruned": "Убрано записей: {count}.",
+    "lorebookOff": "Лорбук выключен.",
+    "lorebookNoWorldInfo": "Эта сборка таверны не отдаёт World Info расширениям, поэтому лорбука не будет. Всё остальное работает.",
+    "lorebookNoChat": "Лорбук привязывается к чату, а чат ещё не сохранён. Он заведётся с первым сообщением.",
+    "lorebookNoState": "Лорбук заведётся, когда начнётся семестр.",
+    "lorebookError": "Лорбук не обновился: {error}",
+    "cmdPlanTitle": "Пары дня:",
+    "cmdNoPlan": "Пар сегодня нет.",
+    "cmdNext": "Дальше: {name} — {when}",
+    "cmdNoSubjects": "Предметов в плане нет.",
+    "cmdAverage": "среднее {value}",
+    "cmdShiftPeriods": "сдвиг в парах, можно отрицательный",
+    "cmdTimeHelp": "Ручной ремонт календаря. <code>/academy-time day=ГГГГ-ММ-ДД</code>, <code>/academy-time days=1</code>, <code>/academy-time periods=-2</code>. <code>/academy-time days=1 count=yes</code> — зачесть пропущенное прогулами. Без аргументов показывает, где календарь стоит сейчас.",
+    "cmdBothUnits": "/academy-time: за один раз двигаем либо днями, либо парами, но не тем и другим.",
+    "cmdStatusHelp": "Сводка «сегодня»: дата, неделя, пары дня и средний балл — то же, что на вкладке «Сегодня».",
+    "cmdGradesHelp": "Зачётка: предметы, оценки, средний балл, хвосты, репутация словом.",
+    "cmdStatusReturns": "сводка учебного дня",
+    "cmdGradesReturns": "зачётка текстом",
+    "cmdStateReturns": "состояние семестра в JSON",
+    "cmdStateHelp": "Состояние семестра как JSON — для карточек и скриптов. Ключи API вырезаны тем же срезом, что и при записи в метаданные чата.",
+    "jumpTitle": "Время прыгнуло вперёд",
+    "jumpLine": "В ответе прочитано {date} — это на {days} {plural} вперёд. Календарь пока стоит на {from}.",
+    "jumpMatched": "Прочитано в строке: {matched}",
+    "jumpNote": "Так бывает и в отыгрыше (сон, отъезд), и по ошибке — когда время печатает соседнее расширение. Пропущенные пары зачтутся, только если прыжок принять.",
+    "jumpAccept": "Принять",
+    "jumpDismiss": "Не надо",
+    "jumpAccepted": "Время переведено.",
+    "jumpAcceptedMissed": "Время переведено, пропущено пар: {count}.",
+    "jumpDismissed": "Прыжок отклонён, календарь на месте.",
+    "startDayField": "Первый учебный день",
+    "startDayFromChat": "Дата взята из чата: в нём уже написан год ({matched}). Так календарь не разойдётся с тем, что печатают соседние расширения.",
+    "startDayFromPreset": "Дата — начало учебного года из пресета в нынешнем году по часам компьютера. Если отыгрыш идёт в другом году, поправьте здесь: потом расширение год не переспросит.",
+    "repairCount": "Зачесть пропущенные пары",
+    "repairCountNote": "По умолчанию ручной сдвиг посещаемость не трогает: ремонт календаря не наказывает за день, которого не играли. С галочкой пропущенные пары зачтутся прогулами, как при обычном движении времени.",
+    "repairCounted": "Календарь поправлен, прогулов зачтено: {count}.",
+    "repairNotCounted": "Календарь поправлен. Посещаемость не считалась: пропущено пар — {count}.",
+    "cmdCounted": "Прогулов зачтено: {count}.",
+    "cmdNotCounted": "Посещаемость не считалась: пропущено пар — {count}. Нужно зачесть — добавьте count=yes.",
+    "cmdReputationMoved": "Репутация: {from} → {to}.",
+    "cmdCountArg": "зачесть пропущенные пары прогулами: yes"
+  }
+}

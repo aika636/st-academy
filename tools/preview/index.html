@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- Тот же viewport, что у SillyTavern: без него телефонные ширины не имеют смысла. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>academy: стенд панели</title>
+
+<!-- Настоящий style.css расширения, без правок. -->
+<link rel="stylesheet" href="../../style.css">
+
+<style>
+/* ---- ПОДДЕЛКА ТАВЕРНЫ, а не её копия. -------------------------------------
+ * Здесь лежит ровно то окружение, от которого зависит раскладка панели:
+ * 1) враждебные правила таверны, уже укусившие один раз (дефект 1 из
+ *    etap-live.md): `body .panelControlBar` — absolute, `drag-grabber` — тоже;
+ * 2) грубое приближение `text_pole` и `menu_button` — паддинги и рамки, от
+ *    которых зависит высота цели касания;
+ * 3) поле ввода внизу, которое панель не имеет права перекрывать.
+ * Чего здесь НЕТ: темы таверны, её шрифтов, её media-правил. Это стенд
+ * раскладки, а не витрина вида. */
+/* Глобальный reset таверны — дословно из её style.css:136. Без него вкладки
+ * считаются content-box и ложатся в три строки, которых в живой сборке нет:
+ * первый же прогон стенда поймал этот дефект у самого стенда. */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: rgb(30, 30, 35);
+  color: rgb(220, 220, 210);
+  font-family: "Noto Sans", sans-serif;
+  font-size: 15px;
+}
+/* Враждебная раскладка таверны — дословно то, что ловил дефект 1. */
+body .panelControlBar {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  min-width: 100px;
+  justify-content: space-evenly;
+}
+.drag-grabber { position: absolute; cursor: grab; }
+.panelControlBar .drag-grabber { position: unset; }
+/* Иконки fa не грузим — рисуем видимые заглушки того же размера. */
+.fa-solid::before { content: "◦"; }
+.fa-grip::before { content: "⠿"; }
+.fa-circle-xmark::before { content: "✕"; }
+/* Приближение штатных контролов таверны. */
+.text_pole {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  color: inherit;
+  padding: 3px 5px;
+}
+.menu_button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 3px 10px;
+  user-select: none;
+}
+/* Поле ввода чата: панель не имеет права его накрывать (style.css, правило 3). */
+#send_form {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex; gap: 6px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.6);
+}
+#send_form textarea { flex: 1; height: 44px; }
+/* Псевдочат, чтобы было что прокручивать под панелью. */
+#chat { padding: 12px 12px 120px; opacity: 0.5; max-width: 40em; }
+</style>
+</head>
+<body>
+
+<div id="movingDivs"></div>
+<div id="chat"></div>
+<form id="send_form"><textarea class="text_pole" placeholder="Сообщение…"></textarea><div class="menu_button">➤</div></form>
+
+<script type="module">
+// Стенд собирает состояние идущего семестра тем же путём, что тесты
+// (test/ui-dom.test.mjs): пресет + core/*, никакой таверны. Хост поддельный,
+// действия отвечают с задержкой, чтобы было видно состояние «идёт запрос».
+import ui from '../../ui.js';
+import { createState } from '../../core/state.mjs';
+import { buildSchedule } from '../../core/schedule.mjs';
+import { addGrade } from '../../core/gradebook.mjs';
+import { changeRelation } from '../../core/relations.mjs';
+
+const preset = await (await fetch('../../presets/ru-university.json')).json();
+
+const SUBJECTS = [
+  { id: 'chem', name: 'аналитическая химия', teacherId: 'petrova' },
+  { id: 'math', name: 'математический анализ и теория функций', teacherId: 'sokolovsky' },
+  { id: 'phil', name: 'философия', teacherId: 'grigoryan' },
+  { id: 'pe', name: 'физическая культура', teacherId: null },
+];
+const TEACHERS = [
+  { id: 'petrova', name: 'Петрова Анна Сергеевна', traits: ['злопамятна', 'придирается к опозданиям'] },
+  { id: 'sokolovsky', name: 'Соколовский Владимир Константинович', traits: ['рассеян', 'любит доказательства у доски'] },
+  { id: 'grigoryan', name: 'Григорян Ашот Суренович', traits: [] },
+];
+
+// ?fresh=1 — семестр не начат: анкета и таблица раскрыты, кнопка старта живая.
+const fresh = new URLSearchParams(location.search).has('fresh');
+
+function makeState() {
+  let s = createState(preset, {
+    survey: {
+      era: 'современность', country: 'Россия', institution: 'университет',
+      faculty: 'химический', year: '2-й', lang: 'русский',
+    },
+    subjects: SUBJECTS,
+    teachers: TEACHERS,
+    schedule: buildSchedule(SUBJECTS, preset),
+    startDay: '2026-09-01',
+  });
+  if (fresh) return s;
+
+  s.started = true;
+  // Седьмая неделя, среда, вторая пара идёт.
+  s.calendar.day = '2026-10-14';
+  s.calendar.time = '10:15';
+  s.calendar.precision = 'datetime';
+  s.calendar.moved = 23;
+  s.calendar.idle = 0;
+  s.calendar.source = 'A';
+
+  // Оценки: у math — хвост, чтобы жила красная рамка и «Хвосты».
+  for (const [subjectId, value, day] of [
+    ['chem', '5', '2026-09-18'], ['chem', '4', '2026-10-02'],
+    ['math', '2', '2026-09-25'], ['phil', '5', '2026-10-09'],
+  ]) s = addGrade(s, { subjectId, value, day }, preset).state;
+
+  // Сдвиги отношений — история ярлыков на вкладке «Люди».
+  for (const [teacherId, delta] of [
+    ['petrova', -2], ['petrova', -1], ['sokolovsky', 2], ['sokolovsky', 1],
+  ]) s = changeRelation(s, { teacherId, delta, reason: 'стенд' }, preset).state;
+
+  return s;
+}
+
+let state = makeState();
+
+const settings = {
+  mode: 'auto',
+  debug: true, // пять вкладок — худший случай для flex-wrap
+  lorebook: { enabled: true, book: '' },
+  api: { endpoint: '', key: '', model: '' },
+  ui: {},
+};
+
+const lorebook = fresh ? { enabled: true, reason: 'no-state', name: '', measure: null, suggest: [], orphans: [], error: null } : {
+  enabled: true,
+  name: 'Academy chat-1',
+  reason: null,
+  error: null,
+  measure: { entries: 7, chars: 1400, tokens: 460, cap: 60, withinCap: true },
+  suggest: [{ uid: 'academy:npc:masha', keys: ['Маша', 'Лебедева'], content: 'соседка по общежитию, рисует комиксы' }],
+  orphans: [{ uid: 'academy:chronicle:exam:2025-12-22:chem' }],
+};
+
+const lastRun = fresh ? null : {
+  mesId: 42,
+  source: 'received',
+  permission: '',
+  notes: [],
+  injects: ['academy_status: среда, 14 октября, 7-я неделя, 2-я пара — математический анализ'],
+  debug: {
+    mode: 'auto', source: 'A', moved: true, idle: 0, stalled: false,
+    marker: '📅 Среда, 14 октября | 🕰 10:15',
+    applied: [
+      { kind: 'time', day: '2026-10-14', time: '10:15' },
+      { kind: 'rel', teacherId: 'petrova', delta: -1 },
+    ],
+    rejected: [{ raw: '⏰ 25:70', reason: 'не время' }],
+    notes: [],
+  },
+};
+
+const merge = (into, patch) => {
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && into[k] && typeof into[k] === 'object') merge(into[k], v);
+    else into[k] = v;
+  }
+};
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const host = {
+  getState: () => state,
+  getReport: () => ({ status: state ? 'ok' : 'empty', state, errors: [] }),
+  getPreset: () => preset,
+  getSettings: () => settings,
+  setSettings: (patch) => { merge(settings, patch); },
+  getDebug: () => lastRun,
+  markerVisibleRisk: () => true, // предупреждение про encode_tags — пусть тоже стоит в раскладке
+  getLorebook: () => lorebook,
+  getPresets: () => ({
+    active: 'ru-university',
+    list: [
+      { id: 'ru-university', name: 'Российский вуз' },
+      { id: 'jp-highschool', name: 'Японская школа' },
+      { id: 'magic-academy', name: 'Магическая академия' },
+    ],
+  }),
+  actions: Object.fromEntries([
+    'exportState', 'importState', 'guessSurvey', 'setPreset', 'syncLorebook',
+    'suggestLorebookEntry', 'acceptLorebookSuggestion', 'pruneLorebook', 'generatePlan',
+    'setSubjects', 'manualTime', 'testApi', 'listModels', 'startTerm',
+  ].map((name) => [name, async (...args) => {
+    await wait(250);
+    if (name === 'exportState') return { ok: true, json: JSON.stringify({ state }), filename: 'academy.json', warnings: [] };
+    if (name === 'listModels') return { ok: true, models: ['glm-5.1', 'gpt-5-mini'] };
+    if (name === 'pruneLorebook') return { ok: true, removed: 1 };
+    if (name === 'guessSurvey') return { ok: true, survey: state.survey, filled: ['era', 'country'] };
+    if (name === 'setSubjects') { const rows = args[0] || {}; state.subjects = rows.subjects || state.subjects; state.teachers = rows.teachers || state.teachers; return { ok: true }; }
+    if (name === 'startTerm') { state.started = true; return { ok: true }; }
+    return { ok: true };
+  }])),
+};
+
+const api = ui.mountPanel(host);
+ui.mountButton(host);
+api.open();
+window.__academy = { host, api, ui, state, settings };
+document.title = fresh ? 'academy: стенд (семестр не начат)' : 'academy: стенд (7-я неделя)';
+</script>
+</body>
+</html>

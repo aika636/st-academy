@@ -1,0 +1,879 @@
+/* style.css — оформление панели академии.
+ *
+ * Файл обязан существовать и быть непустым: он указан в manifest.json, а
+ * addExtensionStyle роняет активацию расширения по link.onerror, если файла нет.
+ *
+ * Три правила, которым файл подчинён.
+ *
+ * 1. Своих палитр нет. Все цвета — переменные таверны (--SmartTheme*, --grey*,
+ *    --white*, --active, --warning, --golden). Тема меняется у пользовательницы,
+ *    панель меняется вместе с ней; это то место, где расширения тонут в
+ *    поддержке собственных тем.
+ * 2. Телефон — ограничение, а не адаптация под конец (3.9). Узкий экран — не
+ *    ветка «если останется время»: одно и то же дерево узлов на широком экране
+ *    ложится строками таблицы, на узком — карточками, второй вёрстки нет.
+ * 3. Панель не перекрывает поле ввода. На телефоне она анкерится сверху и
+ *    ограничена по высоте, чтобы #send_form остался виден и нажимаем.
+ */
+
+/*
+ * Таверна ставит `* { box-sizing: border-box }` на всю страницу, и вся
+ * арифметика ширин ниже (вкладки `flex: 1 1 33%` с паддингами, поля на 100%)
+ * молчаливо на это опиралась. Полагаться на чужой глобальный reset — та же
+ * хрупкость, что заимствованная раскладка `panelControlBar` (дефект 1
+ * etap-live.md): его уберут или переопределят — и вкладки лягут в три строки.
+ * Поймано стендом tools/preview, где reset'а не было и панель разъехалась.
+ * В таверне правило — no-op.
+ */
+.academy-panel,
+.academy-panel *,
+.academy-launcher,
+.academy-ext-block,
+.academy-ext-block * {
+  box-sizing: border-box;
+}
+
+:root {
+  --academy-gap: 8px;
+  --academy-radius: 10px;
+  --academy-line: var(--SmartThemeBorderColor, rgba(0, 0, 0, 0.5));
+  --academy-dim: var(--SmartThemeEmColor, rgb(145, 145, 145));
+  --academy-accent: var(--SmartThemeQuoteColor, rgb(225, 138, 36));
+  --academy-ink: var(--SmartThemeBodyColor, rgb(220, 220, 210));
+  --academy-bg: var(--SmartThemeBlurTintColor, rgba(23, 23, 23, 1));
+  --academy-soft: var(--white20a, rgba(255, 255, 255, 0.2));
+}
+
+/* --- кнопка вызова -------------------------------------------------------- */
+
+.academy-launcher {
+  position: fixed;
+  right: 12px;
+  bottom: 120px;
+  z-index: 3000;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--academy-line);
+  background-color: var(--academy-bg);
+  backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+  color: var(--academy-ink);
+  box-shadow: 0 2px 8px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.5));
+  cursor: grab;
+  user-select: none;
+  /* Прокрутку во время перетаскивания гасит именно это свойство, а не
+     preventDefault: слушатели касаний обязаны остаться пассивными (3.9). */
+  touch-action: none;
+}
+
+.academy-launcher:active,
+.academy-launcher.academy-dragging {
+  cursor: grabbing;
+  border-color: var(--academy-accent);
+}
+
+.academy-launcher-mark {
+  font-weight: 700;
+  font-size: calc(var(--mainFontSize, 15px) * 1.1);
+  color: var(--academy-accent);
+  pointer-events: none;
+}
+
+/* --- панель --------------------------------------------------------------- */
+
+.academy-panel {
+  position: fixed;
+  z-index: 3001;
+  display: none;
+  flex-direction: column;
+  top: 8vh;
+  right: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: 78vh;
+  color: var(--academy-ink);
+  background-color: var(--academy-bg);
+  backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
+  border: 1px solid var(--academy-line);
+  border-radius: var(--academy-radius);
+  box-shadow: 0 4px 20px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.5));
+  font-size: var(--mainFontSize, 15px);
+  overflow: hidden;
+}
+
+.academy-panel.academy-open {
+  display: flex;
+}
+
+.academy-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--academy-gap);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--academy-line);
+  /* Ручка перетаскивания — единственное место, где жест не должен прокручивать. */
+  touch-action: none;
+}
+
+/*
+ * Шапка панели носит классы таверны `panelControlBar` и `drag-grabber` — ради
+ * родного вида ручки и крестика. Вместе с видом приезжает и раскладка:
+ * `body .panelControlBar` в таверне — `position: absolute; top: 5px; right: 5px`,
+ * потому что у её собственных панелей это плавающий уголок над содержимым. У нас
+ * шапка — первая строка колонки, и абсолютной ей быть нельзя: она ложится на
+ * полосу вкладок и накрывает собой четвёртую, «Настройки». Поймано на живой
+ * таверне 1.18.0: `elementFromPoint` в центре вкладки возвращал заголовок, то
+ * есть единственный путь к запуску семестра был физически недоступен.
+ *
+ * Класс не снимаем: `drag-grabber` сам по себе тоже абсолютный, и гасит его
+ * ровно `.panelControlBar .drag-grabber` — два класса ходят парой. Возвращаем
+ * шапку в поток своим правилом: два класса (0,2,0) бьют `body .panelControlBar`
+ * (0,1,1) без `!important`.
+ */
+.academy-panel .academy-bar {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.academy-grab {
+  cursor: grab;
+  opacity: 0.6;
+}
+
+.academy-grab:hover {
+  opacity: 1;
+}
+
+.academy-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.academy-close {
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.academy-close:hover {
+  opacity: 1;
+  color: var(--academy-accent);
+}
+
+.academy-tabs {
+  display: flex;
+  /* Вкладок теперь четыре, а с включённой отладкой пять: на 360 пикселях в одну
+     строку они не влезают, и перенос честнее горизонтальной прокрутки — на
+     телефоне уехавшую вкладку никто не ищет пальцем (3.9). */
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--academy-line);
+}
+
+.academy-tab {
+  /* Основание 25% — четыре вкладки в ряд на широком экране; пятая переносится
+     на вторую строку сама, без второго набора правил. */
+  flex: 1 1 25%;
+  padding: 8px 4px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.65;
+  border-bottom: 2px solid transparent;
+  /* Палец, а не мышь: цель нажатия не меньше 40 пикселей по высоте (3.9). */
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.academy-tab:hover {
+  opacity: 1;
+}
+
+.academy-tab-on {
+  opacity: 1;
+  border-bottom-color: var(--academy-accent);
+  color: var(--academy-accent);
+}
+
+.academy-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+  /* Горизонтальной прокрутки не бывает нигде: это прямое требование 3.9. */
+  overscroll-behavior: contain;
+}
+
+/* --- «Сегодня» ------------------------------------------------------------ */
+
+.academy-today,
+.academy-gradebook,
+.academy-people,
+.academy-debug,
+.academy-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--academy-gap);
+}
+
+.academy-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-date {
+  font-weight: 600;
+  font-size: calc(var(--mainFontSize, 15px) * 1.05);
+}
+
+.academy-week {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--academy-dim);
+  font-size: 0.9em;
+}
+
+.academy-phase,
+.academy-clock,
+.academy-tag,
+.academy-relation {
+  border: 1px solid var(--academy-line);
+  border-radius: 999px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.academy-alarm {
+  border-radius: 999px;
+  padding: 0 8px;
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+  border: 1px solid var(--warning, rgba(255, 0, 0, 0.9));
+  white-space: nowrap;
+}
+
+.academy-card {
+  border: 1px solid var(--academy-line);
+  border-radius: var(--academy-radius);
+  padding: 10px;
+  background-color: var(--academy-soft);
+}
+
+.academy-now {
+  border-color: var(--academy-accent);
+}
+
+.academy-card-title {
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--academy-dim);
+}
+
+.academy-subject {
+  font-weight: 600;
+}
+
+.academy-teacher,
+.academy-slot {
+  color: var(--academy-dim);
+  font-size: 0.9em;
+}
+
+.academy-silent {
+  padding: 10px;
+  border: 1px dashed var(--academy-line);
+  border-radius: var(--academy-radius);
+  color: var(--academy-dim);
+}
+
+.academy-plan-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-plan-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.academy-plan-current {
+  background-color: var(--academy-soft);
+  border-left: 2px solid var(--academy-accent);
+}
+
+.academy-plan-time {
+  min-width: 3.5em;
+  color: var(--academy-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.academy-plan-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.academy-plan-teacher {
+  color: var(--academy-dim);
+  font-size: 0.85em;
+}
+
+.academy-timemark {
+  color: var(--academy-dim);
+  font-size: 0.85em;
+}
+
+.academy-timemark-stalled {
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+/* Ремонтный инструмент, а не главная кнопка (3.2): свёрнут и приглушён. */
+.academy-repair {
+  border-top: 1px solid var(--academy-line);
+  padding-top: 6px;
+  opacity: 0.75;
+}
+
+.academy-repair:hover,
+.academy-repair[open] {
+  opacity: 1;
+}
+
+.academy-repair > summary {
+  cursor: pointer;
+  color: var(--academy-dim);
+  font-size: 0.85em;
+  list-style: revert;
+}
+
+.academy-repair-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--academy-gap);
+  padding-top: 6px;
+}
+
+/* --- таблицы: строки на широком, карточки на узком ------------------------ */
+
+.academy-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.academy-tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--academy-line);
+  border-radius: 8px;
+}
+
+.academy-tr-debt {
+  border-color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+.academy-td {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.academy-td-grades {
+  justify-content: flex-end;
+}
+
+.academy-grades {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.academy-avg {
+  font-weight: 600;
+  color: var(--academy-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.academy-tag {
+  font-size: 0.8em;
+  color: var(--academy-dim);
+}
+
+.academy-tag-debt {
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+  border-color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+.academy-relation {
+  font-size: 0.8em;
+  color: var(--academy-accent);
+  border-color: var(--academy-accent);
+}
+
+.academy-debts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+/* --- «Люди» --------------------------------------------------------------- *
+ *
+ * Своих приёмов вкладка не заводит: строка преподавателя — тот же
+ * `.academy-tr`, что строка зачётки, и на узком экране становится карточкой тем
+ * же правилом. Здесь только то, чего в зачётке не было: черты и история ярлыка.
+ */
+
+.academy-td-person,
+.academy-td-history {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.academy-traits {
+  color: var(--academy-dim);
+  font-size: 0.85em;
+}
+
+.academy-traits-none {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.academy-shifts,
+.academy-journal {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85em;
+}
+
+.academy-shifts > li,
+.academy-journal > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.academy-shift {
+  color: var(--academy-accent);
+  overflow-wrap: anywhere;
+}
+
+.academy-shift-day {
+  color: var(--academy-dim);
+}
+
+/* --- «Отладка» ------------------------------------------------------------ *
+ *
+ * Экран технический, и выглядит он технически: моноширинный разбор, длинные
+ * строки переносятся, горизонтальной прокрутки нет и здесь (3.9).
+ */
+
+.academy-debug-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-debug-line {
+  overflow-wrap: anywhere;
+}
+
+.academy-debug .academy-notes,
+.academy-debug .academy-journal {
+  font-family: var(--monoFontFamily, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+  color: var(--academy-ink);
+}
+
+/* --- настройки ------------------------------------------------------------ */
+
+/*
+ * Блок настроек — `<details>`, и раскладка ему намеренно оставлена блочной.
+ * `display: flex` (или `grid`) на самом `<details>` ломает сворачивание: браузер
+ * перестаёт прятать содержимое закрытого блока и показывает всё сразу. Поэтому
+ * вместо `gap` — отступ между соседями, он даёт тот же вид и переживает
+ * сворачивание.
+ */
+.academy-section {
+  display: block;
+  padding: 8px 0;
+  border-top: 1px solid var(--academy-line);
+}
+
+.academy-section > * + * {
+  margin-top: 6px;
+}
+
+.academy-section:first-child {
+  border-top: none;
+}
+
+/*
+ * Заголовок блока — `<summary>`: блоки настроек сворачиваются (3.9, телефон).
+ * Своей стрелки не рисуем, штатный маркер `<details>` понятен и в теме таверны;
+ * `cursor: pointer` и вертикальный отступ нужны, чтобы по заголовку можно было
+ * попасть пальцем, а не только курсором.
+ */
+.academy-section-title {
+  margin: 0;
+  padding: 4px 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  cursor: pointer;
+  /* Заголовок не выделяется при двойном тапе — иначе сворачивание пальцем
+     оставляет выделенный текст на пол-экрана. */
+  user-select: none;
+}
+
+/* Предупреждение: тот же цвет, что у ошибок, но это абзац, а не список. */
+.academy-warn {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+/* Вопрос «заменить то, что есть?» — рамкой, чтобы его нельзя было пролистать. */
+.academy-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--warning, rgba(255, 0, 0, 0.9));
+  border-radius: 6px;
+}
+
+.academy-confirm-title {
+  font-weight: 600;
+}
+
+.academy-summary {
+  font-size: 0.85em;
+  /* Сводки — две длинные строки; на узком экране они переносятся, а не режутся. */
+  overflow-wrap: anywhere;
+}
+
+.academy-sub-title {
+  margin: 6px 0 0;
+  font-size: 0.9em;
+}
+
+/*
+ * Список лорбука на телефоне — карточки, а не строки (3.9): имя, заметка и
+ * кнопка в ряд не влезут никогда. Одно разметочное дерево, вторая вёрстка не
+ * заводится — как и у таблицы предметов.
+ */
+.academy-lore-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.academy-lore-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--academy-line);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.academy-lore-name {
+  font-weight: 600;
+}
+
+.academy-lore-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Выбор файла: штатный `<input type=file>` шире панели, поэтому ужимается. */
+.academy-file {
+  max-width: 100%;
+  font-size: 0.85em;
+}
+
+.academy-note {
+  margin: 0;
+  color: var(--academy-dim);
+  font-size: 0.85em;
+}
+
+.academy-survey {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.academy-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.academy-field > span {
+  font-size: 0.8em;
+  color: var(--academy-dim);
+}
+
+.academy-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  /* Меньше 16px iOS зумит форму при фокусе, и панель уезжает за экран. */
+  font-size: max(16px, 0.9em);
+  min-height: 34px;
+}
+
+.academy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.academy-row-buttons {
+  align-items: center;
+}
+
+.academy-btn {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.academy-btn-main {
+  border-color: var(--academy-accent);
+  color: var(--academy-accent);
+}
+
+.academy-btn-small {
+  font-size: 0.85em;
+  padding: 2px 8px;
+}
+
+.academy-btn-off,
+.academy-busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.academy-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.academy-mode,
+.academy-check {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.academy-mode-on {
+  background-color: var(--academy-soft);
+}
+
+.academy-mode-label {
+  font-weight: 600;
+}
+
+.academy-mode .academy-note {
+  flex-basis: 100%;
+}
+
+.academy-status {
+  min-height: 1.2em;
+  font-size: 0.85em;
+  color: var(--academy-dim);
+}
+
+.academy-status-busy {
+  color: var(--academy-accent);
+}
+
+.academy-status-ok {
+  color: var(--active, rgb(88, 182, 0));
+}
+
+/* Не «получилось» и не «сломалось», а объяснение: списка моделей у таверны
+   нет по устройству, и красить это в красный было бы неправдой. */
+.academy-status-note {
+  color: var(--academy-dim);
+}
+
+.academy-status-error {
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+.academy-errors,
+.academy-notes {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  font-size: 0.85em;
+}
+
+.academy-errors {
+  color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+.academy-notes {
+  color: var(--academy-dim);
+}
+
+.academy-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--academy-gap);
+  align-items: flex-start;
+  padding: 12px 4px;
+}
+
+.academy-empty-title {
+  font-weight: 600;
+}
+
+.academy-plan-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* --- блок в меню расширений ----------------------------------------------- */
+
+.academy-ext-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* --- узкий экран ---------------------------------------------------------- */
+
+@media (max-width: 600px) {
+  /* Панель анкерится сверху и ограничена по высоте: поле ввода внизу остаётся
+     видимым и нажимаемым. Закрывается свайпом вверх или тапом мимо. */
+  .academy-panel {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100vw;
+    max-height: 62vh;
+    border-radius: 0 0 var(--academy-radius) var(--academy-radius);
+    border-left: none;
+    border-right: none;
+    border-top: none;
+  }
+
+  /* Строка таблицы разворачивается в карточку: полей много, в ряд на 360
+     пикселях они не влезут никогда (3.9). */
+  .academy-tr {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .academy-td-grades {
+    justify-content: flex-start;
+  }
+
+  .academy-td-teacher,
+  .academy-td-grades,
+  .academy-td-person,
+  .academy-td-history {
+    font-size: 0.9em;
+  }
+
+  /* Пять вкладок в один ряд на 360 пикселях нечитаемы: две строки по две-три. */
+  .academy-tab {
+    flex: 1 1 33%;
+  }
+
+  .academy-survey {
+    grid-template-columns: 1fr;
+  }
+
+  .academy-row-buttons .academy-btn {
+    flex: 1 1 auto;
+  }
+
+  .academy-launcher {
+    /* Выше поля ввода, но не под системным жестом «назад». */
+    bottom: 140px;
+  }
+}
+
+/* Мышь есть — можно тоньше; пальца нет — можно не резервировать высоту. */
+@media (hover: none) {
+  .academy-tab,
+  .academy-btn,
+  /* Поля ввода на мыши 34px, под палец мало: замерено стендом на 390px —
+     каждое поле анкеты и таблицы было ниже 44px. */
+  .academy-input,
+  .academy-file,
+  /* Галочки и радио сами по себе 13×13; целью служит весь label. */
+  .academy-mode,
+  .academy-check {
+    min-height: 44px;
+  }
+
+  /* Заголовок-разворот блока настроек — главная навигация вкладки, а был
+     27px высотой. Паддинг, а не min-height: у <summary> с flex-раскладкой
+     часть браузеров прячет штатный маркер. */
+  .academy-section-title {
+    padding: 10px 0;
+    /* Паддинга с однострочным заголовком выходит 39px — добор до цели.
+       `min-height` тут безопасен: display остаётся list-item, маркер жив. */
+    min-height: 44px;
+  }
+
+  .academy-repair > summary {
+    padding: 8px 0;
+  }
+
+  /* Крестик и ручка в шапке — иконки 12×20: пальцем не попасть. Паддинг
+     растит цель, отрицательный отступ не даёт шапке распухнуть. */
+  .academy-close,
+  .academy-grab {
+    padding: 12px;
+    margin: -8px;
+  }
+}
