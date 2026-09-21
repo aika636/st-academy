@@ -3,6 +3,11 @@
   "schemaVersion": 1,
   "lang": "ru",
   "displayName": "Японская старшая школа",
+  "stopNames": [
+    "рассказчик",
+    "narrator",
+    "учительская"
+  ],
   "vocab": {
     "period": "урок",
     "periodPlural": "уроки",
@@ -167,28 +172,40 @@
         "name": "中間考査, промежуточная аттестация",
         "scale": "points",
         "everySubject": true,
-        "atWeek": 7
+        "atWeek": 7,
+        "dc": 6
       },
       {
         "id": "final",
         "name": "期末考査, итоговая аттестация",
         "scale": "points",
-        "everySubject": true
+        "everySubject": true,
+        "dc": 7
       }
     ],
     "retakes": 1,
-    "autoPassScore": 4.8,
-    "weights": {
-      "score": 0.7,
-      "relation": 0.15,
-      "luck": 0.15
+    "announce": {
+      "studyDays": 2
     },
-    "maxLuck": 0.2
+    "autoPassScore": 4.8,
+    "dc": {
+      "base": 7,
+      "score": 20,
+      "relation": 4,
+      "reputation": 6,
+      "critMargin": 10,
+      "safeScore": 3.5
+    }
   },
   "relations": {
     "min": -5,
     "max": 5,
     "start": 0,
+    "impact": {
+      "minor": 1,
+      "major": 2
+    },
+    "repeatLimit": 2,
     "labels": [
       {
         "upTo": -4,
@@ -268,7 +285,8 @@
     },
     "debtAfterSkips": 5,
     "lateEqualsSkip": 3,
-    "inferHorizonDays": 7
+    "inferHorizonDays": 7,
+    "skipPolicy": "attend"
   },
   "limits": {
     "maxSubjects": 8,
@@ -283,6 +301,17 @@
     "maxLorebookEntries": 60
   },
   "phrases": {
+    "milestones": {
+      "firstTop": "Первая пятёрка в табеле: {subject}",
+      "cleanWeek": "Неделя без пропусков",
+      "debtCleared": "Красный балл исправлен: {subject}",
+      "cleanSession": "Экзаменационная неделя без пересдач",
+      "autoPass": "Освобождена от экзамена: {subject}",
+      "brilliant": "Лучший результат класса: {subject}",
+      "favorite": "Любимая ученица: {teacher}",
+      "nemesis": "{teacher} её не выносит",
+      "onTheEdge": "На грани исключения"
+    },
     "exams": {
       "auto": "Свершилось: {subject} — {value} без экзамена, {teacher} освободил её от испытания. Отыграй это как уже случившееся.",
       "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
@@ -302,6 +331,7 @@
       "chronicleWarn": "{day}. {warning}. Об ученице теперь думают так: {reputation}.",
       "chronicleExpel": "{day}. {expulsion}: {expelled}.",
       "chronicleRelation": "{day}. Отношение {teacher} к ученице изменилось: было «{from}», стало «{to}».",
+      "chronicleMilestone": "{day}. Памятный день: {milestone}.",
       "place": "{name}. {note}",
       "npc": "{name}. {note}"
     }
@@ -344,7 +374,7 @@
   "prompts": {
     "plan": {
       "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
-      "user": "Составь расписание предметов японской старшей школы.\nЭпоха: {era}. Страна: {country}. Тип заведения: {institution}. Класс/поток: {faculty}. Год обучения: {year}. Язык названий и имён: {lang}.\nПредметов не больше {maxSubjects}, учителей не больше {maxTeachers}.\nУ каждого предмета ровно один учитель. Имя учителя — японское, в форме «фамилия-сэнсэй» или полным именем; одна-две черты характера, из которых может вырасти конфликт («придирается к опозданиям», «выделяет любимчиков»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — название предмета на языке {lang}.\nФормат ответа:\n{\"subjects\":[{\"id\":\"kokugo\",\"name\":\"…\",\"teacherId\":\"tanaka\"}],\"teachers\":[{\"id\":\"tanaka\",\"name\":\"…\",\"traits\":[\"…\"]}]}"
+      "user": "Составь расписание предметов японской старшей школы.\nЭпоха: {era}. Страна: {country}. Тип заведения: {institution}. Класс/поток: {faculty}. Год обучения: {year}. Язык названий и имён: {lang}.\nПредметов не больше {maxSubjects}, учителей не больше {maxTeachers}.\nУ каждого предмета ровно один учитель. Имя учителя — японское, в форме «фамилия-сэнсэй» или полным именем; одна-две черты характера, из которых может вырасти конфликт («придирается к опозданиям», «выделяет любимчиков»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — название предмета на языке {lang}. Поле birthday у преподавателя — день рождения ММ-ДД.\nФормат ответа:\n{\"subjects\":[{\"id\":\"kokugo\",\"name\":\"…\",\"teacherId\":\"tanaka\"}],\"teachers\":[{\"id\":\"tanaka\",\"name\":\"…\",\"traits\":[\"…\"],\"birthday\":\"03-14\"}]}"
     },
     "survey": {
       "system": "Ты читаешь карточку персонажа ролевой игры и заполняешь анкету учебного заведения. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев. Чего в тексте нет — оставляй пустой строкой: пустое поле лучше выдумки.",
@@ -550,6 +580,9 @@
     "cmdCounted": "Прогулов зачтено: {count}.",
     "cmdNotCounted": "Посещаемость не считалась: пропущено уроков — {count}. Нужно зачесть — добавьте count=yes.",
     "cmdReputationMoved": "Репутация: {from} → {to}.",
-    "cmdCountArg": "зачесть пропущенные уроки прогулами: yes"
+    "cmdCountArg": "зачесть пропущенные уроки прогулами: yes",
+    "roomField": "Кабинет",
+    "roomHint": "2-А",
+    "jumpToast": "Прошло уроков: {periods}, из них пропущено: {missed}."
   }
 }

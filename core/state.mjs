@@ -40,7 +40,7 @@ export const METADATA_KEY = 'academy';
  * @property {string}  termStart  дата начала семестра, `ГГГГ-ММ-ДД`
  * @property {number}  moved      сколько раз календарь двигался за семестр
  * @property {number}  idle       сколько ответов подряд ни один источник не сработал
- * @property {?('A'|'B'|'manual')} source кто двинул время в последний раз
+ * @property {?('A+'|'A'|'B'|'manual')} source кто двинул время в последний раз ('A+' — тег соседа)
  * @property {?HeldJump} heldJump прыжок вперёд, отвергнутый по потолку и ждущий
  *                                слова человека. Поля может не быть вовсе.
  */
@@ -69,6 +69,13 @@ export const METADATA_KEY = 'academy';
  * @property {string[]} [examKinds] несколько видов по одному предмету: середина и
  *                                конец, теория и практика. Старшее правило, чем
  *                                `examKind`; поля может не быть вовсе.
+ * @property {string}  [building] корпус, где идёт предмет (9.7A п.11): «главный»,
+ *                                «Б». Свободный текст человека, до `PLACE_MAX`
+ *                                символов. Мест как сущности в состоянии нет, поэтому
+ *                                поле живёт у предмета: карта кампуса (9.4.7) потом
+ *                                строится из данных, а не переписывается.
+ * @property {string}  [room]     аудитория того же предмета: «214», «Большой зал».
+ *                                Оба поля необязательны, пустых ключей нет.
  */
 
 /**
@@ -77,6 +84,14 @@ export const METADATA_KEY = 'academy';
  * @property {string}   name      «Петрова Анна Сергеевна»
  * @property {string[]} traits    одна-две черты: «злопамятна», «придирается к опозданиям»
  * @property {number}   relation  число внутри, наружу уходит ярлык из пресета
+ * @property {string}   [birthday] день рождения `ММ-ДД`, без года (9.4.4, 9.7A
+ *                                «возраст и дни рождения»): попадает в ближние
+ *                                события строки состояния. Поля может не быть —
+ *                                ни анкета, ни генерация плана его пока не пишут.
+ * @property {string}   [portrait] портрет (9.7A п.15): путь от корня таверны
+ *                                (`characters/…/x.png`, `/img/…`) или ссылка
+ *                                `http(s)://`. Без генерации — только адрес, который
+ *                                дал человек. Форма — `isPortrait`.
  */
 
 /**
@@ -101,6 +116,33 @@ export const METADATA_KEY = 'academy';
  * @property {boolean} [modelOverride] исход, который отыграла модель, разошёлся с
  *                                посчитанным, и принята версия модели (3.5).
  *                                Расхождение при этом лежит в журнале.
+ * @property {RollRecord[]} [rolls] история бросков по попыткам (9.4.1,
+ *                                `exams.rollRecord`). Поля может не быть: у
+ *                                событий, сданных до проверки против DC, и у
+ *                                исходов, выставленных руками.
+ * @property {boolean} [announced] объявлен ли итог последней попытки (9.4.3,
+ *                                «знает расширение / знает мир»). `false` —
+ *                                посчитан, но мир его ещё не знает; поля нет или
+ *                                `true` — объявлен (старые события — объявлены).
+ * @property {string}  [announceOn] день объявления, `ГГГГ-ММ-ДД`; есть, пока и
+ *                                после того, как итог ждал объявления
+ */
+
+/**
+ * @typedef {Object} RollRecord
+ * Одна попытка сдачи — компактно, потому что живёт в `chat_metadata` вечно.
+ * Слагаемые DC сюда не входят: они в журнале (`data.check`).
+ * @property {string}  day
+ * @property {'critFail'|'fail'|'success'|'critSuccess'|'auto'} tier ступень
+ *                     проверки; `auto` — автомат, броска не было
+ * @property {number}  [roll]  d20; у автомата нет
+ * @property {number}  [dc]    сложность; у автомата нет
+ * @property {string}  value   посчитанное значение шкалы (версия модели, если
+ *                             разошлась, — в `ExamItem.outcome`)
+ * @property {true}    [saved] сработала страховка балла: провал засчитан
+ *                             низшей проходной ступенью
+ * @property {true}    [capped] сработал потолок балла: крит ниже проходного
+ *                             балла засчитан лучшим обычным успехом
  */
 
 /**
@@ -139,6 +181,9 @@ export const METADATA_KEY = 'academy';
  *   поднятый в первом триместре, навсегда запирал вход во второй.
  * @property {JournalEntry[]}  journal
  * @property {PendingInject[]} pending
+ * @property {Object<string, {delta: number, count: number, day: string}>} [relStreak]
+ *   серии одинаковых сдвигов отношения по наставникам — антиинфляция 9.3.5,
+ *   `core/relations.mjs`. Поля может не быть: пустая серия.
  */
 
 /** Пустая анкета: шесть полей из таблицы 3.6, все строками. */
@@ -235,19 +280,107 @@ export function normalizeSubject(raw) {
     // поставленного до её появления, — не выдумывается. Форма предмета без
     // хвоста от этого не меняется ни на ключ.
     ...(raw.debt && raw.debtReason ? { debtReason: String(raw.debtReason) } : {}),
+    // Корпус и аудитория (9.7A п.11) — необязательны и, как причина хвоста,
+    // пишутся только непустыми: форма старых предметов не меняется ни на ключ.
+    ...placeField('building', raw.building),
+    ...placeField('room', raw.room),
   };
+}
+
+/** Потолок длины корпуса и аудитории: это подпись в карточке, а не абзац. */
+export const PLACE_MAX = 60;
+
+/** `{[key]: строка}` для непустого места или `{}` — пустых ключей не бывает. */
+function placeField(key, raw) {
+  if (typeof raw !== 'string' && typeof raw !== 'number') return {};
+  const v = String(raw).replace(/\s+/g, ' ').trim().slice(0, PLACE_MAX);
+  return v ? { [key]: v } : {};
+}
+
+/** Потолок длины адреса портрета. Картинка `data:` сюда не влезет — и не должна. */
+export const PORTRAIT_MAX = 1000;
+
+/**
+ * Годится ли строка в портрет (9.7A п.15). Два вида адреса, и оба — то, что
+ * браузер таверны откроет сам:
+ *
+ * - `http://` и `https://` — ссылка наружу;
+ * - путь без схемы — от корня таверны (`characters/Анна/портрет.png`,
+ *   `/user/images/x.png`): так лежат картинки, загруженные в саму таверну.
+ *
+ * Всё прочее со схемой отвергается: `javascript:` — очевидно, `data:` — потому
+ * что картинка в base64 раздула бы метаданные чата (состояние пишется при
+ * каждом ответе), `file:` и `C:\…` — браузер их из таверны не откроет, и
+ * человек увидел бы пустую рамку без объяснения. Управляющие символы и
+ * переводы строк — признак мусора, а не пути.
+ */
+export function isPortrait(v) {
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  if (!s || s.length > PORTRAIT_MAX || s !== v) return false;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return false;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(s);
+  if (!scheme) return !s.startsWith('\\');
+  return /^https?$/i.test(scheme[1]) && /^https?:\/\/[^/\s]/i.test(s);
+}
+
+/** Адрес портрета к форме `isPortrait` или `null` (пусто, мусор, чужая схема). */
+export function normalizePortrait(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  return isPortrait(s) ? s : null;
 }
 
 /** Приводит преподавателя к форме `Teacher`. Отношение — из пресета, если не задано. */
 export function normalizeTeacher(raw, preset) {
   const start = preset && preset.relations ? preset.relations.start : 0;
+  const birthday = normalizeBirthday(raw.birthday);
   return {
     id: String(raw.id || '').trim(),
     name: String(raw.name || raw.id || '').trim(),
     traits: Array.isArray(raw.traits) ? raw.traits.map(String) : [],
     relation: numberOr(raw.relation, numberOr(start, 0)),
+    // Необязательное: у преподавателя без дня рождения ключа нет вовсе, и форма
+    // старых семестров от нормализации не меняется ни на ключ.
+    ...(birthday ? { birthday } : {}),
+    // Портрет (9.7A п.15) — так же: нет адреса или он не годится — нет ключа.
+    ...(normalizePortrait(raw.portrait) ? { portrait: normalizePortrait(raw.portrait) } : {}),
   };
 }
+
+/**
+ * День рождения к форме `ММ-ДД`. Принимает и полную дату (`1970-03-08` — год
+ * отбрасывается: возраст строка не считает) и `8.3`/`08.03` (день.месяц — так
+ * пишут по-русски в анкете и лорбуке). Невнятное — `null`, а не догадка.
+ */
+export function normalizeBirthday(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  let m = /^(?:\d{4}-)?(\d{1,2})-(\d{1,2})$/.exec(s);
+  let month;
+  let day;
+  if (m) { month = Number(m[1]); day = Number(m[2]); }
+  else {
+    m = /^(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?$/.exec(s);
+    if (!m) return null;
+    day = Number(m[1]);
+    month = Number(m[2]);
+  }
+  if (!isBirthday(`${pad2(month)}-${pad2(day)}`)) return null;
+  return `${pad2(month)}-${pad2(day)}`;
+}
+
+/** `ММ-ДД` с настоящим месяцем и днём; 29 февраля — законно. */
+export function isBirthday(v) {
+  const m = typeof v === 'string' && /^(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return false;
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const last = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return Boolean(last) && day >= 1 && day <= last;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
 
 /**
  * Проверка чужого объекта: пришёл из метаданных чата, из импорта или из теста.
@@ -296,6 +429,15 @@ export function validateState(state, preset) {
       if (s.teacherId && !teacherList.some((t) => t.id === s.teacherId)) {
         bad(`предмет ${s.id} ссылается на неизвестного преподавателя ${s.teacherId}`);
       }
+      // Корпус и аудитория необязательны, но если есть — это короткая строка:
+      // панель печатает их в карточку «Сегодня», а карта кампуса будет их
+      // сравнивать.
+      for (const key of ['building', 'room']) {
+        if (s[key] === undefined || s[key] === null) continue;
+        if (typeof s[key] !== 'string' || !s[key].trim() || s[key].length > PLACE_MAX) {
+          bad(`предмет ${s.id}: ${key === 'building' ? 'корпус' : 'аудитория'} — не строка до ${PLACE_MAX} символов`);
+        }
+      }
     }
     const max = preset && preset.limits && preset.limits.maxSubjects;
     if (max && state.subjects.length > max) bad(`предметов ${state.subjects.length}, потолок ${max}`);
@@ -309,6 +451,14 @@ export function validateState(state, preset) {
       if (!t.id) bad('преподаватель без id');
       else if (seen.has(t.id)) bad(`преподаватель ${t.id} повторяется`);
       seen.add(t.id);
+      if (t.birthday !== undefined && t.birthday !== null && !isBirthday(t.birthday)) {
+        bad(`преподаватель ${t.id}: день рождения «${t.birthday}» не в форме ММ-ДД`);
+      }
+      // Портрет уходит в `<img src>` панели: строка другой формы — это либо
+      // мусор, либо схема, которую открывать нельзя (`isPortrait`).
+      if (t.portrait !== undefined && t.portrait !== null && !isPortrait(t.portrait)) {
+        bad(`преподаватель ${t.id}: портрет — не путь от корня таверны и не ссылка http(s)`);
+      }
     }
   }
 
@@ -338,6 +488,19 @@ export function validateState(state, preset) {
     // Номер периода — либо число, либо «сессии ещё не было». Строка «0» отсюда
     // уехала бы в id события и разошлась бы с тем, что пишет `scheduleExams`.
     bad(`сессия: номер периода «${state.exams.term}» не число`);
+  } else {
+    // История бросков необязательна, но если есть — это список: вехи
+    // (`milestones.mjs`) и отладка ходят по ней как по массиву.
+    for (const item of state.exams.items) {
+      if (item && item.rolls !== undefined && !Array.isArray(item.rolls)) {
+        bad(`сессия: история бросков события ${item.id} не список`);
+      }
+      // Дата объявления итога (9.4.3) — день календаря: её сравнивают с
+      // `calendar.day`, и строка другой формы не объявила бы итог никогда.
+      if (item && item.announced === false && !isDay(item.announceOn)) {
+        bad(`сессия: итог события ${item.id} ждёт объявления без даты`);
+      }
+    }
   }
   if (!Array.isArray(state.journal)) bad('нет журнала');
   if (!Array.isArray(state.pending)) bad('нет очереди одноразовых инжектов');

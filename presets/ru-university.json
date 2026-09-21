@@ -3,6 +3,12 @@
   "schemaVersion": 1,
   "lang": "ru",
   "displayName": "Российский вуз",
+  "stopNames": [
+    "рассказчик",
+    "narrator",
+    "деканат",
+    "ректорат"
+  ],
   "vocab": {
     "period": "пара",
     "periodPlural": "пары",
@@ -128,27 +134,39 @@
       {
         "id": "credit",
         "name": "зачёт",
-        "scale": "pass"
+        "scale": "pass",
+        "dc": 7
       },
       {
         "id": "exam",
         "name": "экзамен",
-        "scale": "points"
+        "scale": "points",
+        "dc": 8,
+        "announce": {
+          "studyDays": 1
+        }
       }
     ],
     "retakes": 2,
     "autoPassScore": 4.5,
-    "weights": {
-      "score": 0.6,
-      "relation": 0.2,
-      "luck": 0.2
-    },
-    "maxLuck": 0.25
+    "dc": {
+      "base": 8,
+      "score": 24,
+      "relation": 6,
+      "reputation": 6,
+      "critMargin": 10,
+      "safeScore": 4
+    }
   },
   "relations": {
     "min": -5,
     "max": 5,
     "start": 0,
+    "impact": {
+      "minor": 1,
+      "major": 2
+    },
+    "repeatLimit": 2,
     "labels": [
       {
         "upTo": -4,
@@ -230,7 +248,8 @@
     },
     "debtAfterSkips": 3,
     "lateEqualsSkip": 3,
-    "inferHorizonDays": 7
+    "inferHorizonDays": 7,
+    "skipPolicy": "attend"
   },
   "limits": {
     "maxSubjects": 8,
@@ -246,6 +265,17 @@
     "lorebookCharsPerToken": 3
   },
   "phrases": {
+    "milestones": {
+      "firstTop": "Первая пятёрка: {subject}",
+      "cleanWeek": "Неделя без прогулов",
+      "debtCleared": "Хвост закрыт: {subject}",
+      "cleanSession": "Сессия без пересдач",
+      "autoPass": "Автомат: {subject}",
+      "brilliant": "Блестящий ответ: {subject}",
+      "favorite": "Любимица: {teacher}",
+      "nemesis": "{teacher} её не выносит",
+      "onTheEdge": "На волоске от отчисления"
+    },
     "exams": {
       "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
       "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
@@ -265,6 +295,7 @@
       "chronicleWarn": "{day}. {warning}. О студентке теперь думают так: {reputation}.",
       "chronicleExpel": "{day}. {expulsion}: {expelled}.",
       "chronicleRelation": "{day}. Отношение {teacher} к студентке изменилось: было «{from}», стало «{to}».",
+      "chronicleMilestone": "{day}. Веха: {milestone}.",
       "place": "{name}. {note}",
       "npc": "{name}. {note}"
     }
@@ -307,7 +338,7 @@
   "prompts": {
     "plan": {
       "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
-      "user": "Составь учебный план.\nЭпоха: {era}. Страна: {country}. Тип заведения: {institution}. Направление: {faculty}. Курс: {year}. Язык названий и имён: {lang}.\nПредметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}.\nУ каждого предмета ровно один преподаватель. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}.\nФормат ответа:\n{\"subjects\":[{\"id\":\"chemistry\",\"name\":\"…\",\"teacherId\":\"petrova\"}],\"teachers\":[{\"id\":\"petrova\",\"name\":\"…\",\"traits\":[\"…\"]}]}"
+      "user": "Составь учебный план.\nЭпоха: {era}. Страна: {country}. Тип заведения: {institution}. Направление: {faculty}. Курс: {year}. Язык названий и имён: {lang}.\nПредметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}.\nУ каждого предмета ровно один преподаватель. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}. Поле birthday у преподавателя — день рождения ММ-ДД.\nФормат ответа:\n{\"subjects\":[{\"id\":\"chemistry\",\"name\":\"…\",\"teacherId\":\"petrova\"}],\"teachers\":[{\"id\":\"petrova\",\"name\":\"…\",\"traits\":[\"…\"],\"birthday\":\"03-14\"}]}"
     },
     "survey": {
       "system": "Ты читаешь карточку персонажа ролевой игры и заполняешь анкету учебного заведения. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев. Чего в тексте нет — оставляй пустой строкой: пустое поле лучше выдумки.",

@@ -59,8 +59,17 @@ body .panelControlBar {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 5px;
-  padding: 3px 10px;
+  padding: 3px 5px;
   user-select: none;
+  /* Дословно из таверны (style.css:3818): её кнопка считает ширину по самому
+     длинному слову и потому ломает двухсловную подпись на две строки. Стенд
+     этого не знал и потому пропустил дефект «Сменить / пресет». */
+  width: min-content;
+  margin: 5px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 /* Поле ввода чата: панель не имеет права его накрывать (style.css, правило 3). */
 #send_form {
@@ -85,7 +94,7 @@ body .panelControlBar {
 // Стенд собирает состояние идущего семестра тем же путём, что тесты
 // (test/ui-dom.test.mjs): пресет + core/*, никакой таверны. Хост поддельный,
 // действия отвечают с задержкой, чтобы было видно состояние «идёт запрос».
-import ui from '../../ui.js';
+import ui, { promptDoctorView } from '../../ui.js';
 import { createState } from '../../core/state.mjs';
 import { buildSchedule } from '../../core/schedule.mjs';
 import { addGrade } from '../../core/gradebook.mjs';
@@ -93,15 +102,19 @@ import { changeRelation } from '../../core/relations.mjs';
 
 const preset = await (await fetch('../../presets/ru-university.json')).json();
 
+// Корпус и аудитория (9.7A п.11): у химии — оба, у матанализа — длинный
+// корпус (перенос на 360px), у остальных — нет.
 const SUBJECTS = [
-  { id: 'chem', name: 'аналитическая химия', teacherId: 'petrova' },
-  { id: 'math', name: 'математический анализ и теория функций', teacherId: 'sokolovsky' },
+  { id: 'chem', name: 'аналитическая химия', teacherId: 'petrova', building: 'главный', room: '214' },
+  { id: 'math', name: 'математический анализ и теория функций', teacherId: 'sokolovsky', building: 'учебно-лабораторный корпус имени Менделеева', room: 'Большая химическая' },
   { id: 'phil', name: 'философия', teacherId: 'grigoryan' },
   { id: 'pe', name: 'физическая культура', teacherId: null },
 ];
+// Портрет (9.7A п.15): у Петровой — настоящая картинка стенда, у
+// Соколовского — битый путь (ветка «картинка не открылась»).
 const TEACHERS = [
-  { id: 'petrova', name: 'Петрова Анна Сергеевна', traits: ['злопамятна', 'придирается к опозданиям'] },
-  { id: 'sokolovsky', name: 'Соколовский Владимир Константинович', traits: ['рассеян', 'любит доказательства у доски'] },
+  { id: 'petrova', name: 'Петрова Анна Сергеевна', traits: ['злопамятна', 'придирается к опозданиям'], portrait: 'portrait.svg', birthday: '03-08' },
+  { id: 'sokolovsky', name: 'Соколовский Владимир Константинович', traits: ['рассеян', 'любит доказательства у доски'], portrait: 'characters/нет/такого.png' },
   { id: 'grigoryan', name: 'Григорян Ашот Суренович', traits: [] },
 ];
 
@@ -140,6 +153,20 @@ function makeState() {
   for (const [teacherId, delta] of [
     ['petrova', -2], ['petrova', -1], ['sokolovsky', 2], ['sokolovsky', 1],
   ]) s = changeRelation(s, { teacherId, delta, reason: 'стенд' }, preset).state;
+
+  // Исход проверки сегодня (9.4.1) — строка с кубиком на «Сегодня»; и итог,
+  // который мир ещё не знает (9.4.3), — строка «итог объявят» в зачётке.
+  s.exams.items = [
+    {
+      id: '0:phil:credit', subjectId: 'phil', kind: 'credit', day: '2026-10-14', outcome: 'зачёт', attempts: 1,
+      rolls: [{ day: '2026-10-14', roll: 17, dc: 7, tier: 'critSuccess', value: 'зачёт' }],
+    },
+    {
+      id: '0:chem:exam', subjectId: 'chem', kind: 'exam', day: '2026-10-14', outcome: '2', attempts: 1,
+      announced: false, announceOn: '2026-10-15',
+      rolls: [{ day: '2026-10-14', roll: 3, dc: 9, tier: 'fail', value: '2' }],
+    },
+  ];
 
   return s;
 }
@@ -200,26 +227,63 @@ const host = {
   getDebug: () => lastRun,
   markerVisibleRisk: () => true, // предупреждение про encode_tags — пусть тоже стоит в раскладке
   getLorebook: () => lorebook,
+  // Доктор промпта (9.7A п.4): свои инжекты, сосед Scene State, просящий
+  // первую строку ближе к концу промпта, и телефон в конце ответа.
+  getPromptDoctor: () => promptDoctorView({
+    prompts: {
+      academy_status: { value: 'среда, 14 октября, 2-я пара — матанализ', position: 1, depth: 1, role: 0 },
+      academy_marker: { value: 'Первой строкой ответа поставь метку <!-- [ACADEMY …] -->', position: 1, depth: 2, role: 0 },
+      academy_oneshot: { value: '', position: 1, depth: 0, role: 0 },
+      '2_floating_prompt': { value: 'Заметка автора: сцена в общежитии.', position: 1, depth: 4, role: 0 },
+      scene_state_extension_with_a_very_long_key: { value: 'MANDATORY: begin your response with the scene state block, then the story.', position: 1, depth: 0, role: 0 },
+      bb_phone: { value: 'Append the phone status line at the end of your response.', position: 1, depth: 1, role: 0 },
+    },
+    own: ['academy_status', 'academy_marker', 'academy_oneshot'],
+    markerKey: 'academy_marker',
+    markerSeen: false,
+    lastText: '<div class="scene-state">📍 Общежитие · 🕰 10:15</div>\nОна проснулась.',
+    encodeTags: false,
+  }),
   getPresets: () => ({
     active: 'ru-university',
     list: [
       { id: 'ru-university', name: 'Российский вуз' },
       { id: 'jp-highschool', name: 'Японская школа' },
       { id: 'magic-academy', name: 'Магическая академия' },
+      // Свой пресет (9.3.2): у него на стенде видна кнопка «Удалить».
+      { id: 'my-uni', name: 'Вуз подруги', user: true },
     ],
+    notice: '',
   }),
   actions: Object.fromEntries([
     'exportState', 'importState', 'guessSurvey', 'setPreset', 'syncLorebook',
     'suggestLorebookEntry', 'acceptLorebookSuggestion', 'pruneLorebook', 'generatePlan',
     'setSubjects', 'manualTime', 'testApi', 'listModels', 'startTerm',
+    'exportPreset', 'previewPreset', 'importPreset', 'deletePreset', 'setTeacherDetails',
   ].map((name) => [name, async (...args) => {
     await wait(250);
     if (name === 'exportState') return { ok: true, json: JSON.stringify({ state }), filename: 'academy.json', warnings: [] };
-    if (name === 'listModels') return { ok: true, models: ['glm-5.1', 'gpt-5-mini'] };
+    if (name === 'listModels') return { ok: true, models: ['glm-5.1', 'gpt-5-mini'], via: 'tavern-backend' };
+    if (name === 'exportPreset') return { ok: true, json: JSON.stringify({ format: 'academy-preset', version: 1, preset }), filename: `academy-preset-${args[0]}.json` };
+    // Превью на стенде — длинное имя и замечания: проверить перенос на 360px.
+    if (name === 'previewPreset') {
+      return {
+        ok: true,
+        summary: { id: 'ru-university-2', name: 'Санкт-Петербургский государственный университет телекоммуникаций', line: 'семестр · пары в день: 4 · 2–5 · хвост после 3 прогулов' },
+        renamed: true,
+        warnings: ['пресет без конверта — принят как файл из папки пресетов', 'limits.journalSize: 100000 за рамками 10–1000, взято 1000'],
+      };
+    }
+    if (name === 'importPreset') return { ok: true, added: 'ru-university-2', name: 'Вуз подруги (2)' };
     if (name === 'pruneLorebook') return { ok: true, removed: 1 };
     if (name === 'guessSurvey') return { ok: true, survey: state.survey, filled: ['era', 'country'] };
     if (name === 'setSubjects') { const rows = args[0] || {}; state.subjects = rows.subjects || state.subjects; state.teachers = rows.teachers || state.teachers; return { ok: true }; }
     if (name === 'startTerm') { state.started = true; return { ok: true }; }
+    if (name === 'setTeacherDetails') {
+      const t = state.teachers.find((x) => x.id === args[0]);
+      if (t) { t.portrait = args[1].portrait || undefined; t.birthday = args[1].birthday || undefined; }
+      return { ok: true };
+    }
     return { ok: true };
   }])),
 };

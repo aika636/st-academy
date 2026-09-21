@@ -1102,3 +1102,25 @@ test('в словах отладки нет ни одного слова зав�
     assert.equal(forbidden.test(String(value)), false, `DEBUG_TEXT.${key} говорит словом заведения: ${value}`);
   }
 });
+
+// --- 9.2 и 9.3.1: отладка реплики человека и галочка макроса ------------------
+
+test('9.2 отладка называет промотку, телефонный ход и выброшенное время словами механизма', async () => {
+  const { describeApplied, settingsView } = await import('../ui.js');
+  const skip = describeApplied({ kind: 'time-skip', days: 7, cap: 8, policy: 'attend', examDay: '2024-12-23' }, {});
+  assert.match(skip, /промотка времени/);
+  assert.match(skip, /потолок 8/);
+  assert.match(skip, /присутствие/);
+  assert.match(skip, /2024-12-23/);
+  assert.match(describeApplied({ kind: 'phone-turn' }, {}), /телефон/);
+  assert.match(describeApplied({ kind: 'time-dropped', reason: 'phone-turn', events: 1 }, {}), /не проведено/);
+  // Слова отладки — механизма, не заведения (та же проверка, что у DEBUG_TEXT).
+  const forbidden = /сесси|семестр|тримест|пара|пары|предмет|преподавател|зачётк|хвост|дисциплин|наставник/i;
+  for (const line of [skip, describeApplied({ kind: 'phone-turn' }, {})]) assert.equal(forbidden.test(line), false, line);
+
+  // 9.3.1: галочка «через макрос» доезжает до панели, умолчание — выключена.
+  const off = settingsView(null, {}, null);
+  assert.equal(off.statusViaMacro, false);
+  const on = settingsView(null, { statusViaMacro: true }, null);
+  assert.equal(on.statusViaMacro, true);
+});

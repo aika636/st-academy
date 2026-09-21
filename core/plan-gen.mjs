@@ -26,6 +26,8 @@
 // `preset.limits`, промпт — шаблон из `preset.prompts.plan` (ниже лежит
 // перекрываемый образец по умолчанию).
 
+import { normalizeBirthday } from './state.mjs';
+
 /**
  * Значения по умолчанию — данные, не логика; каждое перекрывается пресетом.
  */
@@ -52,9 +54,9 @@ export const DEFAULT_PROMPT = {
     'Эпоха: {era}. Страна: {country}. Тип заведения: {institution}. Направление: {faculty}. Курс: {year}. Язык названий и имён: {lang}.',
     'Предметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}.',
     'У каждого предмета ровно один преподаватель. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).',
-    'Поле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}.',
+    'Поле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}. Поле birthday у преподавателя — день рождения ММ-ДД.',
     'Формат ответа:',
-    '{"subjects":[{"id":"chemistry","name":"…","teacherId":"petrova"}],"teachers":[{"id":"petrova","name":"…","traits":["…"]}]}',
+    '{"subjects":[{"id":"chemistry","name":"…","teacherId":"petrova"}],"teachers":[{"id":"petrova","name":"…","traits":["…"],"birthday":"03-14"}]}',
   ].join('\n'),
 };
 
@@ -231,6 +233,7 @@ export function shapePlan(data) {
     if (!id) return null;
     if (!byId.has(id)) {
       const t = { id, name: name || id, traits: toTraits(src.traits || src.trait || src.character) };
+      if (src.birthday !== undefined) t.birthday = src.birthday;
       byId.set(id, t);
       teachers.push(t);
     } else if (name && !byId.get(id).name) {
@@ -297,7 +300,10 @@ export function validatePlan(plan, preset) {
       traits = traits.slice(0, maxTraits(preset));
     }
     if (traits.length < minTraits(preset)) errors.push(`teacher-no-traits:${id}`);
-    teachers.push({ id, name, traits, relation: numberOr(raw && raw.relation, undefined) });
+    // День рождения — по желанию модели (9.4.4): невнятный молча выпадает, а не
+    // бракует план — без него механика просто не скажет «в пятницу день рождения».
+    const birthday = normalizeBirthday(raw && raw.birthday);
+    teachers.push({ id, name, traits, relation: numberOr(raw && raw.relation, undefined), ...(birthday ? { birthday } : {}) });
   }
   if (teachers.length > maxTeachers(preset)) {
     errors.push(`too-many-teachers:${teachers.length}`);

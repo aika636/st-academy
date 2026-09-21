@@ -387,11 +387,17 @@ test('сессия: исход считается расширением и ух
 // от модели ложилась в зачётку второй записью рядом с брошенной. Поэтому
 // проверяется он здесь, ответом в чате, а не вызовом ядра руками.
 
-/** Зажатый бросок: `index.js` своего rng не принимает — подменяется общий. */
-async function withRoll(value, fn) {
-  const real = Math.random;
-  Math.random = () => value;
-  try { return await fn(); } finally { Math.random = real; }
+/**
+ * Зажатый бросок. Раньше подменялся `Math.random`: `index.js` своего rng не
+ * принимал. Теперь бросок идёт от seed (id чата + начало семестра, 9.3.9), и
+ * `Math.random` на него не влияет вовсе, — поэтому зажим идёт через шов
+ * `live.examRng`, который ядро ставит выше seed (`engine.sitExam`: rng → seed).
+ */
+async function withRoll(tavern, value, fn) {
+  const live = tavern.seam.live;
+  const was = live.examRng;
+  live.examRng = () => value;
+  try { return await fn(); } finally { live.examRng = was; }
 }
 
 const divergencesOf = (tavern) => stateOf(tavern).journal
@@ -407,7 +413,7 @@ test('сессия: `grade=` за сегодняшнее контрольное 
   const subjectId = item.subjectId;
   const before = stateOf(tavern).subjects.find((s) => s.id === subjectId).grades.length;
 
-  await withRoll(0, async () => {
+  await withRoll(tavern, 0, async () => {
     const id = say(tavern, `Назавтра она вышла с экзамена с пятёркой. ${marker(`t=+1 day grade=${subjectId}:5`)}`);
     await tavern.eventSource.emit('message_received', id);
   });
@@ -473,7 +479,7 @@ test('свайп уносит расхождение из журнала вме�
   const before = grades();
 
   let id;
-  await withRoll(0, async () => {
+  await withRoll(tavern, 0, async () => {
     id = say(tavern, `Назавтра — пятёрка. ${marker(`t=+1 day grade=${subjectId}:5`)}`);
     await tavern.eventSource.emit('message_received', id);
   });
@@ -731,7 +737,11 @@ test('лорбук: свайп не стирает записанное, но о
   // заводит запись хроники (3.7, :471).
   const tavern = await withSemester(LOREBOOK_ON, { worldInfo: true, day: '2024-12-22' });
   const id = say(tavern, `Утро экзаменационного дня. ${marker('t=+1 day')}`);
-  await tavern.eventSource.emit('message_received', id);
+  // Бросок зажат снизу: с вехами (9.4.2) удачный исход — первая пятёрка или
+  // блестящая сдача — заводит в хронику вторую запись, и на `Math.random`
+  // тест краснел бы через раз. Здесь проверяется судьба записи при свайпе, а
+  // не то, сколько вех выпало.
+  await withRoll(tavern, 0, () => tavern.eventSource.emit('message_received', id));
 
   const chronicle = bookEntries(tavern).filter((e) => e.academy.uid.startsWith('academy:chronicle:'));
   assert.equal(chronicle.length, 1, 'сданное контрольное обязано попасть в хронику');

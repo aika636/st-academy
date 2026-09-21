@@ -39,14 +39,18 @@
 //
 // Своих цветов в файле нет: палитра — переменные таверны, см. `style.css`.
 
-import { emptySurvey, labelFor, validateState } from './core/state.mjs';
+import { emptySurvey, isPortrait, labelFor, PLACE_MAX, validateState } from './core/state.mjs';
 import { currentPeriod, dayPlan, nextPeriod } from './core/schedule.mjs';
 import { debts, overallScore, subjectScore } from './core/gradebook.mjs';
-import { relationLabel } from './core/relations.mjs';
+import { reasonText, relationLabel } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { dayOfWeek, isStalled, parseDay, phaseOf, termAt, termsOf, weekIndex } from './core/time.mjs';
-import { examMode, datedExams } from './core/exams.mjs';
+import {
+  awaitingAnnouncement, examMode, datedExams, gradeInfo, isPassing, publicView,
+} from './core/exams.mjs';
+import { milestones, milestoneName } from './core/milestones.mjs';
 import { slugify } from './core/plan-gen.mjs';
+import { PRESET_MAX_BYTES } from './core/preset.mjs';
 // Единственный импорт мимо `core/`: чистое правило «куда уйдёт запрос». Панель
 // обязана показывать ровно ту развилку, по которой потом пойдёт `api.js`, —
 // вторая копия этого правила рано или поздно разъехалась бы с первой. Ни одного
@@ -413,7 +417,10 @@ export function tabsFor(preset, settings) {
   return settings && settings.debug === true ? [...tabs, { ...DEBUG_TAB }] : tabs;
 }
 
-const SOURCE_LABEL = { A: 'из контекста', B: 'метка', manual: 'вручную' };
+// `A+` — машинный тег времени соседнего расширения (`core/time-source.mjs`,
+// план 9.2): Phone-ST, RP_DATE, дневник, Horae, BB-телефон. Какой именно —
+// в строке «Применено» (`describeApplied`, поле `via`).
+const SOURCE_LABEL = { 'A+': 'тег соседнего расширения', A: 'из контекста', B: 'метка', manual: 'вручную' };
 
 /** Ночь: до первого звонка утра и после того, как заведение закрылось. */
 const NIGHT_FROM = 22 * 60;
@@ -574,6 +581,8 @@ export function todayView(state, preset) {
     const t = s && s.teacherId ? (state.teachers || []).find((x) => x.id === s.teacherId) : null;
     return t ? t.name : '';
   };
+  // Корпус и аудитория (9.7A п.11): слово, а не число — в счёт чисел не идут.
+  const whereOf = (id) => whereText((state.subjects || []).find((x) => x.id === id));
   const slot = (index) => plan.find((p) => p.index === index) || null;
 
   // Почему расписание молчит. Порядок — от самого информативного слова.
@@ -599,6 +608,7 @@ export function todayView(state, preset) {
       subjectId: cur.subjectId,
       name: nameOf(cur.subjectId),
       teacher: teacherOf(cur.subjectId),
+      where: whereOf(cur.subjectId),
       ordinal,
       start: s ? s.start : null,
       end: s ? s.end : null,
@@ -617,6 +627,7 @@ export function todayView(state, preset) {
       subjectId: nxt.subjectId,
       name: nameOf(nxt.subjectId),
       teacher: teacherOf(nxt.subjectId),
+      where: whereOf(nxt.subjectId),
       day: nxt.day,
       sameDay,
       when: sameDay
@@ -688,6 +699,7 @@ export function todayView(state, preset) {
       subjectId: p.subjectId,
       name: p.name,
       teacher: teacherOf(p.subjectId),
+      where: whereOf(p.subjectId),
       start: p.start,
       end: p.end,
       current: Boolean(now && now.subjectId === p.subjectId && now.ordinal === p.index + 1),
@@ -707,6 +719,10 @@ export function todayView(state, preset) {
         matched: String(cal.heldJump.matched || '').trim(),
       }
       : null,
+    // Исход проверки, брошенной сегодня (9.4.1): d20 против DC одной строкой.
+    // Число броска и DC в счёт шести чисел не идут — это сама запись события,
+    // как оценки в зачётке, а не сводная метрика.
+    exams: examResultsToday(state, preset),
     numbers: capped.shown,
     droppedNumbers: capped.dropped,
   };
@@ -793,6 +809,12 @@ export function gradebookView(state, preset) {
     // бы держать на экране прошлогоднюю новость до конца игры.
     examsTermLine: examsTermLine(state, preset, mode, U),
     openExams,
+    // Вехи (9.4.2) — список, а не число: в счёт шести чисел не идут.
+    milestones: milestonesView(state, preset),
+    // Итоги, посчитанные, но ещё не объявленные миру (9.4.3). Панель — «знает
+    // расширение»: оценка уже стоит в таблице выше, и человек должен видеть,
+    // почему модель про неё молчит.
+    awaiting: awaitingView(state, preset),
     numbers: capped.shown,
     droppedNumbers: capped.dropped,
   };
@@ -872,6 +894,13 @@ export function peopleView(state, preset) {
       relation: relationLabel(state, t.id, preset),
       history: shifts,
       historyText: shifts.length ? '' : U.relationNoHistory,
+      // Портрет (9.7A п.15): адрес, который дал человек, и только годный —
+      // в `<img src>` не уходит ничего, что не прошло `isPortrait`.
+      portrait: isPortrait(t.portrait) ? t.portrait : '',
+      // День рождения (9.4.4, 9.7A п.9): `ММ-ДД` для поля и словами для карточки.
+      birthday: typeof t.birthday === 'string' ? t.birthday : '',
+      birthdayText: birthdayText(t.birthday)
+        ? fill(extraLabels(preset).birthdayLine, { date: birthdayText(t.birthday) }) : '',
     };
   });
 
@@ -912,6 +941,7 @@ export function rowsFromState(state) {
   return {
     subjects: ((state && state.subjects) || []).map((s) => ({
       id: s.id, name: s.name, teacherId: s.teacherId || '',
+      building: s.building || '', room: s.room || '',
     })),
     teachers: ((state && state.teachers) || []).map((t) => ({
       id: t.id, name: t.name, traits: (t.traits || []).join(', '),
@@ -981,7 +1011,16 @@ export function validateSubjectRows(rows, preset) {
       teacherId = '';
     }
     if (!teacherId) notes.push(fill(U.noteNoTeacher, { name }));
-    subjects.push({ id, name, teacherId: teacherId || null });
+    // Корпус и аудитория необязательны (9.7A п.11). Ключи есть всегда, пустая
+    // строка — «стёрто»: `index.js: setSubjects` сливает строку таблицы с
+    // предметом из состояния, и без ключа стёртый корпус вернулся бы из
+    // старого. В состояние пустые не попадут — их выбросит `normalizeSubject`.
+    // Длинные режутся тем же потолком, что держит `validateState`.
+    const place = {};
+    for (const key of ['building', 'room']) {
+      place[key] = str(raw && raw[key]).replace(/\s+/g, ' ').slice(0, PLACE_MAX);
+    }
+    subjects.push({ id, name, teacherId: teacherId || null, ...place });
   });
   if (subjects.length > maxSubjects) {
     bad('form', -1, 'subjects', fill(U.errManySubjects, { count: subjects.length, max: maxSubjects }));
@@ -1074,6 +1113,8 @@ export function settingsView(state, settings, preset, extra = {}) {
     // в режиме «из контекста» её нет, и видеть в тексте нечего.
     markerRisk: Boolean(extra.markerRisk) && s.mode !== 'context',
     relativeWords: Boolean(s.relativeWords),
+    // Строка состояния через макрос `{{academy}}` (9.3.1): автоинжект гаснет.
+    statusViaMacro: s.statusViaMacro === true,
     debug: s.debug === true,
     started,
     canStart: blockers.length === 0,
@@ -1156,24 +1197,84 @@ function lorebookView(raw, settings, U) {
  */
 function presetsView(raw, state, preset, U) {
   const activeId = String((preset && preset.id) || (raw && raw.active) || '');
-  const list = (raw && Array.isArray(raw.list) && raw.list.length)
+  const hasList = Boolean(raw && Array.isArray(raw.list) && raw.list.length);
+  const list = hasList
     ? raw.list
     : (activeId ? [{ id: activeId, name: String(preset.displayName || preset.name || activeId) }] : []);
   const stateId = String((state && state.presetId) || '');
+  const activeItem = list.find((p) => String(p.id) === activeId);
+  const activeName = activeItem ? String(activeItem.name || activeId) : activeId;
   return {
     active: activeId,
+    activeUser: Boolean(activeItem && activeItem.user === true),
     list: list.map((p) => ({
       id: String(p.id),
       name: String(p.name || p.id),
       broken: p.broken === true,
       active: String(p.id) === activeId,
+      // Свой пресет человека (9.3.2): его можно удалить, встроенный — нет.
+      user: p.user === true,
     })),
     started: Boolean(state && state.started),
     drift: stateId && activeId && stateId !== activeId
       ? fill(U.presetDrift, { stateId, activeId })
       : '',
+    // Чат заведён пресетом, которого нет в списке вовсе (удалён). Судится
+    // только по настоящему списку хоста: запасной список из одного активного
+    // пресета объявил бы пропавшими все остальные.
+    gone: hasList && stateId && stateId !== activeId && !list.some((p) => String(p.id) === stateId)
+      ? fill(PRESET_TEXT.stateGone, { id: stateId, active: activeName })
+      : '',
+    notice: String((raw && raw.notice) || ''),
   };
 }
+
+/**
+ * Слова переносимых пресетов (9.3.2). В `DEFAULT_UI` их нет и в пресеты они
+ * не едут — по той же причине, что слова отладки: «файл», «JSON», «встроенный
+ * пресет», «1 МБ» — это слова механизма, а не заведения, и японской школе
+ * переводить их незачем. Есть и вторая причина, своя: эти строки говорят
+ * ПРО пресеты — в том числе про пресет, который только что удалён или ещё не
+ * загружен, — и брать их из активного пресета значило бы спрашивать у
+ * заведения, как назвать его собственное исчезновение.
+ *
+ * Слова заведения здесь всё-таки звучат — в превью, и они берутся из самого
+ * загружаемого пресета (`core/preset.mjs: presetSummary`).
+ */
+export const PRESET_TEXT = {
+  exportButton: 'Выгрузить пресет',
+  exportOk: 'Файл {filename} отдан браузеру.',
+  exportNote: 'Встроенный пресет выгружается как основа для своего: поправьте файл и загрузите обратно — он ляжет рядом, а не вместо.',
+  importPick: 'Загрузить пресет из файла',
+  importNote: 'Пресет — JSON до 1 МБ. Перед добавлением покажется, что это за заведение.',
+  previewTitle: 'Пресет из файла',
+  previewRenamed: 'Такой id уже занят — пресет ляжет как «{id}».',
+  previewWarnings: 'Замечания',
+  add: 'Добавить',
+  addApply: 'Добавить и применить',
+  cancel: 'Отмена',
+  cancelled: 'Отменено, ничего не добавлено.',
+  added: 'Пресет «{name}» добавлен.',
+  addedApplied: 'Пресет «{name}» добавлен и включён.',
+  addedNotApplied: 'Пресет «{name}» добавлен, но не включён: смену отменили.',
+  tooBig: 'Файл больше 1 МБ: пресет столько не весит.',
+  readFailed: 'Файл не прочитался: {error}',
+  full: 'Своих пресетов уже {max} — удалите ненужный, чтобы добавить новый.',
+  deleteButton: 'Удалить пресет',
+  deleteNote: 'Удаляется только свой пресет. Чаты, заведённые им, останутся — они будут играть активным пресетом.',
+  deleteConfirm: 'Удалить «{name}»? Выгрузите его перед этим, если он ещё пригодится.',
+  deleteYes: 'Да, удалить',
+  deleted: 'Пресет удалён.',
+  deleteBuiltin: 'Встроенный пресет удалить нельзя: это файл расширения.',
+  deleteMissing: 'Пресета «{id}» среди своих нет.',
+  deleteActive: 'Пресет «{name}» сейчас активен, и учёба в этом чате идёт по нему. После удаления включится встроенный «{fallback}»: часы встанут по его звонкам, слова и шкала станут его',
+  deletedFallback: 'Пресет «{name}» удалён — включён встроенный «{fallback}».',
+  startFallback: 'Выбранный пресет «{id}» {why} — включён встроенный «{fallback}».',
+  whyMissing: 'больше не найден',
+  whyBroken: 'не прошёл проверку ({error})',
+  stateGone: 'Этот чат заведён пресетом «{id}», которого больше нет. Играет активный «{active}»; загрузите тот пресет обратно, если он сохранился файлом.',
+  userMark: 'свой',
+};
 
 /* -------------------------------------------------------------------------- *
  *  Режим отладки (3.2 `:277-279`, 3.5 `:342`, README `:632-633`).
@@ -1217,6 +1318,10 @@ export const DEBUG_TEXT = {
   divergenceTitle: 'Расхождения с моделью',
   divergence: '{subject}: посчитано {computed}, модель написала {said}.',
   divergenceUnread: '{subject}: модель написала {said}, разобрать не удалось — посчитанное осталось.',
+  // Кубик соседа (Enhance-Gen, 9.4.1/9.7B) приходит тем же `resolveConflict`,
+  // но это не «модель написала»: подпись по `divergence.source`.
+  divergenceDice: '{subject}: посчитано {computed}, кубик соседа решил {said}.',
+  divergenceDiceUnread: '{subject}: кубик соседа дал {said}, в шкалу не легло — посчитанное осталось.',
   noDivergence: 'Расхождений посчитанного с версией модели не было.',
   journalTitle: 'Журнал, последние записи',
   noJournal: 'Журнал пуст.',
@@ -1276,7 +1381,7 @@ export function debugView(run, state, preset, settings) {
       ? fill(T.stalled, { idle, plural: plural(idle, 'ответ', 'ответа', 'ответов') })
       : '',
     marker: d.marker ? fill(T.marker, { marker: d.marker }) : T.noMarker,
-    applied: (d.applied || []).map((i) => describeApplied(i, vocab)).filter(Boolean),
+    applied: (d.applied || []).map((i) => describeApplied(i, vocab, { state, preset })).filter(Boolean),
     rejected: (d.rejected || []).map(describeRejected).filter(Boolean),
     notes: (d.notes || run.notes || []).map(str).filter(Boolean),
     permission: str(run.permission),
@@ -1300,15 +1405,19 @@ function journalDivergences(state, preset, T) {
     if (!d || d.modelSaid === undefined || d.examId === undefined) continue;
     const subject = (((state.subjects || []).find((s) => s.id === d.subjectId)) || {}).name || d.subjectId || '';
     const computed = d.computed === null || d.computed === undefined ? '—' : String(d.computed);
+    const dice = d.source === 'dice';
+    const template = dice
+      ? (d.applied === false ? T.divergenceDiceUnread : T.divergenceDice)
+      : (d.applied === false ? T.divergenceUnread : T.divergence);
     out.push({
       examId: d.examId,
       subject,
       computed,
       said: String(d.modelSaid),
       applied: d.applied !== false,
+      source: dice ? 'dice' : 'model',
       day: e.day || '',
-      text: fill(d.applied === false ? T.divergenceUnread : T.divergence,
-        { subject, computed, said: String(d.modelSaid) }),
+      text: fill(template, { subject, computed, said: String(d.modelSaid) }),
     });
   }
   return out;
@@ -1325,15 +1434,32 @@ function journalDivergences(state, preset, T) {
  * панелью — это расхождение, которое читает человек: он смотрит то одно, то
  * другое.
  */
-export function describeApplied(item, vocab) {
+export function describeApplied(item, vocab, ctx = {}) {
   if (!item || typeof item !== 'object') return str(item);
+  // `ctx` — `{state, preset}`, необязательный: повод сдвига отношения (9.7B)
+  // словами собирает `relations.reasonText`, и ему нужны имя предмета и
+  // фразы пресета. Старый вызов с двумя аргументами печатает то же, что раньше.
+  const { state = null, preset = null } = ctx || {};
+  vocab = vocab || {};
   switch (item.kind) {
     case 'attendance': return `посещаемость: ${item.subjectId} — ${item.status}`;
     case 'missed': return `пропущено по расписанию: ${item.count}`;
     case 'grade': return `оценка: ${item.subjectId} — ${item.value}`;
     // Число отношения тут законно: отладка — единственное место, куда оно
     // выходит (`core/relations.mjs`), и вкладка «Люди» его по-прежнему не знает.
-    case 'rel': return `отношение: ${item.teacherId} ${item.delta > 0 ? '+' : ''}${item.delta}`;
+    // Слово силы (9.3.4) печатается рядом с числом: «major» в метке и «+2» в
+    // шкале — одно и то же, и видеть надо оба. Погашенный повтор (9.3.5) стоит
+    // в «применено» с пометкой, а не молча исчезает: иначе «модель пишет +1, а
+    // отношение стоит» выглядело бы поломкой.
+    case 'rel': {
+      const impact = item.impact ? ` (${item.impact})` : '';
+      const damped = item.damped ? ' — погашено: тот же сдвиг подряд' : '';
+      // Повод (9.7B): «за что» — первое, что спрашивают про сдвиг отношения.
+      const why = item.reason ? reasonText(item.reason, state, preset) : '';
+      return `отношение: ${item.teacherId} ${item.delta > 0 ? '+' : ''}${item.delta}${impact}${damped}${why ? `; повод: ${why}` : ''}`;
+    }
+    // Объявление итогов (9.4.3): мир узнал оценку, посчитанную раньше.
+    case 'announced': return `объявлены итоги: ${(item.examIds || []).join(', ')}`;
     case 'exams-scheduled': return `назначено: ${vocab.examPeriod || 'сессия'} — ${item.day}`;
     case 'exams-closed': return `закрыто: ${vocab.examPeriod || 'сессия'}`;
     // Исход лежит в `value`: так его кладёт `engine.mjs:487`
@@ -1341,7 +1467,22 @@ export function describeApplied(item, vocab) {
     // до этой правки — значило печатать «контрольное: алхимия —» без самого
     // исхода: поля с таким именем в объекте нет. `outcome` оставлен запасным
     // именем, потому что так поле зовётся в самом событии сессии.
-    case 'exam': return `контрольное: ${item.subjectId || ''} — ${item.value || item.outcome || ''}`.trim();
+    case 'exam': {
+      const head = `контрольное: ${item.subjectId || ''} — ${item.value || item.outcome || ''}`.trim();
+      // Итог, который мир узнает позже (9.4.3), и исход кубика соседа (9.4.1):
+      // оба хвостом строки, чтобы «почему оценка не в строке состояния» и
+      // «почему не мой бросок» читались там же, где сам исход.
+      const later = item.announceOn ? `; объявят ${item.announceOn}` : '';
+      const ext = item.external && typeof item.external === 'object'
+        ? `; кубик соседа: ${TIER_TEXT[item.external.tier] || item.external.tier || '?'}`
+          + `${Number.isFinite(item.external.roll) ? ` ${item.external.roll}` : ''}`
+          + `${Number.isFinite(item.external.dc) ? ` из ${item.external.dc}` : ''}`
+          + `${item.external.value ? ` → ${item.external.value}` : ''}`
+        : '';
+      if (item.reason === 'auto') return `${head}; без броска: балл не ниже порога автомата${later}`;
+      const why = describeCheck(item.check);
+      return `${why ? `${head}; ${why}` : head}${ext}${later}`;
+    }
     // У перехода три формы, и все три должны быть читаемы. Абсолютный несёт
     // день и часы (`unit` и `reason` у него пустые — до этой правки строка так
     // и печаталась голым «время:»), сдвиг несёт единицу с числом, а «сцена
@@ -1349,15 +1490,60 @@ export function describeApplied(item, vocab) {
     case 'time': {
       if (item.reason) return `время: ${item.reason}`;
       const absolute = [item.day, item.time].filter(Boolean).join(' ');
-      if (absolute) return `время: ${absolute}`;
+      // Для тега соседа — чей тег: при жалобе «время прыгнуло» это первое, что
+      // надо знать. У прозы `via` — шаг разбора, человеку он ничего не скажет.
+      const tag = item.source === 'A+' && item.via ? ` (${item.via})` : '';
+      if (absolute) return `время: ${absolute}${tag}`;
       if (item.unit) {
         const n = Number.isFinite(item.n) ? `${item.n > 0 ? '+' : ''}${item.n} ` : '';
         return `время: ${n}${item.unit}`;
       }
       return 'время: сдвинулось';
     }
+    // Реплика человека перед ответом (9.2, `core/cues.mjs`). Слова — механизма,
+    // не заведения: «присутствие» и «прогул» есть в любом пресете.
+    case 'time-skip': {
+      const policy = { attend: 'присутствие', absent: 'прогул', ask: 'спросить (пока — присутствие)' }[item.policy] || item.policy;
+      const asked = Number.isFinite(item.days) ? `заказано ${item.days} дн., ` : '';
+      const exam = item.examDay ? `, не дальше ${item.examDay} (контрольное)` : '';
+      return `промотка времени: ${asked}потолок ${item.cap} дн., пропущенное — ${policy}${exam}`;
+    }
+    case 'phone-turn': return 'ход в телефоне: сцена на паузе, прогулы не выводятся';
+    case 'time-dropped': return `время из метки не проведено (${item.reason === 'phone-turn' ? 'ход в телефоне' : item.reason})`;
+    // Три вида, которые движок кладёт давно, а отладка печатала сырым именем
+    // («daypart», «time-held») — и вкладка, и `/academy-debug`, который
+    // теперь печатает этот же вью. Слова механизма.
+    case 'daypart': return `время суток: ${item.daypart}`;
+    case 'time-held': return `прыжок придержан до решения: ${item.day}${item.jump ? ` (+${item.jump} дн.)` : ''}${item.via ? ` (${item.via})` : ''}`;
+    case 'exams-dated': return `назначено по календарю: ${item.added} — ${item.day}`;
     default: return `${item.kind}${item.subjectId ? `: ${item.subjectId}` : ''}`;
   }
+}
+
+/** Ступени проверки словами отладки (ключи — `core/exams.mjs: TIERS`). */
+const TIER_TEXT = { critSuccess: 'крит-успех', success: 'успех', fail: 'провал', critFail: 'крит-провал' };
+
+/**
+ * Проверка против сложности словами (9.4.1) — ответ на «почему так вышло»:
+ * «DC 12 = 14 база − 1 балл − 1 отношение + 0 репутация; бросок 15 → успех».
+ *
+ * Знак у слагаемого — как оно действует на DC, а не как лежит в данных: в
+ * `check.mods` плюс значит «помогло» (снято со сложности), а в строке
+ * помогающее слагаемое стоит с минусом — иначе арифметика не сходилась бы на
+ * глаз. Слова механизма, не заведения, — потому здесь, а не в пресете.
+ */
+export function describeCheck(check) {
+  if (!check || typeof check !== 'object' || !Number.isFinite(check.dc)) return '';
+  const mods = check.mods || {};
+  const term = (n, word) => {
+    const v = -(Number(mods[n]) || 0);
+    return `${v < 0 ? '−' : '+'} ${Math.abs(v)} ${word}`;
+  };
+  const sum = `DC ${check.dc} = ${check.base} база ${term('score', 'балл')} ${term('relation', 'отношение')} ${term('reputation', 'репутация')}`;
+  const tier = TIER_TEXT[check.tier] || String(check.tier || '');
+  const saved = check.saved ? ', страховка балла: засчитано низшей проходной' : '';
+  const capped = check.capped ? ', потолок балла: ниже проходного высшую не ставят' : '';
+  return `${sum}; бросок ${check.roll} → ${tier}${saved}${capped}`;
 }
 
 /** Отброшенный кусок и причина. Формы — те же, что у `/academy-debug`. */
@@ -1393,6 +1579,638 @@ const str = (v) => (v == null ? '' : String(v)).trim();
 const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
 /* ========================================================================== *
+ *  ЧАСТЬ 1½. Проводка 9.4.1–9.4.2 и крючки 9.7: вехи, исход проверки на
+ *  «Сегодня», портрет и место занятия, вид для соседей, доктор промпта.
+ *  Тоже чистые функции — DOM ниже.
+ * ========================================================================== */
+
+/**
+ * Слова этого блока — в коде, а не в `DEFAULT_UI`, и причина одна:
+ * `ui.test.mjs` («словарь панели полон») требует, чтобы каждый ключ
+ * `DEFAULT_UI` был переведён во всех трёх пресетах, а `presets/*.json` в этой
+ * правке не мои (их ведёт параллельная работа). Ключи здесь тем не менее
+ * **перекрываются** блоком `preset.ui` так же, как `DEFAULT_UI` (`extraLabels`):
+ * пресет, который хочет «зал» вместо «аудитории», допишет ключ `roomField` — и
+ * ни строчки кода. Какие ключи стоит дописать в пресеты — в `etap-provodka.md`.
+ *
+ * Слов конкретного заведения («пара», «хвост», «семестр», «сессия») здесь нет
+ * ни одного — это проверяет тест тем же запретным словарём, что и
+ * `DEBUG_TEXT`. «Аудитория» и «корпус» — исключение сознательное: так зовутся
+ * места и в школе, и в вузе, а магической академии — перекрыть.
+ */
+export const EXTRA_UI = {
+  // --- вехи (9.4.2) -----------------------------------------------------------
+  // «Вехи», а не «ачивки»: рядом может стоять Collection Vault со своими
+  // достижениями (план 9.4.2), и два слова про одно путали бы человека.
+  milestonesTitle: 'Вехи',
+  milestonesNone: 'Вех пока нет.',
+  milestoneNoDate: '—',
+  milestoneToastTitle: 'Веха',
+  soundSection: 'Вехи',
+  soundToggle: 'Короткий звук, когда появляется новая веха',
+  soundNote: 'Звук синтезируется браузером, без файлов. Выключено по умолчанию: расширение не шумит, пока его об этом не попросили. Всплывашка с названием вехи приходит и без звука.',
+  soundTry: 'Послушать',
+  soundTried: 'Если звука не было — браузер ещё не разрешил странице звук: нажмите в чате что-нибудь и попробуйте снова.',
+
+  // --- исход проверки на «Сегодня» (9.4.1) ------------------------------------
+  // Строка короткая и одна на событие: полное «DC = база − балл − …» живёт в
+  // отладке (`describeCheck`), здесь — только то, что видно глазом.
+  checkLine: '{kind}, {subject}: {value}',
+  checkRoll: 'бросок {roll} против DC {dc} — {tier}',
+  checkAuto: 'без броска: балл не ниже порога',
+  checkSaved: 'спасла страховка балла',
+  checkCapped: 'высшую ниже проходного балла не ставят',
+  checkOverride: 'в тексте ответа — {said}, принята версия ответа',
+  checkPending: 'мир узнает {date}',
+  checkTiers: { critSuccess: 'блестяще', success: 'успех', fail: 'провал', critFail: 'полный провал' },
+
+  // --- место занятия и портрет (9.7A п.11, п.15) ------------------------------
+  buildingField: 'Корпус',
+  roomField: 'Аудитория',
+  buildingHint: 'главный',
+  roomHint: '214',
+  portraitTitle: 'Портрет',
+  portraitField: 'Путь или ссылка на картинку',
+  portraitHint: 'characters/Имя/портрет.png или https://…',
+  portraitSave: 'Сохранить портрет',
+  portraitSaved: 'Портрет сохранён.',
+  portraitCleared: 'Портрет убран.',
+  portraitBad: 'Не годится: нужен путь от корня таверны (characters/…, /user/images/…) или ссылка http(s).',
+  portraitOpen: 'Открыть портрет',
+  portraitClose: 'Закрыть',
+  portraitBroken: 'картинка не открылась — проверьте путь',
+  // Карточка наставника целиком: портрет и день рождения правятся в одном
+  // свёрнутом блоке на вкладке «Люди».
+  detailsTitle: 'Портрет и день рождения',
+  detailsSave: 'Сохранить',
+  detailsSaved: 'Сохранено.',
+  birthdayField: 'День рождения (ММ-ДД или Д.М)',
+  birthdayHint: '03-08',
+  birthdayBad: 'День рождения не читается: нужно ММ-ДД (03-08) или день.месяц (8.3).',
+  birthdayLine: 'день рождения: {date}',
+
+  // --- итог, который мир ещё не знает (9.4.3) --------------------------------
+  awaitingTitle: 'Ждут объявления',
+  awaitingLine: '{subject}: итог объявят {date}',
+
+  // --- сводка прыжка (9.4.4): один тост вместо пачки --------------------------
+  jumpToast: 'Прошло занятий: {periods}, из них пропущено: {missed}.',
+};
+
+/** Слова блока для этого пресета: `preset.ui` перекрывает любой ключ `EXTRA_UI`. */
+export function extraLabels(preset) {
+  const own = (preset && preset.ui) || {};
+  const out = { ...EXTRA_UI };
+  for (const k of Object.keys(EXTRA_UI)) {
+    if (own[k] === undefined) continue;
+    out[k] = k === 'checkTiers' ? { ...EXTRA_UI.checkTiers, ...own[k] } : own[k];
+  }
+  return out;
+}
+
+/** «главный · 214» — место занятия одной строкой; пусто, если места нет. */
+export function whereText(subject) {
+  if (!subject) return '';
+  return [subject.building, subject.room].map(str).filter(Boolean).join(' · ');
+}
+
+/**
+ * Исходы проверок, брошенных СЕГОДНЯ (9.4.1, «видимая проверка»), — для
+ * «Сегодня». Источник — история бросков события (`item.rolls`), а не журнал и
+ * не последний прогон: журнал кольцевой, прогон живёт в памяти вкладки, а
+ * строка обязана пережить F5 и смену чата туда-обратно.
+ *
+ * Почему только сегодняшние: строка — новость дня. Вчерашний исход уже лежит
+ * в зачётке оценкой, и держать его на главном экране значило бы копить там
+ * историю.
+ *
+ * Итог, который мир ещё не знает (9.4.3, `announced: false`), показывается —
+ * панель смотрит человек, а не персонаж, — но с пометкой «мир узнает …»:
+ * иначе человек удивился бы, почему модель про оценку молчит.
+ */
+export function examResultsToday(state, preset) {
+  const day = state && state.calendar && state.calendar.day;
+  if (!day) return [];
+  const X = extraLabels(preset);
+  const kinds = (preset && preset.exams && preset.exams.kinds) || [];
+  const out = [];
+  for (const item of (state.exams && state.exams.items) || []) {
+    const rolls = Array.isArray(item && item.rolls) ? item.rolls : [];
+    const last = rolls[rolls.length - 1];
+    if (!last || last.day !== day) continue;
+    const subject = (state.subjects || []).find((s) => s.id === item.subjectId);
+    const kind = kinds.find((k) => k.id === item.kind);
+    // Что записано в итоге: версия модели, если она победила (8.1), иначе
+    // посчитанное броском.
+    const shown = item.modelOverride && item.outcome ? item.outcome : last.value;
+    const info = gradeInfo(preset, shown);
+    const auto = last.tier === 'auto';
+    const tierText = (X.checkTiers && X.checkTiers[last.tier]) || String(last.tier || '');
+    const notes = [];
+    if (last.saved) notes.push(X.checkSaved);
+    if (last.capped) notes.push(X.checkCapped);
+    if (item.modelOverride && item.outcome) notes.push(fill(X.checkOverride, { said: (info && info.label) || item.outcome }));
+    const pending = item.announced === false;
+    if (pending && item.announceOn) notes.push(fill(X.checkPending, { date: formatDate(item.announceOn) }));
+    out.push({
+      id: item.id,
+      // Ключ для анимации «свежего» броска: попытка + день. Перерисовка панели
+      // бывает на каждое действие, и без ключа кубик «выпадал» бы заново.
+      key: `${item.id}:${rolls.length}:${day}`,
+      subjectId: item.subjectId,
+      subject: (subject && subject.name) || item.subjectId || '',
+      kind: (kind && kind.name) || String(item.kind || ''),
+      value: String(shown),
+      valueLabel: (info && info.label) || String(shown),
+      passed: isPassing(preset, shown),
+      auto,
+      roll: auto ? null : last.roll,
+      dc: auto ? null : last.dc,
+      tier: last.tier,
+      tierText,
+      pending,
+      head: fill(X.checkLine, {
+        kind: (kind && kind.name) || String(item.kind || ''),
+        subject: (subject && subject.name) || item.subjectId || '',
+        value: (info && info.label) || String(shown),
+      }),
+      rollText: auto ? X.checkAuto : fill(X.checkRoll, { roll: last.roll, dc: last.dc, tier: tierText }),
+      notes,
+    });
+  }
+  return out;
+}
+
+/** «физика: итог объявят вторник, 24 декабря» — по событиям с `announced: false`. */
+export function awaitingView(state, preset) {
+  const X = extraLabels(preset);
+  return ((state && state.exams && state.exams.items) || [])
+    .filter((i) => awaitingAnnouncement(i))
+    .map((i) => {
+      const s = (state.subjects || []).find((x) => x.id === i.subjectId);
+      const subject = (s && s.name) || i.subjectId || '';
+      return {
+        id: i.id, subject, day: i.announceOn,
+        text: fill(X.awaitingLine, { subject, date: formatDate(i.announceOn) || i.announceOn }),
+      };
+    });
+}
+
+/** «8 марта» из `ММ-ДД` — без дня недели: у дня рождения года нет. */
+export function birthdayText(mmdd) {
+  const m = typeof mmdd === 'string' && /^(\d{2})-(\d{2})$/.exec(mmdd);
+  if (!m) return '';
+  return `${Number(m[2])} ${MONTHS[Number(m[1])] || ''}`.trim();
+}
+
+/**
+ * Вехи для блока «Вехи» в зачётке (9.4.2). Пересчёт по состоянию, как и в
+ * ядре: ничего не хранится, отозванная свайпом веха исчезает из списка сама.
+ * Дата — `formatDate(when)` или «—», если состояние её уже не помнит.
+ */
+export function milestonesView(state, preset) {
+  const X = extraLabels(preset);
+  let list = [];
+  try {
+    list = milestones(state, preset);
+  } catch {
+    // Вехи — украшение зачётки. Уронить из-за них всю вкладку нельзя.
+    list = [];
+  }
+  return list.map((m) => ({
+    id: m.id,
+    kind: m.kind,
+    name: milestoneName(m, state, preset),
+    when: m.when || null,
+    whenLine: m.when ? formatDate(m.when) : X.milestoneNoDate,
+  }));
+}
+
+// --- вид для соседей: `window.AcademyAPI` (9.4.8, 9.7B) -----------------------
+//
+// Три функции ниже — то, что `index.js` отдаёт наружу через `AcademyAPI`. Они
+// здесь, а не в `index.js`, по тому же правилу, что остальные вью: чистые,
+// проверяются `node --test` без таверны. Выход — простые объекты и строки,
+// каждый раз новые: сосед, поправивший ответ у себя, не должен поправить
+// состояние семестра.
+
+/**
+ * Где календарь: `{started, day, time, precision}`. Без семестра — `null`:
+ * соседу честнее узнать «Academy не ведёт учёбу в этом чате», чем получить
+ * день, которого нет.
+ */
+export function hookNow(state) {
+  if (!state || !state.started || !state.calendar) return null;
+  const c = state.calendar;
+  return {
+    started: true,
+    day: c.day,
+    time: c.precision === 'datetime' && c.time ? c.time : null,
+    precision: c.precision,
+    weekday: WEEKDAYS[dayOfWeek(c.day)] || '',
+  };
+}
+
+/**
+ * Учебный день для соседа: день, неделя, фаза, текущее и следующее занятие.
+ * Собирается из `todayView` — того же вью, что рисует «Сегодня», — чтобы
+ * сосед и панель не расходились ни в одном слове. Числа отношений сюда не
+ * попадают: их нет и в `todayView`.
+ */
+export function hookToday(state, preset) {
+  if (!state || !state.started) return null;
+  const v = todayView(state, preset);
+  if (v.kind !== 'ok') return null;
+  const where = (id) => whereText((state.subjects || []).find((s) => s.id === id));
+  const period = v.now ? {
+    status: v.now.status,
+    ordinal: v.now.ordinal,
+    subjectId: v.now.subjectId,
+    subject: v.now.name,
+    teacher: v.now.teacher,
+    start: v.now.start,
+    end: v.now.end,
+    where: where(v.now.subjectId),
+    text: v.now.slotText,
+  } : null;
+  const next = v.next ? {
+    subjectId: v.next.subjectId,
+    subject: v.next.name,
+    teacher: v.next.teacher,
+    day: v.next.day,
+    when: v.next.when,
+    where: where(v.next.subjectId),
+  } : null;
+  return {
+    day: v.day,
+    dateLine: v.dateLine,
+    weekday: WEEKDAYS[dayOfWeek(v.day)] || '',
+    time: v.time,
+    week: v.week,
+    weekLine: v.weekLine,
+    term: { index: v.termIndex, name: v.termLine || v.termName || '', count: v.termsCount },
+    phase: v.phase,
+    phaseLabel: v.phaseLabel,
+    silent: v.silent,
+    silentReason: v.silentReason,
+    period,
+    next,
+  };
+}
+
+/**
+ * Короткая строка «где героиня в учёбе» — для соседей и для библиотек сейвов
+ * (9.7B): «второй триместр, среда, 3-й урок, красные баллы: 1».
+ *
+ * Все слова — пресета: номер занятия — `ui.slot`, счётчик долгов —
+ * `ui.debtsLine` с `vocab.debtPlural`, фаза — `ui.phases`. Имя периода
+ * называется, только когда периодов в году больше одного (как на «Сегодня»):
+ * у вуза с одним семестром «1-й семестр» — шум, а номера курса в состоянии нет.
+ * Вне занятий вместо номера — фаза («каникулы», «сессия»), а не пустота.
+ */
+export function hookSummary(state, preset) {
+  if (!state || !state.started) return '';
+  const v = todayView(state, preset);
+  if (v.kind !== 'ok') return '';
+  const U = uiLabels(preset);
+  const vocab = (preset && preset.vocab) || {};
+  const parts = [];
+  if (v.termLine) parts.push(v.termLine);
+  parts.push(WEEKDAYS[dayOfWeek(v.day)] || v.dateLine);
+  if (v.now && v.now.status === 'now') parts.push(fill(U.slot, { ordinal: v.now.ordinal }));
+  else if (v.phase && v.phase !== 'study') parts.push(v.phaseLabel);
+  // Долги — по миру (9.4.3): хвост от необъявленного итога сосед узнать не
+  // должен, как не знает его строка состояния (`prompt.mjs` берёт тот же вид).
+  const tails = debts(publicView(state, preset)).length;
+  if (tails) parts.push(fill(U.debtsLine, { debtPlural: vocab.debtPlural || 'хвосты', count: tails }));
+  return parts.filter(Boolean).join(', ');
+}
+
+/** Потолок `journal(n)`: журнал кольцевой, но отдавать его целиком незачем. */
+export const HOOK_JOURNAL_MAX = 50;
+
+/**
+ * Журнал наружу (9.7B): «что случилось» — прогул, оценка, сдвиг отношения,
+ * исход сессии, — чтобы соцсеть мира и режиссёр по состоянию не противоречили
+ * зачётке.
+ *
+ * Не копия внутреннего журнала, а перевод по белому списку, и вот почему:
+ *
+ * - **итог, который мир ещё не знает** (9.4.3, `data.private`), наружу не
+ *   идёт — сосед-«Подслушано» разболтал бы оценку раньше ведомости;
+ * - **числа отношения и репутации наружу не идут** (3.3): вместо `from/to`
+ *   — ярлыки шкалы пресета, как на вкладке «Люди»;
+ * - **служебное** (`debug`, отвергнутые куски метки, погашенные повторы) —
+ *   это разбор механизма, а не события мира;
+ * - `text` внутреннего журнала — технический («grade chem=4») и наружу не
+ *   отдаётся: сосед получает поля, а слова подберёт сам.
+ *
+ * @returns {Array<{day: string, kind: string}>} от ранних к поздним, не больше `n`
+ */
+export function hookJournal(state, preset, n = 10) {
+  if (!state || !Array.isArray(state.journal)) return [];
+  const limit = Math.max(0, Math.min(HOOK_JOURNAL_MAX, Number.isFinite(Number(n)) ? Math.floor(Number(n)) : 10));
+  if (!limit) return [];
+  const subjectName = (id) => (((state.subjects || []).find((s) => s.id === id)) || {}).name || id || '';
+  const teacherName = (id) => (((state.teachers || []).find((t) => t.id === id)) || {}).name || id || '';
+  const relLabels = (preset && preset.relations && preset.relations.labels) || [];
+  const repLabels = (preset && preset.reputation && preset.reputation.labels) || [];
+  const items = (state.exams && state.exams.items) || [];
+  // Итоги, которые мир ещё не знает (9.4.3). Их оценка лежит в зачётке уже в
+  // день сдачи, и строка журнала `grade` про неё выдала бы то же, что прячет
+  // `data.private` у записи сдачи. Узнаётся по предмету и дню сдачи — теми же
+  // признаками, по которым `exams.publicView` вынимает её из зачётки.
+  const hidden = items.filter(awaitingAnnouncement);
+  const secret = (subjectId, day) => hidden.some((i) => i.subjectId === subjectId && (!i.day || i.day === day));
+  // Повод сдвига (9.7B) словами; про необъявленный итог — без значения оценки.
+  const why = (reason) => {
+    if (!reason) return '';
+    if (typeof reason === 'object' && reason.subjectId && secret(reason.subjectId, reason.day || '')
+      && reason.value !== undefined) {
+      return '';
+    }
+    return reasonText(reason, state, preset);
+  };
+  const out = [];
+  for (const e of state.journal) {
+    const d = e && e.data;
+    if (!e || !d || typeof d !== 'object') continue;
+    const day = String(e.day || '');
+    let row = null;
+    switch (e.kind) {
+      case 'grade':
+        if (d.reason && d.debt === undefined) break; // отвергнутая оценка
+        if (!d.subjectId || secret(d.subjectId, day)) break;
+        if (d.debt !== undefined) {
+          row = { kind: 'debt', subjectId: d.subjectId, subject: subjectName(d.subjectId), debt: Boolean(d.debt) };
+        } else if (d.value !== undefined) {
+          const info = gradeInfo(preset, d.value);
+          row = {
+            kind: 'grade', subjectId: d.subjectId, subject: subjectName(d.subjectId),
+            value: String(d.value), label: (info && info.label) || String(d.value), passed: isPassing(preset, d.value),
+          };
+        }
+        break;
+      case 'attendance':
+        if (d.jump) {
+          row = { kind: 'attendance-jump', periods: d.periods || 0, missed: d.missed || 0, present: d.present || 0 };
+        } else if (d.subjectId && d.status && d.periodIndex !== undefined) {
+          row = { kind: 'attendance', subjectId: d.subjectId, subject: subjectName(d.subjectId), status: String(d.status) };
+        }
+        break;
+      case 'rel': {
+        if (d.damped || !Number.isFinite(d.from) || !Number.isFinite(d.to)) break;
+        const from = labelFor(relLabels, d.from);
+        const to = labelFor(relLabels, d.to);
+        row = {
+          kind: 'relation', teacherId: d.teacherId, teacher: teacherName(d.teacherId),
+          from: from || '', to: to || '', changed: Boolean(from && to && from !== to),
+          direction: d.to > d.from ? 'up' : d.to < d.from ? 'down' : 'same',
+          ...(why(d.reason) ? { reason: why(d.reason) } : {}),
+        };
+        break;
+      }
+      case 'reputation': {
+        if (!Number.isFinite(d.from) || !Number.isFinite(d.to)) break;
+        row = {
+          kind: 'reputation',
+          from: labelFor(repLabels, d.from) || '', to: labelFor(repLabels, d.to) || '',
+          direction: d.to > d.from ? 'up' : d.to < d.from ? 'down' : 'same',
+          // У репутации повод — строка механизма («exam», «skip»), а не объект.
+          ...(typeof d.reason === 'string' && d.reason ? { reason: d.reason } : {}),
+        };
+        break;
+      }
+      case 'exam': {
+        if (d.private) break; // мир ещё не знает (9.4.3)
+        const item = items.find((i) => i.id === d.examId);
+        const subjectId = d.subjectId || (item && item.subjectId) || '';
+        if (d.missed) {
+          row = { kind: 'exam-missed', examId: d.examId, subjectId, subject: subjectName(subjectId) };
+        } else if (d.modelSaid !== undefined) {
+          // Итог, ещё не объявленный миру, не выдаётся и через расхождение.
+          if (item && item.announced === false) break;
+          row = { kind: 'exam-conflict', examId: d.examId, subjectId, subject: subjectName(subjectId), said: String(d.modelSaid), applied: d.applied !== false };
+        } else if (d.value !== undefined && d.examId) {
+          const info = gradeInfo(preset, d.value);
+          row = {
+            kind: 'exam', examId: d.examId, subjectId, subject: subjectName(subjectId),
+            value: String(d.value), label: (info && info.label) || String(d.value), passed: Boolean(d.passed),
+            ...(d.announced ? { announced: true } : {}),
+          };
+        } else if (d.added) {
+          row = { kind: 'exams-scheduled', count: d.added, ...(d.kind ? { examKind: String(d.kind) } : {}) };
+        }
+        break;
+      }
+      default:
+        break; // `time`, `debug` и всё незнакомое — не события мира
+    }
+    if (row) out.push({ day, ...row });
+  }
+  return out.slice(-limit);
+}
+
+// --- доктор промпта (9.7A п.4) ------------------------------------------------
+//
+// README давно описывает симптом «в посте чужой блок в начале есть, нашей
+// метки нет». Доктор показывает причину, а не заставляет гадать: кто ещё
+// стоит в инжектах таверны (`getContext().extensionPrompts` — живая ссылка на
+// `extension_prompts` в `script.js:625`; таверна переприсваивает объект в
+// `clearChat`, поэтому брать его надо на каждый показ, а не запоминать), на
+// какой глубине и с какой ролью, и чей текст просит у модели начало или
+// конец ответа.
+
+/** Слова доктора — механизма, не заведения (как `DEBUG_TEXT`). */
+export const DOCTOR_TEXT = {
+  title: 'Доктор промпта',
+  note: 'Кто ещё кладёт текст в промпт через setExtensionPrompt, куда и сколько. Если метка пропадает из ответов — причина обычно здесь.',
+  unavailable: 'Таверна не отдаёт список инжектов (getContext().extensionPrompts) — показать нечего.',
+  empty: 'Инжектов нет ни у кого.',
+  ours: 'Academy',
+  own: 'наш',
+  chars: '{n} симв.',
+  asksStart: 'просит начало ответа',
+  asksEnd: 'просит конец ответа',
+  mandatory: 'настаивает (MANDATORY)',
+  sameSlot: 'на той же глубине и с той же ролью, что {ours}: таверна склеит их по алфавиту ключей',
+  reasonsTitle: 'Почему метка может пропадать',
+  noReasons: 'Причин не видно: никто из соседей не просит начало ответа.',
+  markerSeen: 'Метка в последнем ответе была.',
+  markerMissing: 'В последнем ответе метки не было.',
+  markerOff: 'Метку сейчас не просим: режим «из контекста» или галочка инструкции выключена.',
+  markerNoInstruction: 'Инструкции про метку в промпте сейчас нет (учёба в чате не начата, идёт фоновая генерация или галочка выключена).',
+  reasonStart: '«{owner}» просит начало ответа ({where}): модель ставит первым его блок и теряет нашу метку.',
+  reasonStartCloser: '«{owner}» просит начало ответа и стоит ближе к концу промпта, чем инструкция метки ({where}) — его просьба для модели свежее нашей.',
+  reasonForeignHead: 'Ответ открывается чужим блоком: «{line}». Инструкция просит ставить метку сразу после такого блока, но поручиться за это нельзя.',
+  reasonEncode: 'В настройках таверны включён «Encode tags»: метка станет видимым текстом.',
+  reasonEnd: 'Конец ответа заняли: {owners}. Это не мешает — метка просится в начало, — но показывает, что в конце ответа тесно.',
+  positions: { '-1': 'выключен', 0: 'после описания', 1: 'в чате, глубина {depth}', 2: 'до промпта' },
+  roles: { 0: 'system', 1: 'user', 2: 'assistant' },
+};
+
+/**
+ * Известные ключи самой таверны (`script.js`, `constants.js: inject_ids`,
+ * `scripts/openai.js:1429`) — чтобы в таблице стояло «Заметка автора», а не
+ * `2_floating_prompt`. Префиксы — у ключей с хвостом (глубина, роль, имя).
+ */
+const TAVERN_KEYS = [
+  ['1_memory', 'Сводка (Summarize)'],
+  ['2_floating_prompt', 'Заметка автора'],
+  ['3_vectors', 'Векторы чата'],
+  ['4_vectors_data_bank', 'Векторы Data Bank'],
+  ['chromadb', 'Smart Context'],
+  ['QUIET_PROMPT', 'Фоновая генерация'],
+  ['DEPTH_PROMPT', 'Заметка персонажа (depth prompt)', true],
+  ['customDepthWI', 'World Info на глубине', true],
+  ['customWIOutlet_', 'World Info (outlet)', true],
+];
+
+/** Кто владелец ключа — словами, если это таверна; иначе сам ключ (обычно имя расширения). */
+export function promptOwner(key) {
+  const k = String(key || '');
+  for (const [id, name, prefix] of TAVERN_KEYS) {
+    if (prefix ? k.startsWith(id) : k === id) return name;
+  }
+  return k;
+}
+
+// Эвристика просьб — по словам, а не по разбору смысла: сосед пишет свою
+// инструкцию как хочет, и узнаётся она только по устойчивым оборотам. Ложное
+// срабатывание здесь дёшево (строка в отладке), пропуск — дорого (человек
+// гадает). Отсюда широкие списки, а в панели — кусок текста вокруг совпадения,
+// чтобы человек проверил глазами.
+const ASK_START = /\b(?:first line|first thing in (?:your|the|each) (?:response|reply|message)|at the (?:very )?(?:start|beginning|top) of (?:your|the|each|every)|(?:begin|start|open) (?:your|the|each|every) (?:response|reply|message|answer))|в (?:самом )?начале (?:ответа|каждого|сообщения|поста)|перв(?:ой|ую) строк|начни (?:ответ|каждый|сообщение)|начинай (?:ответ|каждый|сообщение)/i;
+const ASK_END = /\b(?:at the (?:very )?end of (?:your|the|each|every)|last line|(?:end|finish|close) (?:your|the|each|every) (?:response|reply|message|answer) with|append (?:to|at) the end)|в (?:самом )?конце (?:ответа|каждого|сообщения|поста)|последн(?:ей|юю) строк|заверш(?:и|ай|ите) (?:ответ|каждый|сообщение)/i;
+const MANDATORY = /\bMANDATORY\b|\bREQUIRED\b|\bCRITICAL\b|ОБЯЗАТЕЛЬН/;
+
+/** Кусок текста вокруг совпадения — чтобы человек проверил глазами. */
+function around(text, re) {
+  const m = re.exec(text);
+  if (!m) return '';
+  const from = Math.max(0, m.index - 30);
+  const to = Math.min(text.length, m.index + m[0].length + 30);
+  return `${from > 0 ? '…' : ''}${text.slice(from, to).replace(/\s+/g, ' ').trim()}${to < text.length ? '…' : ''}`;
+}
+
+/** Где стоит инжект — словами: «в чате, глубина 1 · system». */
+function slotText(p, T) {
+  const pos = T.positions[String(p.position)] || `позиция ${p.position}`;
+  const role = T.roles[String(p.role)] || String(p.role);
+  return `${fill(pos, { depth: p.depth })} · ${role}`;
+}
+
+/**
+ * Первая непустая строка ответа — если это чужой служебный блок. Узнаётся по
+ * форме, а не по имени: HTML-тег (не комментарий), кодовый блок, строка
+ * таблицы, `[СКОБКИ]`, строка эмодзи-шапки инфоблока. Наша метка —
+ * HTML-комментарий `<!-- [ACADEMY …] -->` и сюда не попадает.
+ */
+export function foreignHead(text) {
+  const line = String(text || '').split('\n').map((s) => s.trim()).find(Boolean) || '';
+  if (!line || /ACADEMY/i.test(line)) return '';
+  if (/^<!--/.test(line)) return '';
+  const looks = /^(?:<[a-z][\w-]*[\s>]|```|\||\[[^\]]{2,}\]|[📅🕰⏰🗓📍🌡⌚☀🌙])/iu.test(line);
+  return looks ? (line.length > 80 ? `${line.slice(0, 77)}…` : line) : '';
+}
+
+/**
+ * Разбор инжектов таверны для вкладки «Отладка».
+ *
+ * @param {Object} input
+ * @param {?Object} input.prompts `getContext().extensionPrompts` — `{ключ: {value, position, depth, role}}`
+ * @param {string[]} input.own ключи Academy (`academy_status` и соседи)
+ * @param {string} [input.markerKey] ключ инструкции метки — с ним сравнивается глубина соседей
+ * @param {boolean} [input.markerWanted] просим ли метку вообще (режим и галочка)
+ * @param {?boolean} [input.markerSeen] была ли метка в последнем разобранном ответе; `null` — ответа не было
+ * @param {string} [input.lastText] текст последнего ответа модели
+ * @param {boolean} [input.encodeTags] `power_user.encode_tags`
+ */
+export function promptDoctorView(input = {}) {
+  const T = DOCTOR_TEXT;
+  const prompts = input.prompts;
+  if (!prompts || typeof prompts !== 'object') {
+    return { available: false, rows: [], reasons: [], status: T.unavailable, note: T.note };
+  }
+  const own = new Set(input.own || []);
+  const rows = Object.keys(prompts).sort().map((key) => {
+    const p = prompts[key] || {};
+    const value = String(p.value == null ? '' : p.value);
+    const ours = own.has(key);
+    const wantsStart = !ours && ASK_START.test(value);
+    const wantsEnd = !ours && ASK_END.test(value);
+    const mandatory = !ours && MANDATORY.test(value);
+    return {
+      key,
+      owner: ours ? T.ours : promptOwner(key),
+      ours,
+      position: Number(p.position),
+      depth: Number(p.depth),
+      role: Number(p.role),
+      size: value.length,
+      where: slotText({ position: Number(p.position), depth: Number(p.depth), role: Number(p.role) }, T),
+      sizeText: fill(T.chars, { n: value.length }),
+      empty: !value.trim(),
+      wantsStart,
+      wantsEnd,
+      mandatory,
+      startHint: wantsStart ? around(value, ASK_START) : '',
+      endHint: wantsEnd ? around(value, ASK_END) : '',
+      flags: [wantsStart ? T.asksStart : '', wantsEnd ? T.asksEnd : '', mandatory ? T.mandatory : ''].filter(Boolean),
+    };
+  });
+
+  // Пустые инжекты — это погашенные слоты (наши под quiet, чужие между
+  // генерациями): в промпт они не попадают (`getExtensionPrompt` берёт только
+  // `x.value`), и в таблице они шум.
+  const live = rows.filter((r) => !r.empty);
+  const marker = rows.find((r) => r.key === input.markerKey && !r.empty) || null;
+  // Одна глубина и одна роль с нашим инжектом: таверна склеивает такие по
+  // алфавиту ключей (`getExtensionPrompt`: `Object.keys(...).sort()`).
+  const ourSlots = live.filter((r) => r.ours && r.position === 1);
+  for (const r of live) {
+    if (r.ours || r.position !== 1) continue;
+    const mate = ourSlots.find((o) => o.depth === r.depth && o.role === r.role);
+    if (mate) r.flags.push(fill(T.sameSlot, { ours: T.ours }));
+  }
+
+  const reasons = [];
+  const wanted = input.markerWanted !== false;
+  let status;
+  if (!wanted) status = T.markerOff;
+  else if (!marker) status = T.markerNoInstruction;
+  else if (input.markerSeen === true) status = T.markerSeen;
+  else if (input.markerSeen === false) status = T.markerMissing;
+  else status = '';
+
+  if (wanted) {
+    for (const r of live.filter((x) => x.wantsStart)) {
+      // Ближе к концу промпта = меньше глубина при позиции «в чате». Такой
+      // сосед говорит модели последним, и его «первой строкой» свежее нашего.
+      const closer = marker && r.position === 1 && marker.position === 1 && r.depth < marker.depth;
+      reasons.push(fill(closer ? T.reasonStartCloser : T.reasonStart, { owner: r.owner, where: r.where }));
+    }
+    const head = input.markerSeen === false ? foreignHead(input.lastText) : '';
+    if (head) reasons.push(fill(T.reasonForeignHead, { line: head }));
+    if (input.encodeTags) reasons.push(T.reasonEncode);
+  }
+  const enders = live.filter((x) => x.wantsEnd).map((x) => x.owner);
+  const notes = enders.length ? [fill(T.reasonEnd, { owners: [...new Set(enders)].join(', ') })] : [];
+
+  return {
+    available: true,
+    note: T.note,
+    status,
+    rows: live,
+    hidden: rows.length - live.length,
+    reasons,
+    notes,
+    noReasons: wanted && !reasons.length ? T.noReasons : '',
+    emptyText: live.length ? '' : T.empty,
+  };
+}
+
+/* ========================================================================== *
  *  ЧАСТЬ 2. DOM. Всё ниже трогает документ и в тестах не участвует.
  * ========================================================================== */
 
@@ -1405,8 +2223,11 @@ const ID = {
 /** Порог, за которым жест считается перетаскиванием, а не тапом (3.9). */
 const DRAG_THRESHOLD = 6;
 
-/** Живые узлы. Модуль монтируется один раз на страницу. */
-const mounted = { panel: null, button: null, settings: null, host: null, tab: 'today' };
+/**
+ * Живые узлы. Модуль монтируется один раз на страницу. `seenRolls` — какие
+ * броски уже «выпадали» анимацией (см. `examResultLine`).
+ */
+const mounted = { panel: null, button: null, settings: null, host: null, tab: 'today', seenRolls: new Set() };
 
 function el(tag, attrs, children) {
   const node = document.createElement(tag);
@@ -1486,6 +2307,10 @@ function renderToday(host, view, preset) {
     ]),
   ]));
 
+  // Исход сегодняшней проверки (9.4.1) — выше расписания: в день экзамена это
+  // главная новость, а пар в этот день обычно и нет («сессия — лекций нет»).
+  for (const r of view.exams || []) box.append(examResultLine(r));
+
   if (view.silent) {
     box.append(el('div', { class: 'academy-silent', text: view.silentReason }));
   } else if (view.now) {
@@ -1493,6 +2318,7 @@ function renderToday(host, view, preset) {
       el('div', { class: 'academy-card-title', text: view.now.title }),
       el('div', { class: 'academy-subject', text: view.now.name }),
       view.now.teacher ? el('div', { class: 'academy-teacher', text: view.now.teacher }) : null,
+      view.now.where ? el('div', { class: 'academy-where', text: view.now.where }) : null,
       el('div', { class: 'academy-slot', text: view.now.slotText }),
     ]));
   }
@@ -1502,6 +2328,7 @@ function renderToday(host, view, preset) {
       el('div', { class: 'academy-card-title', text: U.nextCardTitle }),
       el('div', { class: 'academy-subject', text: view.next.name }),
       view.next.teacher ? el('div', { class: 'academy-teacher', text: view.next.teacher }) : null,
+      view.next.where ? el('div', { class: 'academy-where', text: view.next.where }) : null,
       el('div', { class: 'academy-slot', text: view.next.when }),
     ]));
   } else if (!view.silent) {
@@ -1517,6 +2344,7 @@ function renderToday(host, view, preset) {
         el('span', { class: 'academy-plan-time', text: p.start ? `${p.start}` : `${p.ordinal}` }),
         el('span', { class: 'academy-plan-name', text: p.name }),
         p.teacher ? el('span', { class: 'academy-plan-teacher', text: p.teacher }) : null,
+        p.where ? el('span', { class: 'academy-plan-where', text: p.where }) : null,
       ]))),
     ]));
   }
@@ -1531,6 +2359,37 @@ function renderToday(host, view, preset) {
   // Ремонтный инструмент, а не главная кнопка (3.2): спрятан в свёрнутый блок.
   box.append(manualTimeBlock(host, view, U));
   return box;
+}
+
+/**
+ * Строка исхода проверки (9.4.1): «Экзамен, химия: 4» и под ней «бросок 15
+ * против DC 7 — успех».
+ *
+ * Анимация — одна и минимальная: число броска «выпадает» (масштаб и
+ * прозрачность за 0,4 с, `style.css: academy-roll-fresh`), и только в первый
+ * показ этого броска. Перерисовка панели случается на каждое действие, и
+ * кубик, который прыгает при каждом нажатии, раздражал бы; поэтому показанные
+ * броски помнятся по ключу (`mounted.seenRolls`, память вкладки — после F5
+ * число просто стоит). При `prefers-reduced-motion` анимации нет вовсе.
+ * Счётчика-«рулетки» нет нарочно: исход уже посчитан, и изображать случай,
+ * который ещё только решается, было бы враньём.
+ */
+function examResultLine(r) {
+  const fresh = !mounted.seenRolls.has(r.key);
+  mounted.seenRolls.add(r.key);
+  const kind = r.auto ? 'auto' : r.passed ? 'pass' : 'fail';
+  return el('div', { class: `academy-card academy-verdict academy-verdict-${kind}` }, [
+    el('div', { class: 'academy-verdict-head' }, [
+      r.auto ? null : el('span', {
+        class: fresh ? 'academy-roll academy-roll-fresh' : 'academy-roll',
+        text: String(r.roll),
+        title: `d20 = ${r.roll}, DC ${r.dc}`,
+      }),
+      el('span', { class: 'academy-subject', text: r.head }),
+    ]),
+    el('div', { class: 'academy-slot', text: r.rollText }),
+    ...(r.notes || []).map((n) => el('div', { class: 'academy-note', text: n })),
+  ]);
 }
 
 /**
@@ -1699,7 +2558,34 @@ function renderGradebook(host, view, preset) {
       ]),
     ]))));
 
+  const X = extraLabels(preset);
+  if ((view.awaiting || []).length) {
+    box.append(el('div', { class: 'academy-debts academy-awaiting' }, [
+      el('span', { class: 'academy-card-title', text: X.awaitingTitle }),
+      el('span', { text: view.awaiting.map((a) => a.text).join('; ') }),
+    ]));
+  }
+  box.append(milestonesBlock(view.milestones || [], X));
   return box;
+}
+
+/**
+ * Блок «Вехи» (9.4.2) в зачётке: название словами пресета и дата. Стоит под
+ * таблицей предметов, а не отдельной вкладкой: вех за семестр — единицы, и
+ * шестая вкладка на телефоне стоила бы дороже, чем они весят (3.9).
+ */
+function milestonesBlock(list, X) {
+  return el('div', { class: 'academy-milestones' }, [
+    el('div', { class: 'academy-card-title', text: X.milestonesTitle }),
+    list.length
+      ? el('ul', { class: 'academy-milestone-list' }, list.map((m) => el('li', {
+        class: 'academy-milestone', dataset: { milestone: m.id },
+      }, [
+        el('span', { class: 'academy-milestone-name', text: m.name }),
+        el('span', { class: 'academy-shift-day', text: m.whenLine }),
+      ])))
+      : el('div', { class: 'academy-teacher', text: X.milestonesNone }),
+  ]);
 }
 
 // --- вкладка «Люди» ---------------------------------------------------------
@@ -1708,6 +2594,7 @@ function renderPeople(host, view, preset) {
   if (view.kind !== 'ok') return renderEmpty(host, view);
 
   const U = uiLabels(preset);
+  const X = extraLabels(preset);
   const box = el('div', { class: 'academy-people' });
 
   // Шапка та же по форме, что у «Зачётки»: репутация словом плюс тревожная
@@ -1731,9 +2618,11 @@ function renderPeople(host, view, preset) {
     box.append(el('div', { class: 'academy-table academy-table-people' },
       view.teachers.map((t) => el('div', { class: 'academy-tr academy-tr-person' }, [
         el('div', { class: 'academy-td academy-td-name' }, [
+          t.portrait ? portraitThumb(t, X) : null,
           el('span', { class: 'academy-subject', text: t.name }),
           // Ярлык, не число: `peopleView` числа отношения не знает вовсе.
           el('span', { class: 'academy-relation', text: t.relation }),
+          portraitEditor(host, t, X),
         ]),
         el('div', { class: 'academy-td academy-td-person' }, [
           el('span', { class: 'academy-teacher', text: t.subjectsText }),
@@ -1741,6 +2630,7 @@ function renderPeople(host, view, preset) {
             class: t.hasTraits ? 'academy-traits' : 'academy-traits academy-traits-none',
             text: t.traitsText,
           }),
+          t.birthdayText ? el('span', { class: 'academy-teacher academy-birthday', text: t.birthdayText }) : null,
         ]),
         el('div', { class: 'academy-td academy-td-history' }, [
           el('span', { class: 'academy-card-title', text: U.relationHistoryTitle }),
@@ -1762,6 +2652,105 @@ function renderPeople(host, view, preset) {
   }
 
   return box;
+}
+
+/**
+ * Маленький портрет в карточке наставника (9.7A п.15). Нажатие открывает его
+ * плавающим окном поверх панели (`openPortrait`), а не новой вкладкой браузера:
+ * на телефоне вкладка — это уход из таверны.
+ *
+ * Не открылась картинка (опечатка в пути, ссылка умерла) — рамка не остаётся
+ * пустой загадкой: миниатюра прячется, рядом встаёт строка «проверьте путь».
+ * `loading="lazy"` — у восьми наставников восемь картинок, и тянуть их, пока
+ * вкладку «Люди» не открыли, незачем.
+ */
+function portraitThumb(t, X) {
+  const img = el('img', {
+    class: 'academy-portrait-thumb',
+    src: t.portrait,
+    alt: `${X.portraitTitle}: ${t.name}`,
+    loading: 'lazy',
+    title: X.portraitOpen,
+    onclick: () => openPortrait(t, X),
+  });
+  const broken = el('span', { class: 'academy-note academy-portrait-broken', text: X.portraitBroken });
+  broken.hidden = true;
+  img.addEventListener('error', () => { img.hidden = true; broken.hidden = false; });
+  return el('span', { class: 'academy-portrait' }, [img, broken]);
+}
+
+/**
+ * Плавающее окно с портретом. Одно на страницу: второе нажатие заменяет
+ * картинку, а не плодит окна. Закрывается кнопкой, тапом по фону и Esc.
+ */
+function openPortrait(t, X) {
+  if (mounted.portrait) mounted.portrait.remove();
+  const close = () => {
+    if (mounted.portrait) mounted.portrait.remove();
+    mounted.portrait = null;
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => { if (e && e.key === 'Escape') close(); };
+  const box = el('div', {
+    class: 'academy-portrait-overlay',
+    role: 'dialog',
+    'aria-label': `${X.portraitTitle}: ${t.name}`,
+    onclick: (e) => { if (e && e.target === e.currentTarget) close(); },
+  }, [
+    el('figure', { class: 'academy-portrait-frame' }, [
+      el('img', { class: 'academy-portrait-full', src: t.portrait, alt: t.name }),
+      el('figcaption', { text: t.name }),
+      el('div', { class: 'menu_button academy-btn academy-btn-small', text: X.portraitClose, onclick: close }),
+    ]),
+  ]);
+  document.addEventListener('keydown', onKey);
+  (document.getElementById('movingDivs') || document.body).append(box);
+  mounted.portrait = box;
+  return box;
+}
+
+/**
+ * Портрет и день рождения прямо в карточке наставника — свёрнутым блоком:
+ * вкладка «Люди» — про людей, и эти поля правятся там же, где видны.
+ * Сохранение — отдельным действием `setTeacherDetails`, а не через таблицу
+ * плана: ни портрет, ни день рождения не меняют расписания и не должны его
+ * пересобирать. Пустое поле убирает значение.
+ *
+ * Проверка формы — те же правила, что держат состояние (`isPortrait`,
+ * `normalizeBirthday` в `index.js`): отказ портрета приходит ещё до похода в
+ * хост, день рождения разбирает хост (он принимает и `8.3`, и `03-08`).
+ */
+function portraitEditor(host, t, X) {
+  const status = el('div', { class: 'academy-status' });
+  const input = el('input', {
+    type: 'text', class: 'text_pole academy-input', value: t.portrait || '', placeholder: X.portraitHint,
+  });
+  input.value = t.portrait || '';
+  const birthday = el('input', {
+    type: 'text', class: 'text_pole academy-input', value: t.birthday || '', placeholder: X.birthdayHint,
+  });
+  birthday.value = t.birthday || '';
+  const save = el('div', {
+    class: 'menu_button academy-btn academy-btn-small',
+    text: X.detailsSave,
+    onclick: async (e) => {
+      const value = String(input.value || '').trim();
+      if (value && !isPortrait(value)) { setStatus(status, 'error', X.portraitBad); return; }
+      const res = await runAction(e.currentTarget, status,
+        () => call(host, 'setTeacherDetails', t.id, { portrait: value, birthday: String(birthday.value || '').trim() }),
+        X.detailsSaved);
+      if (res && res.ok !== false) renderPanel(host);
+    },
+  });
+  return el('details', { class: 'academy-repair academy-portrait-edit' }, [
+    el('summary', { text: X.detailsTitle }),
+    el('div', { class: 'academy-repair-body' }, [
+      el('label', { class: 'academy-field' }, [el('span', { text: X.portraitField }), input]),
+      el('label', { class: 'academy-field' }, [el('span', { text: X.birthdayField }), birthday]),
+      el('div', { class: 'academy-row academy-row-buttons' }, [save]),
+      status,
+    ]),
+  ]);
 }
 
 // --- вкладка «Отладка» ------------------------------------------------------
@@ -1801,6 +2790,12 @@ function renderDebug(host, view) {
   // именно его (`:342`), а в общем хвосте журнала оно тонет между сдвигами дня.
   add(debugList(T.divergenceTitle, view.divergences.map((d) => d.text), T.noDivergence));
 
+  // Доктор промпта (9.7A п.4). Хост собирает сырьё (инжекты таверны, текст
+  // последнего ответа), вью разбирает. Хост постарше геттера не знает — блока
+  // просто нет.
+  const doctor = safe(() => (host.getPromptDoctor ? host.getPromptDoctor() : null), null);
+  if (doctor) add(doctorBlock(doctor));
+
   box.append(el('details', { class: 'academy-repair' }, [
     el('summary', { text: T.journalTitle }),
     el('div', { class: 'academy-repair-body' }, [
@@ -1814,6 +2809,53 @@ function renderDebug(host, view) {
   ]));
 
   return box;
+}
+
+/**
+ * Блок «Доктор промпта». Сначала вывод (есть ли метка, почему может не быть),
+ * потом таблица инжектов — свёрнутой: на телефоне в ней десятки строк, а
+ * причина нужна сразу. Таблица — тем же деревом `academy-table`, что зачётка:
+ * на узком экране строки становятся карточками без второй вёрстки (3.9).
+ */
+function doctorBlock(d) {
+  const T = DOCTOR_TEXT;
+  if (!d.available) {
+    return el('div', { class: 'academy-debug-block academy-doctor' }, [
+      el('div', { class: 'academy-card-title', text: T.title }),
+      el('div', { class: 'academy-teacher', text: d.status }),
+    ]);
+  }
+  const reasons = d.reasons.length ? d.reasons : (d.noReasons ? [d.noReasons] : []);
+  return el('div', { class: 'academy-debug-block academy-doctor' }, [
+    el('div', { class: 'academy-card-title', text: T.title }),
+    el('p', { class: 'academy-note', text: d.note }),
+    d.status ? el('div', { class: 'academy-debug-line', text: d.status }) : null,
+    reasons.length ? el('div', { class: 'academy-card-title', text: T.reasonsTitle }) : null,
+    reasons.length ? el('ul', { class: 'academy-notes' }, reasons.map((r) => el('li', { text: r }))) : null,
+    ...(d.notes || []).map((n) => el('p', { class: 'academy-note', text: n })),
+    el('details', { class: 'academy-repair' }, [
+      el('summary', { text: `${T.title}: ${d.rows.length}` }),
+      el('div', { class: 'academy-repair-body' }, [
+        d.rows.length
+          ? el('div', { class: 'academy-table academy-table-doctor' }, d.rows.map((r) => el('div', {
+            class: r.ours ? 'academy-tr academy-doctor-ours' : (r.wantsStart ? 'academy-tr academy-doctor-start' : 'academy-tr'),
+          }, [
+            el('div', { class: 'academy-td academy-td-name' }, [
+              el('span', { class: 'academy-subject', text: r.owner }),
+              r.owner !== r.key ? el('code', { class: 'academy-doctor-key', text: r.key }) : null,
+            ]),
+            el('div', { class: 'academy-td' }, [
+              el('span', { class: 'academy-teacher', text: `${r.where} · ${r.sizeText}` }),
+              ...r.flags.map((f) => el('span', { class: 'academy-tag', text: f })),
+            ]),
+            r.startHint || r.endHint
+              ? el('div', { class: 'academy-td academy-doctor-hint', text: r.startHint || r.endHint })
+              : null,
+          ])))
+          : el('div', { class: 'academy-silent', text: d.emptyText }),
+      ]),
+    ]),
+  ]);
 }
 
 /** Заголовок и список строк; при пустом списке — запасная фраза или ничего. */
@@ -1888,6 +2930,12 @@ function renderSettings(host) {
       // ошибки стоит рядом с ней (3.6).
       renderPanel(host);
       if (res && res.ok === false) setStatus(lastPlanStatus(), 'error', String(res.error || 'Генерация не удалась.'));
+      // План лёг, но в нём есть имя из стоп-листа (героиня, карточка,
+      // заведение, 9.3.6): выбросить его нельзя — на него ссылаются предметы, —
+      // поэтому человеку говорится, кого переименовать в таблице.
+      else if (res && res.ok && Array.isArray(res.warnings) && res.warnings.length) {
+        setStatus(lastPlanStatus(), 'error', res.warnings.join(' '));
+      }
     },
   });
 
@@ -1919,6 +2967,9 @@ function renderSettings(host) {
 
   // --- выгрузка и загрузка состояния (3.8) --------------------------------
   box.append(renderTransferBlock(host, view));
+
+  // --- вехи и звук (9.4.2) ------------------------------------------------
+  box.append(renderSoundBlock(host, preset, settings));
 
   // --- отладка ------------------------------------------------------------
   box.append(renderDebugBlock(host, view));
@@ -2000,6 +3051,7 @@ const lastPlanStatus = () => mounted.planStatus;
 
 function renderPlanTable(host, view, preset, open = false) {
   const U = view.labels;
+  const X = extraLabels(preset);
   const status = el('div', { class: 'academy-status' });
   // Рабочая копия: правки живут здесь до нажатия «сохранить», чтобы
   // недописанная строка не роняла состояние.
@@ -2107,6 +3159,13 @@ function renderPlanTable(host, view, preset, open = false) {
               teacherSelect(s),
             ]),
           ]),
+          // Корпус и аудитория (9.7A п.11) — необязательные, одной ячейкой на
+          // двоих: на телефоне таблица становится карточкой, и два коротких
+          // поля рядом занимают одну строку, а не две.
+          el('div', { class: 'academy-td academy-td-place' }, [
+            field(X.buildingField, s.building, (v) => { s.building = v; }, X.buildingHint),
+            field(X.roomField, s.room, (v) => { s.room = v; }, X.roomHint),
+          ]),
           el('div', { class: 'academy-td academy-td-actions' }, [
             el('div', {
               class: 'menu_button academy-btn academy-btn-small',
@@ -2120,7 +3179,7 @@ function renderPlanTable(host, view, preset, open = false) {
       el('div', {
         class: 'menu_button academy-btn academy-btn-small',
         text: U.addSubject,
-        onclick: () => { draft.subjects.push({ id: '', name: '', teacherId: '' }); redraw(); },
+        onclick: () => { draft.subjects.push({ id: '', name: '', teacherId: '', building: '', room: '' }); redraw(); },
       }),
       el('div', {
         class: 'menu_button academy-btn',
@@ -2265,7 +3324,12 @@ function renderApiBlock(host, view) {
       const list = (res && res.models) || [];
       clear(models);
       for (const m of list) models.append(el('option', { value: String(m) }));
-      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Список раскрывается в поле «Модель».`);
+      // Список пришёл через сервер таверны (9.1.7, `api.js: listModels`) —
+      // сказать об этом одной строкой: ключ в этот раз прошёл через сервер
+      // самой таверны, и человек, у которого браузер «не видит» адрес, должен
+      // понимать, почему список всё-таки есть.
+      const via = res && res.via === 'tavern-backend' ? ' Адрес не пускает запросы из браузера, поэтому список спросил сервер таверны — тем же адресом и ключом.' : '';
+      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Список раскрывается в поле «Модель».${via}`);
     },
   }) : null;
 
@@ -2273,7 +3337,11 @@ function renderApiBlock(host, view) {
     el('p', {
       class: 'academy-note',
       text: own
-        ? 'Ключ лежит в настройках таверны открытым текстом и попадает в их экспорт. Никуда, кроме указанного адреса, он не уходит.'
+        // Про сервер таверны сказано прямо (9.1.7): если адрес не пускает
+        // браузер (CORS), список моделей запрашивает сервер таверны — ключ
+        // проходит через него, хотя дальше указанного адреса не уходит.
+        ? 'Ключ лежит в настройках таверны открытым текстом и попадает в их экспорт. Никуда, кроме указанного адреса, он не уходит;'
+          + ' если адрес не пускает запросы из браузера, список моделей за вас спросит сервер самой таверны — тем же адресом и ключом.'
         : 'Генерация пойдёт тем же подключением, которым таверна отвечает в чате. Ключ здесь вводить не нужно и никуда он не уезжает: запрос делает сама таверна.',
     }),
     sourceBox,
@@ -2328,6 +3396,9 @@ function renderModeBlock(host, view) {
   const words = el('input', { type: 'checkbox', checked: view.relativeWords });
   words.addEventListener('change', () => host.setSettings({ relativeWords: words.checked }));
 
+  const viaMacro = el('input', { type: 'checkbox', checked: view.statusViaMacro === true });
+  viaMacro.addEventListener('change', () => host.setSettings({ statusViaMacro: viaMacro.checked }));
+
   return section('Источник времени', [
     // Слова технические и в пресеты не едут — как и всё в этом блоке.
     view.markerRisk
@@ -2348,6 +3419,14 @@ function renderModeBlock(host, view) {
     el('label', { class: 'academy-check' }, [
       words,
       el('span', { text: 'Понимать относительные сдвиги словами («на следующее утро», «через неделю») — самая ненадёжная часть' }),
+    ]),
+    // 9.3.1: хвост промпта тесный (9.5), и место строки решает человек.
+    // Инструкция метки и одноразовый факт остаются инжектами — их место важно.
+    el('label', { class: 'academy-check' }, [
+      viaMacro,
+      el('span', {
+        text: 'Вставлять строку состояния через макрос {{academy}} — сами поставьте его в системный промпт, заметку автора или карточку; автоинжект строки выключится',
+      }),
     ]),
   ]);
 }
@@ -2374,7 +3453,9 @@ function renderPresetBlock(host, view) {
     p.list.map((item) => el('option', {
       value: item.id,
       selected: item.active,
-      text: item.broken ? `${item.name} (файл не прочитан)` : item.name,
+      // Свой пресет помечен: встроенный и его копия-основа иначе неотличимы
+      // до первого нажатия «Удалить».
+      text: item.broken ? `${item.name} (файл не прочитан)` : (item.user ? `${item.name} (${PRESET_TEXT.userMark})` : item.name),
     })));
 
   const apply = async (button, confirm) => {
@@ -2400,19 +3481,234 @@ function renderPresetBlock(host, view) {
     }
   };
 
+  // --- переносимые пресеты (9.3.2) ------------------------------------------
+  //
+  // Выгрузка и удаление действуют на то, что выбрано в выпадашке, а не на
+  // активный пресет: «выгрузить японскую школу как основу для своей» не
+  // должно требовать сперва включить её в идущем чате.
+  const T = PRESET_TEXT;
+  const isUser = (id) => p.list.some((item) => item.id === id && item.user);
+  const nameOf = (id) => ((p.list.find((item) => item.id === id) || {}).name || id);
+
+  const exportPreset = async (e) => {
+    const res = await runAction(e.currentTarget, status, () => call(host, 'exportPreset', select.value), '');
+    if (!res || res.ok === false) return;
+    if (saveFile(res.json, res.filename, status)) setStatus(status, 'ok', fill(T.exportOk, { filename: res.filename }));
+  };
+
+  const deleteBox = el('div', { class: 'academy-confirm', hidden: true });
+  const remove = async (button, confirm) => {
+    const id = select.value;
+    const res = await runAction(button, status, () => call(host, 'deletePreset', id, { confirm }), T.deleted);
+    if (res && res.needsConfirm) {
+      askConfirm(confirmBox, U, {
+        reasons: res.reasons || [],
+        current: res.current,
+        incoming: null,
+        onYes: (btn) => remove(btn, true),
+        onNo: () => setStatus(status, 'ok', U.importCancelled),
+      });
+      return;
+    }
+    if (res && res.ok !== false) { renderPanel(host); renderSettingsBlock(host); }
+  };
+  // Удаление — в два нажатия всегда, даже когда пресет не активен: вернуть
+  // его можно только файлом, а файла у человека может и не быть.
+  const askDelete = () => {
+    clear(deleteBox);
+    deleteBox.hidden = false;
+    deleteBox.append(
+      el('div', { class: 'academy-confirm-title', text: fill(T.deleteConfirm, { name: nameOf(select.value) }) }),
+      el('div', { class: 'academy-row academy-row-buttons' }, [
+        el('div', {
+          class: 'menu_button academy-btn academy-btn-main',
+          text: T.deleteYes,
+          onclick: (e) => { deleteBox.hidden = true; remove(e.currentTarget, false); },
+        }),
+        el('div', {
+          class: 'menu_button academy-btn academy-btn-small',
+          text: T.cancel,
+          onclick: () => { deleteBox.hidden = true; setStatus(status, 'ok', U.importCancelled); },
+        }),
+      ]),
+    );
+  };
+  const deleteBtn = el('div', {
+    class: 'menu_button academy-btn academy-btn-small academy-btn-danger',
+    text: T.deleteButton,
+    onclick: askDelete,
+  });
+  // Кнопка удаления есть только у своего пресета. Выпадашка перерисовки не
+  // вызывает, поэтому видимость правится на месте.
+  const syncDelete = () => { deleteBtn.hidden = !isUser(select.value); deleteBox.hidden = true; };
+  select.addEventListener('change', syncDelete);
+  syncDelete();
+
+  // Узел статуса — на свою копию блока: блок рисуется и в панели, и в меню
+  // расширений, и итог загрузки после перерисовки ищет СВОЙ новый узел.
+  const scope = sectionScope;
+  mounted.presetStatus = { ...(mounted.presetStatus || {}), [scope]: status };
+  const importBlock = renderPresetImport(host, U, status, confirmBox, scope);
+
   return section(U.presetSection, [
     el('p', { class: 'academy-note', text: U.presetNote }),
+    p.notice ? el('p', { class: 'academy-warn', text: p.notice }) : null,
     el('label', { class: 'academy-field' }, [el('span', { text: U.presetSection }), select]),
     p.drift ? el('p', { class: 'academy-warn', text: p.drift }) : null,
+    p.gone ? el('p', { class: 'academy-warn', text: p.gone }) : null,
     el('div', { class: 'academy-row academy-row-buttons' }, [
       el('div', {
         class: 'menu_button academy-btn academy-btn-small',
         text: U.presetChange,
         onclick: (e) => apply(e.currentTarget, false),
       }),
+      el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.exportButton, onclick: exportPreset }),
+      deleteBtn,
     ]),
+    deleteBox,
+    el('p', { class: 'academy-note', text: T.exportNote }),
+    importBlock,
     confirmBox,
     status,
+  ]);
+}
+
+/**
+ * Отдать текст браузеру файлом. Тот же приём, что у выгрузки состояния:
+ * `Blob` + временная ссылка, живущая ровно один клик.
+ * @returns {boolean} получилось ли
+ */
+function saveFile(text, filename, status) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = el('a', { href: url, download: filename });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (err) {
+    setStatus(status, 'error', `Файл не отдался браузеру: ${(err && err.message) || err}`);
+    return false;
+  }
+}
+
+/**
+ * Загрузка пресета из файла (9.3.2): выбрать файл → превью → «добавить» или
+ * «добавить и применить».
+ *
+ * Разбор и запись — два разных вызова, как у загрузки состояния (решение 8
+ * этапа 3): человек видит, что за заведение приедет, ДО того, как оно легло в
+ * настройки. Текст файла держится в замыкании между превью и кнопкой — второй
+ * раз файл не читается, а превью и запись проверяют одно и то же.
+ */
+function renderPresetImport(host, U, status, confirmBox, scope) {
+  const T = PRESET_TEXT;
+  const preview = el('div', { class: 'academy-confirm academy-preset-preview', hidden: true });
+  const file = el('input', { type: 'file', accept: 'application/json,.json', class: 'academy-file' });
+
+  const reset = () => { preview.hidden = true; clear(preview); file.value = ''; };
+  const statusAfter = () => ((mounted.presetStatus && mounted.presetStatus[scope]) || status);
+
+  const done = (res, apply) => {
+    const name = String(res.name || res.added || '');
+    reset();
+    renderPanel(host);
+    renderSettingsBlock(host);
+    // Перерисовка отцепила старый узел статуса — итог пишется в новый.
+    const target = statusAfter();
+    setStatus(target, 'ok', fill(apply ? T.addedApplied : T.added, { name }));
+  };
+
+  const add = async (button, text, apply) => {
+    const res = await runAction(button, status, () => call(host, 'importPreset', text, { apply }), '');
+    if (!res) return;
+    if (res.needsConfirm && res.added) {
+      // Пресет уже добавлен; вопрос — только про смену на идущем семестре.
+      reset();
+      askConfirm(confirmBox, U, {
+        reasons: res.reasons || [],
+        current: res.current,
+        incoming: null,
+        onYes: async (btn) => {
+          const again = await runAction(btn, status, () => call(host, 'setPreset', res.added, { confirm: true }), U.presetChanged);
+          if (again && again.ok !== false) done(res, true);
+        },
+        onNo: () => {
+          renderPanel(host);
+          renderSettingsBlock(host);
+          setStatus(statusAfter(), 'ok', fill(T.addedNotApplied, { name: res.name || res.added }));
+        },
+      });
+      return;
+    }
+    if (res.ok === false) return;
+    done(res, apply);
+  };
+
+  const showPreview = (res, text) => {
+    clear(preview);
+    preview.hidden = false;
+    const s = res.summary || {};
+    // Через фильтр: штатный `append` превращает `null` в текст «null» — так
+    // стенд на 360px и показал его под замечаниями.
+    preview.append(...[
+      el('div', { class: 'academy-confirm-title', text: T.previewTitle }),
+      el('div', { class: 'academy-preset-name', text: s.name || s.id || '' }),
+      s.line ? el('div', { class: 'academy-preset-line', text: s.line }) : null,
+      res.renamed ? el('p', { class: 'academy-note', text: fill(T.previewRenamed, { id: s.id }) }) : null,
+      res.warnings && res.warnings.length
+        ? el('details', { class: 'academy-preset-warnings' }, [
+          el('summary', { text: `${T.previewWarnings} (${res.warnings.length})` }),
+          el('ul', { class: 'academy-errors' }, res.warnings.map((w) => el('li', { text: String(w) }))),
+        ])
+        : null,
+      res.full ? el('p', { class: 'academy-warn', text: fill(T.full, { max: res.max || 20 }) }) : null,
+      el('div', { class: 'academy-row academy-row-buttons' }, [
+        el('div', { class: 'menu_button academy-btn academy-btn-main', text: T.addApply, onclick: (e) => add(e.currentTarget, text, true) }),
+        el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.add, onclick: (e) => add(e.currentTarget, text, false) }),
+        el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.cancel, onclick: () => { reset(); setStatus(status, 'ok', T.cancelled); } }),
+      ]),
+    ].filter(Boolean));
+  };
+
+  file.addEventListener('change', async () => {
+    const picked = file.files && file.files[0];
+    if (!picked) return;
+    reset();
+    // Размер — до чтения: на телефоне прочитать в память чужой гигабайт ради
+    // отказа «слишком большой» — худший из вариантов.
+    if (typeof picked.size === 'number' && picked.size > PRESET_MAX_BYTES) {
+      setStatus(status, 'error', T.tooBig);
+      return;
+    }
+    let text = '';
+    try {
+      text = await picked.text();
+    } catch (err) {
+      setStatus(status, 'error', fill(T.readFailed, { error: (err && err.message) || err }));
+      return;
+    }
+    const res = await runAction(null, status, () => call(host, 'previewPreset', text), '');
+    if (!res || res.ok === false) {
+      // Причины отказа — списком: человек чинит файл руками, и одна причина
+      // за раз — пять загрузок вместо одной (`core/preset.mjs`, решение 4).
+      if (res && Array.isArray(res.errors) && res.errors.length > 1) {
+        clear(preview);
+        preview.hidden = false;
+        preview.append(el('ul', { class: 'academy-errors' }, res.errors.map((x) => el('li', { text: String(x) }))));
+      }
+      file.value = '';
+      return;
+    }
+    setStatus(status, 'ok', '');
+    showPreview(res, text);
+  });
+
+  return el('div', { class: 'academy-preset-import' }, [
+    el('label', { class: 'academy-field' }, [el('span', { text: T.importPick }), file]),
+    el('p', { class: 'academy-note', text: T.importNote }),
+    preview,
   ]);
 }
 
@@ -2688,6 +3984,74 @@ function askConfirm(box, U, { reasons, current, incoming, onYes, onNo }) {
  * него прокручиваются долго. Разбор — пятая вкладка, которой при выключенной
  * галочке не существует (`tabsFor`).
  */
+/**
+ * Звук вех (9.4.2). Галочка живёт в настройках расширения (`milestoneSound`,
+ * умолчание — выкл.), а не в состоянии чата: это привычка человека, а не
+ * факт семестра. Кнопка «Послушать» — не украшение: браузер пускает звук
+ * только после жеста на странице, и человек, включивший галочку, должен иметь
+ * способ убедиться, что звук вообще есть, не дожидаясь следующей вехи.
+ */
+function renderSoundBlock(host, preset, settings) {
+  const X = extraLabels(preset);
+  const status = el('div', { class: 'academy-status' });
+  const box = el('input', { type: 'checkbox', checked: settings.milestoneSound === true });
+  box.addEventListener('change', () => safe(() => host.setSettings({ milestoneSound: box.checked }, { quiet: true }), null));
+  return section(X.soundSection, [
+    el('label', { class: 'academy-check' }, [box, el('span', { text: X.soundToggle })]),
+    el('p', { class: 'academy-note', text: X.soundNote }),
+    el('div', { class: 'academy-row academy-row-buttons' }, [
+      el('div', {
+        class: 'menu_button academy-btn academy-btn-small',
+        text: X.soundTry,
+        onclick: () => { if (!playChime()) setStatus(status, 'note', X.soundTried); },
+      }),
+    ]),
+    status,
+  ]);
+}
+
+/** Один контекст на страницу: браузеры ограничивают их число. */
+let chimeCtx = null;
+
+/**
+ * Короткий звук вехи на WebAudio, без файлов (9.4.2): две синусоиды квартой
+ * вверх (ми → ля второй октавы), по ~0,35 с, с мягкой атакой и затуханием —
+ * «колокольчик», а не сигнал ошибки. Громкость 0,08: звук не должен
+ * перекрывать голос TTS и музыку соседей.
+ *
+ * Возвращает `true`, если звук поставлен в очередь. `false` — WebAudio нет
+ * или браузер ещё не разрешил странице звук (контекст `suspended` до первого
+ * жеста): тогда молча, без исключений — звук вежливость, а не условие.
+ */
+export function playChime() {
+  try {
+    const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (typeof AC !== 'function') return false;
+    chimeCtx = chimeCtx || new AC();
+    const ctx = chimeCtx;
+    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+      Promise.resolve(ctx.resume()).catch(() => {});
+    }
+    const t0 = (Number(ctx.currentTime) || 0) + 0.02;
+    for (const [freq, at] of [[659.25, 0], [880, 0.12]]) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + at);
+      gain.gain.exponentialRampToValueAtTime(0.08, t0 + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0 + at);
+      osc.stop(t0 + at + 0.4);
+    }
+    return ctx.state !== 'suspended';
+  } catch {
+    return false;
+  }
+}
+
 function renderDebugBlock(host, view) {
   const T = DEBUG_TEXT;
   const box = el('input', { type: 'checkbox', checked: view.debug });

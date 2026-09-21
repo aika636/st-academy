@@ -543,7 +543,7 @@ function advancePeriods(next, n, preset) {
  *
  * @param {Object} state
  * @param {{day?: string, time?: ?string, daypart?: ?string}} at
- * @param {'A'|'B'|'manual'} source
+ * @param {'A+'|'A'|'B'|'manual'} source
  * @param {Object} preset
  * @param {{force?: boolean}} [opts] `force` снимает защиту от отката — это
  *   ручной сдвиг, человек знает, что делает.

@@ -23,7 +23,11 @@ const day = (n) => `2024-09-${String(n).padStart(2, '0')}`;
 
 test('прогул расходится по трём направлениям сразу', () => {
   const res = mark(base(), { subjectId: 'chemistry', status: 'skip', day: day(2), periodIndex: 0 }, preset);
-  assert.deepEqual(res.effects.relation, [{ teacherId: 'petrova', delta: preset.attendance.relationDelta.skip }]);
+  // Повод едет вместе с дельтой (9.7B): прогул, предмет, день.
+  assert.deepEqual(res.effects.relation, [{
+    teacherId: 'petrova', delta: preset.attendance.relationDelta.skip,
+    reason: { kind: 'skip', subjectId: 'chemistry', day: day(2) },
+  }]);
   assert.equal(res.effects.reputation, preset.reputation.delta.skip);
   assert.deepEqual(res.effects.debt, []); // до порога ещё далеко
   assert.deepEqual(stats(res.state, 'chemistry'), { present: 0, skips: 1, lates: 0, excused: 0 });
@@ -99,7 +103,10 @@ test('вывод пропусков из календаря: чего нет в 
   assert.deepEqual(res.missed, ['physics'], 'отмеченная пара пропуском не становится');
   assert.equal(stats(res.state, 'chemistry').present, 1);
   assert.equal(stats(res.state, 'physics').skips, 1);
-  assert.deepEqual(res.effects.relation, [{ teacherId: 'sidorov', delta: preset.attendance.relationDelta.skip }]);
+  assert.deepEqual(res.effects.relation, [{
+    teacherId: 'sidorov', delta: preset.attendance.relationDelta.skip,
+    reason: { kind: 'skip', subjectId: 'physics', day: '2024-09-03' },
+  }]);
   assert.equal(res.effects.reputation, preset.reputation.delta.skip);
 
   // Повторный проход по тому же дню ничего не добавляет.

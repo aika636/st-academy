@@ -32,14 +32,11 @@
 // `../../../slash-commands/*` завязывает файл на путь установки и не резолвится
 // вне браузера.
 
-import { DEBUG_TEXT, describeApplied, fill, gradebookView, stateHealth, todayView, uiLabels } from './ui.js';
+import { DEBUG_TEXT, debugView, fill, gradebookView, stateHealth, todayView, uiLabels } from './ui.js';
 import { stripSecrets } from './storage.js';
 import { joinSentences } from './core/state.mjs';
 
 const ctx = () => SillyTavern.getContext();
-
-/** Откуда пришло время в последнем разборе. Те же слова, что в панели. */
-const SOURCE_LABEL = { A: 'из контекста', B: 'метка', manual: 'вручную' };
 
 /** Парсеры, которым команды уже отданы. Не модуль-флаг: см. решение 4 в шапке. */
 const served = new WeakSet();
@@ -261,31 +258,33 @@ export function stateJson(host) {
  */
 export function debugText(host) {
   const run = host.getDebug && host.getDebug();
-  if (!run) return 'Разбора ещё не было: ни одного ответа модели в этом чате расширение не считало.';
+  if (!run) return DEBUG_TEXT.noRun;
 
-  const d = run.debug || {};
-  // Словарь заведения — из пресета, тем же вызовом, что у вкладки «Отладка»:
-  // своя копия здесь печатала «пропущено пар» и «назначена сессия», то есть
-  // слова русского вуза в общем коде (см. `ui.js:describeApplied`).
-  const vocab = ((host.getPreset && host.getPreset()) || {}).vocab || {};
-  const applied = (d.applied || []).map((i) => describeApplied(i, vocab)).filter(Boolean);
-  const rejected = (d.rejected || []).map((r) => (typeof r === 'string' ? r : `${r.raw || r.kind || 'кусок'}${r.reason ? ` — ${r.reason}` : ''}`));
-  const notes = d.notes || run.notes || [];
-  const injects = (run.injects || []).map((i) => (typeof i === 'string' ? i : i.text)).filter(Boolean);
+  // Одна правда со вкладкой «Отладка»: команда печатает `debugView` строками.
+  // Своя разборка полей здесь уже дважды отставала от панели — сперва словами
+  // русского вуза, потом новыми видами записей (промотка, телефонный ход,
+  // выброшенное время, погашенный `rel=`, бросок против DC), которые панель
+  // уже знала, а команда печатала сырым именем или не печатала вовсе
+  // (расхождения экзамена с версией модели). Галочку отладки команда не
+  // спрашивает: её зовут руками ровно тогда, когда разбор нужен.
+  const preset = (host.getPreset && host.getPreset()) || {};
+  const state = host.getState ? host.getState() : null;
+  const T = DEBUG_TEXT;
+  const view = debugView(run, state, preset, { debug: true });
+  const block = (title, items) => (items.length ? [`${title}:`, ...items.map((s) => `  — ${s}`)].join('\n') : null);
 
   return lines([
-    `Сообщение #${run.mesId} (${run.source || 'received'}), режим времени: ${d.mode || '—'}.`,
-    `Источник времени: ${d.source ? (SOURCE_LABEL[d.source] || d.source) : 'не сработал ни один'}`
-      + `, время ${d.moved ? 'сдвинулось' : 'осталось на месте'}`
-      + `${d.stalled ? `, стоит уже ${d.idle} ответ(ов)` : ''}.`,
-    d.marker ? `Метка: ${d.marker}` : 'Метки в ответе не было.',
-    applied.length ? ['Применено:', ...applied.map((s) => `  — ${s}`)].join('\n') : 'Применять было нечего.',
-    rejected.length ? ['Отвергнуто:', ...rejected.map((s) => `  — ${s}`)].join('\n') : null,
-    notes.length ? ['Замечания:', ...notes.map((s) => `  — ${s}`)].join('\n') : null,
+    view.head,
+    [view.source, view.stalled].filter(Boolean).join(' '),
+    view.marker,
+    view.applied.length ? block(T.appliedTitle, view.applied) : T.noApplied,
+    block(T.rejectedTitle, view.rejected),
+    block(T.notesTitle, view.notes),
     // Заголовок — из словаря отладки, а не своей копией: копия говорила
     // «сессия» и в магической академии (тот же класс бага, что в `describeApplied`).
-    run.permission ? `${DEBUG_TEXT.permissionTitle}: ${run.permission}` : null,
-    injects.length ? ['В одноразовый инжект ушло:', ...injects.map((s) => `  — ${s}`)].join('\n') : 'Одноразовых инжектов не было.',
+    view.permission ? `${T.permissionTitle}: ${view.permission}` : null,
+    view.injects.length ? block(T.injectsTitle, view.injects) : T.noInjects,
+    block(T.divergenceTitle, view.divergences.map((d) => d.text)),
   ]);
 }
 

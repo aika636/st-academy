@@ -280,8 +280,14 @@ test('sitExam считает исход до модели и подаёт его
   s.calendar.day = '2024-12-24';
   s = scheduleExams(s, preset, { day: '2024-12-24' });
 
-  const r = sitExam(s, preset, { rng: tape(0.5) });
+  // Лента 0.1 — это d20 = 3 (`exams.rollDie`). До 9.4.1 здесь стояло 0.5, и
+  // взвешенная сумма на стартовом балле давала незачёт; у проверки против DC
+  // середина кубика (11) на стартовом балле уже проходит зачёт (DC 9 = 7 база
+  // + 2 за злопамятную Петрову), так что провал нужен низким броском.
+  const r = sitExam(s, preset, { rng: tape(0.1) });
   assert.equal(r.applied, true);
+  assert.equal(r.exam.check.roll, 3, 'бросок из ленты, а не из Math.random');
+  assert.ok(r.exam.check.dc > r.exam.check.roll, `DC ${r.exam.check.dc} выше броска — провал`);
   assert.ok(r.permission.includes(preset.vocab.examPeriod), 'фраза разрешения собрана');
   // Незачёт с оставшимися пересдачами из списка несданного не выпадает: его
   // ещё предстоит пересдать (`exams.unfinished`). Выпадает сданное и то, что
@@ -528,8 +534,13 @@ test('прилежная студентка: applyResponse даёт тот же 
   assert.equal(examMode(s, preset).pending.length, 0);
   assert.equal(debts(s).length, 0);
   assert.ok(s.exams.items.every((i) => i.attempts === 1));
+  // До 9.4.1 здесь стояло `exam=4`: взвешенная сумма на середине ленты давала
+  // вторую ступень. Проверка против DC у прилежной студентки (балл ≈ 4.5,
+  // Петрова благоволит) даёт DC ниже нуля, и середина кубика (11) идёт с
+  // запасом больше `critMargin` — крит, высшая оценка. Так и задумано: высшая
+  // оценка — за блестящую сдачу, а блестяще сдаёт та, кому было легко.
   assert.deepEqual(s.exams.items.map((i) => `${i.kind}=${i.outcome}`),
-    ['credit=зачёт', 'exam=4', 'credit=зачёт', 'exam=4']);
+    ['credit=зачёт', 'exam=5', 'credit=зачёт', 'exam=5']);
 
   const score = overallScore(s, preset);
   assert.ok(score > 4 && score <= 5, `итоговый балл: ${score}`);
@@ -537,8 +548,11 @@ test('прилежная студентка: applyResponse даёт тот же 
   assert.equal(s.reputation.expelled, false);
 
   for (const step of done.steps) {
-    assert.equal(step.injects.length, 1, 'один инжект на одно контрольное событие');
-    assert.equal(step.injects[0].kind, 'exam');
+    // Итог письменного экзамена объявляют на следующий учебный день (9.4.3):
+    // рядом с вердиктом дня может стоять объявление вчерашнего — своим фактом.
+    const verdicts = step.injects.filter((i) => i.kind === 'exam');
+    assert.equal(verdicts.length, 1, 'один вердикт на одно контрольное событие');
+    assert.ok(step.injects.every((i) => i.kind === 'exam' || i.kind === 'announce'), JSON.stringify(step.injects));
     assert.ok(step.permission.includes(preset.vocab.examPeriod));
   }
   assert.deepEqual(s.pending, []);

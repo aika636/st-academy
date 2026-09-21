@@ -51,6 +51,19 @@
 //    (3.7: «видно, правится и удаляется средствами таверны»), поэтому такие
 //    записи только называются вслух — `orphans`, — а сносит их `pruneOrphans`,
 //    и только по явному действию.
+//
+// 7. **Смена чата посреди похода — отказ, а не запись** (дыра 9.1.4, как у
+//    плана). Контекст таверны (`ctx`) захвачен до первого `await`: имя лорбука
+//    посчитано по `chatMetadata` и `getCurrentChatId` старого чата, а
+//    `ctx.saveMetadata()` после смены сохранил бы уже НОВЫЙ чат. Пока
+//    читается файл лорбука, человек успевает открыть другой чат — и записи
+//    семестра прошлого чата легли бы в лорбук, привязка — в мёртвый объект
+//    метаданных. Поэтому вызывающий передаёт сторож `opts.guard()` (в
+//    `index.js` — `isCurrent(op)` ремонта 9.1.4), и он спрашивается после
+//    каждого `await` перед каждой записью. Отказ — `{ok: false, reason:
+//    CHAT_CHANGED}`; то, что уже записано до смены (новый пустой лорбук),
+//    остаётся — это файл с именем старого чата, и прошлый чат при возврате его
+//    просто привяжет (`ensureBook`: существующий не перезаписывается).
 
 import { buildEntries, buildLorebook, fingerprint, KEEP_FOREIGN } from './core/lorebook.mjs';
 import { DEFAULT_SETTINGS } from './storage.js';
@@ -66,6 +79,23 @@ export const MARK = 'academy';
 
 /** Версия формата метки: пригодится, когда содержимое `MARK` придётся менять. */
 export const MARK_VERSION = 1;
+
+/** Причина отказа «пока шли в World Info, открылся другой чат» (решение 7). */
+export const CHAT_CHANGED = 'chat-changed';
+
+/**
+ * Всё ещё тот чат, ради которого начали? Сторож приходит от вызывающего
+ * (`opts.guard`); без него — «да», как было до ремонта: прогоны и старые
+ * вызовы не обязаны про него знать.
+ */
+function stillHere(opts) {
+  if (!opts || typeof opts.guard !== 'function') return true;
+  try {
+    return opts.guard() !== false;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Умолчания настроек лорбука.
@@ -310,6 +340,8 @@ export function planSignature(state, preset) {
  * @param {Array}  [opts.npcs]   замеченные NPC — уйдут в `suggest`, не в лорбук
  * @param {Array}  [opts.places] замеченные места — туда же
  * @param {boolean} [opts.immediately] сохранять немедленно, а не дебаунсом
+ * @param {() => boolean} [opts.guard] «чат всё тот же?» — спрашивается перед каждой
+ *   записью (решение 7)
  * @returns {Promise<Object>} отчёт: `{ok, reason, name, created, wrote, plan, orphans}`
  */
 export async function syncLorebook(ctx, state, preset, opts = {}) {
@@ -317,14 +349,19 @@ export async function syncLorebook(ctx, state, preset, opts = {}) {
   // Выключенная галочка — выход до единого обращения к World Info (решение 1).
   if (!s.enabled) return { ok: false, reason: 'off' };
   if (!state || !state.started) return { ok: false, reason: 'no-state' };
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
 
   const wi = worldInfo(ctx);
   if (!wi) return { ok: false, reason: 'no-world-info' };
 
-  const book = await ensureBook(ctx, wi, s);
+  const book = await ensureBook(ctx, wi, s, opts);
+  if (book.changed) return { ok: false, reason: CHAT_CHANGED };
   if (!book.name) return { ok: false, reason: 'no-chat' };
 
   const data = normalizeBook(await wi.load(book.name));
+  // Файл читался — человек мог уйти. Записи семестра этого чата в лорбук,
+  // который к этому времени может принадлежать другому, не пишутся.
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
   const { snapshot, index, marks } = snapshotOf(data);
   const plan = buildLorebook(state, preset, { ...opts, snapshot });
 
@@ -358,13 +395,16 @@ export async function acceptSuggestion(ctx, entry, opts = {}) {
   if (!s.enabled) return { ok: false, reason: 'off' };
   if (!entry || !entry.uid) return { ok: false, reason: 'no-entry' };
 
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
   const wi = worldInfo(ctx);
   if (!wi) return { ok: false, reason: 'no-world-info' };
 
-  const book = await ensureBook(ctx, wi, s);
+  const book = await ensureBook(ctx, wi, s, opts);
+  if (book.changed) return { ok: false, reason: CHAT_CHANGED };
   if (!book.name) return { ok: false, reason: 'no-chat' };
 
   const data = normalizeBook(await wi.load(book.name));
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
   const { index } = snapshotOf(data);
   const at = writeEntry(data, entry, index.has(entry.uid) ? index.get(entry.uid) : null, wi);
   if (at === null) return { ok: false, reason: 'no-uid' };
@@ -383,6 +423,7 @@ export async function acceptSuggestion(ctx, entry, opts = {}) {
 export async function pruneOrphans(ctx, orphans, opts = {}) {
   const s = settingsOf(opts.settings);
   if (!s.enabled) return { ok: false, reason: 'off' };
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
   const wi = worldInfo(ctx);
   if (!wi) return { ok: false, reason: 'no-world-info' };
 
@@ -390,6 +431,9 @@ export async function pruneOrphans(ctx, orphans, opts = {}) {
   if (!name) return { ok: false, reason: 'no-chat' };
 
   const data = normalizeBook(await wi.load(name));
+  // Удаление — самое разрушительное из трёх: сносить «сирот» по списку одного
+  // чата в лорбуке, открытом уже для другого, нельзя ни при каких условиях.
+  if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
   const { index, marks } = snapshotOf(data);
   let removed = 0;
 
@@ -418,7 +462,7 @@ export async function pruneOrphans(ctx, orphans, opts = {}) {
  * обновление списка имён. Диалог здесь не нужен и вреден — существующий файл мы
  * не перезаписываем вовсе, а привязываем.
  */
-async function ensureBook(ctx, wi, s) {
+async function ensureBook(ctx, wi, s, opts = {}) {
   const md = ctx && ctx.chatMetadata;
   const name = bookName(ctx, s);
   if (!name) return { name: '', created: false };
@@ -434,6 +478,10 @@ async function ensureBook(ctx, wi, s) {
     if (wi.refresh) await wi.refresh();
   }
 
+  // Привязка пишется в `md` старого чата, а `saveMetadata()` сохраняет ТЕКУЩИЙ
+  // чат (`script.js`, `saveChatConditional`): после смены чата это запись
+  // мимо — в мёртвый объект — и лишнее сохранение чужого чата (решение 7).
+  if (!stillHere(opts)) return { name, created: !exists, changed: true };
   if (md) md[METADATA_KEY] = name;
   // Привязка сохраняется немедленно: она нужна таверне уже на ближайшей
   // генерации, а дебаунс её туда не донесёт, если вкладку закроют.

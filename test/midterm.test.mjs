@@ -24,7 +24,7 @@ import { readFileSync } from 'node:fs';
 import { createState, migrate } from '../core/state.mjs';
 import { buildSchedule, dayPlan } from '../core/schedule.mjs';
 import { applyResponse } from '../core/engine.mjs';
-import { examMode, datedExams, retakesLeft } from '../core/exams.mjs';
+import { examMode, datedExams, retakesLeft, announceResults } from '../core/exams.mjs';
 import { phaseOf, addDays, termAt, isStudyDay } from '../core/time.mjs';
 import { buildPrompt } from '../prompt.mjs';
 import { gradebookView } from '../ui.js';
@@ -291,8 +291,14 @@ test('заваленная середина остаётся пересдава�
 
   assert.equal(item.outcome, '1');
   assert.ok(retakesLeft(JP, item) > 0);
-  // Пересдача достижима: событие по-прежнему в списке того, за что можно сесть.
-  assert.ok(datedExams(s, JP, s.calendar.day).some((i) => i.id === item.id));
+  // Итог японской школы объявляют через два учебных дня (9.4.3): до того
+  // пересдавать нечего — героиня ещё не знает, что провалилась.
+  assert.equal(item.announced, false);
+  assert.equal(datedExams(s, JP, s.calendar.day).some((i) => i.id === item.id), false);
+  // Пересдача достижима: после объявления событие снова в списке того, за что
+  // можно сесть.
+  const told = announceResults({ ...s, calendar: { ...s.calendar, day: item.announceOn } }, JP).state;
+  assert.ok(datedExams(told, JP, item.announceOn).some((i) => i.id === item.id));
 });
 
 test('несданная середина становится хвостом при закрытии сессии периода', () => {

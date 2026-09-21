@@ -21,10 +21,20 @@
 //    тишина. Каждый вызов получает `AbortController`, снаружи можно передать свой
 //    `signal` (кнопка «отмена» в панели).
 //
-// 4. **Ровно один автоматический повтор при генерации плана** (3.6). Дальше —
-//    честный `{ok: false, error, raw}`: панель показывает сырой ответ и открывает
-//    ручную таблицу. Никаких запросов «каждые N сообщений»: план генерируется по
-//    кнопке, один раз на семестр.
+// 4. **Повторы — два разных слоя, и каждый лечит своё** (3.6, 9.1.7).
+//    * Транспорт: 429 и 5xx своего адреса повторяются внутри `request` ещё два
+//      раза с паузами 800 и 1600 мс (`RETRY`). Это беды сервера, а не запроса:
+//      тот же запрос через секунду обычно проходит.
+//    * Смысл: ответ пришёл, но не разобрался — ровно один повтор с припиской
+//      «верни только JSON» в `generatePlan`/`guessSurvey`. Любой отказ
+//      транспорта этот слой больше не повторяет: иначе 503 давал бы 3 × 2 = 6
+//      запросов, а неверный адрес — два таймаута по полторы минуты.
+//    Не повторяется никогда: 4xx кроме 429 (чинить настройки), сеть/CORS
+//    (браузер не отличает «лёг» от «запрещено»), таймаут, отмена человеком,
+//    обрыв по токенам (etap-tokens: тот же бюджет оборвётся там же).
+//    Дальше — честный `{ok: false, error, raw}`: панель показывает сырой ответ и
+//    открывает ручную таблицу. Никаких запросов «каждые N сообщений»: план
+//    генерируется по кнопке, один раз на семестр.
 
 import { buildPlanPrompt, parsePlanResponse, validatePlan, extractJson, fill, balancedBlock } from './core/plan-gen.mjs';
 import { emptySurvey } from './core/state.mjs';
@@ -71,6 +81,22 @@ export const TOKEN_BUDGETS = {
   plan: 4096,
   default: 1024,
 };
+
+/**
+ * Повтор транспорта: паузы перед второй и третьей попыткой, мс. Длина массива
+ * и есть число повторов. Повторяются только 429 и 5xx (`isRetryableStatus`).
+ *
+ * Почему 800/1600, а не «пока не ответит». Кнопку жмёт человек и ждёт; три
+ * попытки за ~2,5 с паузы — это ещё «идёт запрос», а не «зависло». Перегруз
+ * дольше пары секунд повтором не лечится, его лечит человек кнопкой позже —
+ * и фраза отказа ему об этом говорит.
+ */
+export const RETRY = { pauses: [800, 1600] };
+
+/** Статус, при котором тот же запрос имеет смысл повторить: перегруз или сбой сервера. */
+export function isRetryableStatus(status) {
+  return typeof status === 'number' && (status === 429 || status >= 500);
+}
 
 /** Бюджет запроса числом: чужое значение уважается, мусор — нет. */
 function budgetOf(value, fallback) {
@@ -141,6 +167,33 @@ export function resolveSource(api) {
   if (src === 'tavern') return 'tavern';
   if (src === 'own') return 'endpoint';
   return hasOwnEndpoint(api) ? 'endpoint' : 'tavern';
+}
+
+/**
+ * Обезвредить макросы таверны в тексте: `{{` → `{` + U+200B + `{`.
+ *
+ * Зачем. В промпт уезжает то, что писал человек или автор карточки: анкета,
+ * описание персонажа, первое сообщение. `generateRaw` прогоняет и `prompt`, и
+ * `systemPrompt` через `substituteParams` (`script.js: createRawPrompt`, 1.18.0) —
+ * и `{{random::…}}`, `{{roll}}`, `{{setvar::…}}` из карточки исполнились бы:
+ * план получил бы случайное слово, а чат — чужую переменную. Приём тот же, что
+ * у BB-Enhance-Gen: пробел нулевой ширины между скобками ломает узнавание
+ * макроса, а модель текст видит прежним.
+ *
+ * Где НЕ нужно, проверено по исходнику 1.18.0:
+ * * **свой адрес** — текст уходит прямым `fetch`, таверна его не видит;
+ * * **профиль через `ConnectionManagerRequestService.sendRequest`** — сообщения
+ *   идут в `ChatCompletionService.processRequest` как есть, без
+ *   `substituteParams` (`custom-request.js`); в текстовом режиме instruct
+ *   подставляет макросы только в свои последовательности, не в содержимое
+ *   (`formatInstructModeChat`). Лишний невидимый символ там был бы просто
+ *   порчей текста.
+ *
+ * Считается каждая `{`, за которой идёт ещё одна: `{{{` → три скобки с двумя
+ * разрывами, а не «одна пара заменена, одна осталась».
+ */
+export function escapeMacros(text) {
+  return String(text == null ? '' : text).replace(/\{(?=\{)/g, '{​');
 }
 
 /**
@@ -215,7 +268,10 @@ export async function tavernComplete(ctx, req = {}) {
     // `responseLength` — единственный способ не зависеть от настройки человека
     // под реплику в ролевой: таверна на время запроса подменяет лимит через
     // `TempResponseLength.save` (`script.js:3941`, `:4063`).
-    const out = await c.generateRaw({ prompt: user, systemPrompt: system, responseLength: maxTokens });
+    // Экранирование макросов — только здесь, см. `escapeMacros`.
+    const out = await c.generateRaw({
+      prompt: escapeMacros(user), systemPrompt: escapeMacros(system), responseLength: maxTokens,
+    });
     const text = parseCompletion(out);
     if (!text.trim()) return { ok: false, code: 'empty', status: null, detail: '', message: 'Модель вернула пустой ответ.' };
     return { ok: true, text, via: 'tavern', budget: maxTokens, truncated: isTruncated(out, text) };
@@ -452,19 +508,149 @@ function tavern(ctx) {
   return ctx || contextProvider();
 }
 
-/** Заголовки запроса. Ключ уходит только на указанный человеком адрес и никуда больше. */
-export function headersFor(api) {
-  const h = { 'Content-Type': 'application/json' };
-  const key = api && api.key ? String(api.key).trim() : '';
-  if (key) h.Authorization = `Bearer ${key}`;
-  return h;
+// --- ключ --------------------------------------------------------------------
+//
+// Ключ копируют из Telegram, из заметок, из письма — и вместе с ним приезжают
+// невидимые символы: zero-width space и joiner (U+200B–U+200D), word joiner
+// (U+2060), BOM (U+FEFF), неразрывный пробел по краям. Человек их не видит, а
+// `fetch` падает на заголовке `Authorization` с «String contains non ISO-8859-1
+// code point» — фраза, из которой нельзя понять, что виноват ключ. Та же беда
+// решена у SLAYimages (`sanitizeApiKey`); здесь — та же идея и своё слово.
+//
+// Правило двухступенчатое. Что заведомо мусор — молча убирается: невидимки
+// везде, пробелы (в том числе неразрывные) по краям. Что осталось странного —
+// не чинится, а называется: кириллическая «с» вместо латинской c выглядит так
+// же, и угадывать, что человек имел в виду, нельзя — можно только показать,
+// где именно беда.
+
+/** Невидимые символы, которые копирование подмешивает в ключ. Из ключа их убирать всегда безопасно. */
+const KEY_INVISIBLE = /[​-‍⁠﻿]/g;
+
+/** Края ключа: обычные пробелы, переносы, неразрывный пробел. */
+const KEY_EDGES = /^[\s ]+|[\s ]+$/g;
+
+/** Как назвать символ человеку, не показывая сам ключ целиком. */
+function describeKeyChar(ch) {
+  const cp = ch.codePointAt(0);
+  const hex = `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+  if (ch === ' ') return 'пробел';
+  if (ch === '\n' || ch === '\r') return 'перенос строки';
+  if (ch === '\t') return 'табуляция';
+  if (cp === 0xA0) return 'неразрывный пробел';
+  if (cp < 0x20 || cp === 0x7F) return `управляющий символ ${hex}`;
+  if (cp >= 0x400 && cp <= 0x4FF) return `кириллическая буква «${ch}» — скорее всего, вместо похожей латинской`;
+  return `символ «${ch}» (${hex})`;
 }
 
 /**
- * Запрос с таймаутом и отменой. Внешний `signal` (кнопка «отмена») уважается.
+ * Очистка ключа API.
+ *
+ * @param {*} raw что вписал человек
+ * @returns {{ok: true, key: string} | {ok: false, key: string, position: number, message: string}}
+ *   `position` — с единицы, как считает человек.
+ */
+export function sanitizeApiKey(raw) {
+  const key = String(raw == null ? '' : raw).replace(KEY_INVISIBLE, '').replace(KEY_EDGES, '');
+  // Всё, что не печатный ASCII без пробела. Пробел и перенос внутри ключа —
+  // тоже ошибка: ключей с пробелом не бывает, а перенос строки в заголовке
+  // `fetch` отвергает так же невнятно.
+  const at = key.search(/[^\x21-\x7E]/);
+  if (at === -1) return { ok: true, key };
+  const ch = String.fromCodePoint(key.codePointAt(at));
+  return {
+    ok: false,
+    key,
+    position: at + 1,
+    message: `В ключе API лишний символ: ${describeKeyChar(ch)}, ${at + 1}-й по счёту.`
+      + ' Так бывает, когда ключ копируют из мессенджера или заметок.'
+      + ' Вставьте ключ заново — лучше прямо из кабинета провайдера.',
+  };
+}
+
+/**
+ * Проверка ключа перед походом в сеть. Пустой ключ — не ошибка: локальному
+ * серверу он не нужен.
+ *
+ * @returns {null | {ok: false, code: 'bad-key', status: null, detail: string, message: string}}
+ */
+export function keyProblem(api) {
+  const res = sanitizeApiKey(api && api.key);
+  if (res.ok) return null;
+  return { ok: false, code: 'bad-key', status: null, detail: '', message: res.message };
+}
+
+/**
+ * Заголовки запроса. Ключ уходит только на указанный человеком адрес и никуда
+ * больше — и уходит очищенным. Испорченный ключ сюда не доходит: его ловит
+ * `keyProblem` раньше; если всё же дошёл, заголовок не ставится вовсе, чтобы
+ * вместо понятного 401 не было падения `fetch`.
+ */
+export function headersFor(api) {
+  const h = { 'Content-Type': 'application/json' };
+  const res = sanitizeApiKey(api && api.key);
+  if (res.ok && res.key) h.Authorization = `Bearer ${res.key}`;
+  return h;
+}
+
+/** Пауза, которую можно прервать отменой. Резолвится в любом случае — отмену проверяет вызывающий. */
+function defaultSleep(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal && signal.aborted) { resolve(); return; }
+    const done = () => { clearTimeout(timer); if (signal) signal.removeEventListener('abort', done); resolve(); };
+    const timer = setTimeout(done, ms);
+    if (signal) signal.addEventListener('abort', done, { once: true });
+  });
+}
+
+let sleepImpl = defaultSleep;
+
+/**
+ * Подмена паузы между повторами (тесты: без реального ожидания, с записью
+ * длительностей). Без аргумента — вернуть штатную.
+ */
+export function setSleep(fn) {
+  sleepImpl = typeof fn === 'function' ? fn : defaultSleep;
+}
+
+/** Ошибка отмены в той же форме, в какой её бросает `fetch`. */
+function abortError() {
+  return Object.assign(new Error('aborted'), { name: 'AbortError' });
+}
+
+/**
+ * Запрос с повтором на 429/5xx (`RETRY`). Одна попытка — это `requestOnce`;
+ * здесь только решение «ещё раз или хватит».
+ *
+ * Отмена во время паузы — это отмена, а не повод сделать следующую попытку:
+ * человек нажал «стоп», и третьего запроса после этого быть не должно.
+ *
+ * @param {Object} opts `{timeout, signal, model, retry}`; `retry: false` — одна попытка
+ */
+async function request(url, init, opts) {
+  const pauses = opts.retry === false ? [] : RETRY.pauses;
+  let res = await requestOnce(url, init, opts);
+  let tries = 1;
+  for (const pause of pauses) {
+    if (res.ok || !isRetryableStatus(res.status)) break;
+    await sleepImpl(pause, opts.signal);
+    if (opts.signal && opts.signal.aborted) return classifyError({ error: abortError(), url, model: opts.model });
+    res = await requestOnce(url, init, opts);
+    tries += 1;
+  }
+  if (!res.ok && tries > 1) {
+    // Человек должен знать, что «подождите и повторите» уже сделано за него —
+    // иначе он нажмёт кнопку сразу и получит тот же 429.
+    const again = tries - 1 === 1 ? 'уже повторило запрос' : `уже повторило запрос ${tries - 1} раза`;
+    return { ...res, tries, message: `${res.message} Расширение ${again} с паузой — попробуйте позже.` };
+  }
+  return res;
+}
+
+/**
+ * Одна попытка с таймаутом и отменой. Внешний `signal` (кнопка «отмена») уважается.
  * Возвращает `{ok, status, data, raw}` либо классифицированную ошибку.
  */
-async function request(url, init, { timeout, signal, model }) {
+async function requestOnce(url, init, { timeout, signal, model }) {
   const ctl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeout);
@@ -511,16 +697,99 @@ export async function listModels(api, opts = {}) {
   }
   const url = modelsUrl(api && api.endpoint);
   if (!url) return { ok: false, code: 'no-endpoint', message: 'Адрес не задан: вписать endpoint.', status: null, detail: '' };
-  const res = await request(url, { method: 'GET', headers: headersFor(api) }, {
+  const bad = keyProblem(api);
+  if (bad) return bad;
+  const direct = await request(url, { method: 'GET', headers: headersFor(api) }, {
     timeout: opts.timeout || TIMEOUTS.models,
     signal: opts.signal,
   });
+  let res = direct;
+  let via = '';
+  if (!direct.ok && direct.code === 'network') {
+    // Сетевой отказ на списке моделей — чаще всего CORS: многие провайдеры
+    // открывают `/v1/models` серверу, но не браузеру. Сервер таверны браузером
+    // не является — просим его.
+    const alt = await listModelsViaTavern(api, opts);
+    if (alt && alt.ok) { res = alt; via = 'tavern-backend'; }
+    else if (alt && alt.aborted) return alt.aborted;
+    else if (alt) {
+      return { ...direct, message: `${direct.message} Запрос через сервер таверны тоже не удался: ${alt.message}` };
+    }
+  }
   if (!res.ok) return res;
   const models = parseModels(res.data);
   if (!models.length) {
     return { ok: false, code: 'empty-list', message: 'Сервер ответил, но список моделей пуст — впишите имя модели руками.', status: res.status, detail: '' };
   }
-  return { ok: true, models };
+  return via ? { ok: true, models, via } : { ok: true, models };
+}
+
+/** Адрес бэкенда таверны, который умеет спросить список моделей с сервера (`chat-completions.js:1735`). */
+export const TAVERN_STATUS_URL = '/api/backends/chat-completions/status';
+
+/**
+ * Список моделей через сервер таверны — запасной путь на CORS.
+ *
+ * Как устроен эндпоинт (SillyTavern 1.18.0, `src/endpoints/backends/chat-completions.js`,
+ * `router.post('/status')`): для `chat_completion_source: 'openai'` с непустым
+ * `reverse_proxy` сервер берёт адрес из `reverse_proxy`, ключ — из
+ * `proxy_password` (не из секретов таверны!) и делает
+ * `GET {reverse_proxy}/models` с `Authorization: Bearer`. Значит, наш адрес и
+ * наш ключ доезжают ровно туда же, куда шёл бы прямой запрос, — только
+ * запрос делает сервер, а не браузер, и CORS его не касается. Графа `custom`
+ * не подходит: там ключ читается из секретов таверны, то есть был бы чужим.
+ *
+ * Два неочевидных места из исходника:
+ * * сервер защищён CSRF (`server-main.js:168`, `csrf-sync`) — без заголовка
+ *   `X-CSRF-Token` ответ 403. Токен отдаёт `getContext().getRequestHeaders()`;
+ * * провал у провайдера сервер отдаёт **статусом 200** с телом
+ *   `{error: true, data: {data: []}}` — поэтому смотрим на `error` в теле, а
+ *   не только на статус.
+ *
+ * Ключ при этом проходит через сервер таверны — это сервер самого человека,
+ * тот же, что хранит ключ в `settings.json`; дальше указанного адреса он не
+ * уходит.
+ *
+ * @returns {Promise<null | {ok: true, data: *} | {ok: false, message: string}>}
+ *   `null` — пути нет вовсе (нет таверны или её заголовков), пробовать нечего.
+ */
+async function listModelsViaTavern(api, opts = {}) {
+  const c = tavern(opts.ctx);
+  if (!c || typeof c.getRequestHeaders !== 'function') return null;
+  let headers;
+  try { headers = c.getRequestHeaders(); } catch { return null; }
+  const base = normalizeBase(api && api.endpoint);
+  if (!base) return null;
+  const body = {
+    chat_completion_source: 'openai',
+    // Сервер сам допишет `/models` (`urlJoin(apiUrl, '/models')`), поэтому
+    // здесь база с `/v1`, а не адрес списка.
+    reverse_proxy: `${base}/v1`,
+    proxy_password: sanitizeApiKey(api && api.key).key,
+  };
+  const res = await request(TAVERN_STATUS_URL, { method: 'POST', headers, body: JSON.stringify(body) }, {
+    timeout: opts.timeout || TIMEOUTS.models,
+    signal: opts.signal,
+    retry: false,
+  });
+  if (!res.ok) {
+    // Фразы `classifyError` тут врут: 403 от таверны — это CSRF, а не ключ
+    // провайдера. Поэтому своя фраза, а отмена остаётся отменой.
+    if (res.code === 'aborted') return { ok: false, aborted: res, message: res.message };
+    const why = res.status === 403
+      ? 'сервер таверны отказал (403) — обновите страницу таверны и повторите.'
+      : (res.status ? `сервер таверны ответил ${res.status}.` : 'сервер таверны не ответил.');
+    return { ok: false, message: why };
+  }
+  const data = res.data;
+  if (data && typeof data === 'object' && data.error) {
+    return {
+      ok: false,
+      message: 'сервер таверны до адреса дошёл, но списка не получил — адрес не тот или ключ не принят'
+        + ' (подробности в консоли сервера таверны).',
+    };
+  }
+  return { ok: true, data, status: res.status };
 }
 
 /**
@@ -547,6 +816,8 @@ export async function testConnection(api, opts = {}) {
   if (!model) {
     return { ok: false, code: 'no-model', message: 'Модель не выбрана: возьмите её из списка или впишите руками.', status: null, detail: '' };
   }
+  const bad = keyProblem(api);
+  if (bad) return bad;
   const body = {
     model,
     messages: [{ role: 'user', content: 'ping' }],
@@ -557,6 +828,9 @@ export async function testConnection(api, opts = {}) {
     timeout: opts.timeout || TIMEOUTS.test,
     signal: opts.signal,
     model,
+    // Проверка связи — диагноз, а не работа: «сейчас 429» и есть ответ на
+    // вопрос человека. Повтор спрятал бы его за двумя с половиной секундами.
+    retry: false,
   });
   if (!res.ok) return res;
   return { ok: true, message: `Связь есть: ${model} отвечает.`, model };
@@ -590,6 +864,8 @@ export async function complete(api, req = {}) {
   }
 
   if (source === 'endpoint') {
+    const bad = keyProblem(api);
+    if (bad) return bad;
     const messages = [];
     if (system) messages.push({ role: 'system', content: system });
     messages.push({ role: 'user', content: user });
@@ -621,7 +897,8 @@ export async function complete(api, req = {}) {
 
 /**
  * Учебный план по анкете (3.6): промпт → запрос → разбор → схема.
- * Ровно один автоматический повтор; дальше — сырой ответ человеку и ручная
+ * Ровно один автоматический повтор — только когда ответ пришёл и не
+ * разобрался (повторы транспорта — в `request`); дальше — сырой ответ человеку и ручная
  * таблица. Ни одного вызова, кроме как по кнопке: один на семестр.
  *
  * @returns {Promise<{ok: true, plan, errors: string[], raw: string, attempts: number}
@@ -645,9 +922,14 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
 
     if (!res.ok) {
       last = { error: res.message, code: res.code, raw: res.detail || '', errors: [res.code] };
-      // Ошибки, которые повтор не лечит: чинить надо настройки, а не пробовать снова.
-      if (['auth', 'no-endpoint', 'no-model', 'not-found', 'model', 'aborted'].includes(res.code)) break;
-      continue;
+      // Отказ транспорта здесь не повторяется НИКОГДА (9.1.7). Всё, что повтор
+      // лечит, — 429 и 5xx своего адреса — уже повторено внутри `request`;
+      // остальное повтором не лечится: ключ, адрес, модель (чинить настройки),
+      // сеть/CORS (запрещённое браузером останется запрещённым), таймаут (ещё
+      // полторы минуты ожидания), отмена (человек сказал «стоп»), пустой ответ
+      // (у думающей модели это тот же обрыв по бюджету). Раньше здесь стоял
+      // `continue` на всё, кроме списка, — и 503 давал бы шесть запросов.
+      break;
     }
 
     const parsed = parsePlanResponse(res.text, preset);
@@ -972,7 +1254,7 @@ export function validateSurveyGuess(survey, preset) {
 
 /**
  * Автозаполнение анкеты (3.6): карточка → промпт → запрос → разбор → проверка.
- * Ровно один автоматический повтор, как у плана; дальше — честный отказ и сырой
+ * Ровно один автоматический повтор на неразобранный ответ, как у плана; дальше — честный отказ и сырой
  * ответ человеку.
  *
  * **Состояние не пишется.** Результат — предположение для полей формы; кто и
@@ -1010,9 +1292,8 @@ export async function guessSurvey(preset, api, ctx, opts = {}) {
 
     if (!res.ok) {
       last = { error: res.message, code: res.code, raw: res.detail || '', errors: [res.code] };
-      // Те же неизлечимые повтором коды, что и у генерации плана.
-      if (['auth', 'no-endpoint', 'no-model', 'not-found', 'model', 'aborted'].includes(res.code)) break;
-      continue;
+      // То же правило, что у генерации плана: транспорт уже повторил, что мог.
+      break;
     }
 
     const parsed = parseSurveyResponse(res.text, preset);

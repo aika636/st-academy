@@ -203,3 +203,24 @@ test('slugify даёт короткий латинский id без пробе�
   // Один и тот же вход даёт один и тот же id: он уезжает в состояние.
   assert.equal(slugify('Высшая математика'), slugify('Высшая математика'));
 });
+
+test('день рождения преподавателя доезжает из плана, невнятный молча выпадает (9.4.4)', () => {
+  const raw = JSON.stringify({
+    subjects: [
+      { id: 'chem', name: 'Химия', teacherId: 'petrova' },
+      { id: 'phys', name: 'Физика', teacherId: 'ivanov' },
+    ],
+    teachers: [
+      { id: 'petrova', name: 'Петрова Анна', traits: ['строга'], birthday: '8.3' },
+      { id: 'ivanov', name: 'Иванов Пётр', traits: ['рассеян'], birthday: 'весной' },
+    ],
+  });
+  const parsed = parsePlanResponse(raw);
+  const v = validatePlan(parsed.plan, preset);
+  assert.equal(v.ok, true);
+  const byId = Object.fromEntries(v.plan.teachers.map((t) => [t.id, t]));
+  assert.equal(byId.petrova.birthday, '03-08');
+  assert.equal('birthday' in byId.ivanov, false, 'догадка вместо даты не нужна');
+  assert.ok(!v.errors.some((e) => /birthday/.test(e)), 'день рождения план не бракует');
+  assert.match(buildPlanPrompt(survey, preset).prompt, /birthday/);
+});

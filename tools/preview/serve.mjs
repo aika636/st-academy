@@ -22,6 +22,8 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // Портрет-заглушка стенда (9.7A п.15): без типа `<img>` SVG не рисует.
+  '.svg': 'image/svg+xml',
 };
 
 createServer(async (req, res) => {

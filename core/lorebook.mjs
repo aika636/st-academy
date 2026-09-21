@@ -34,6 +34,7 @@
 // в `create`, а в отдельный `suggest`, и без решения человека в лорбук не попадают.
 
 import { labelFor, findSubject, findTeacher, teacherOfSubject } from './state.mjs';
+import { milestones, milestoneName } from './milestones.mjs';
 
 /** Категории записей из 3.7. Порядок — приоритет при потолке: устав важнее хроники. */
 export const CATEGORIES = ['charter', 'people', 'places', 'chronicle'];
@@ -65,6 +66,7 @@ export const DEFAULT_TEMPLATES = {
   chronicleWarn: '{day} — {warning}: {reputation}.',
   chronicleExpel: '{day} — {expulsion}: {expelled}.',
   chronicleRelation: '{day} — {teacher}: {from} → {to}.',
+  chronicleMilestone: '{day} — {milestone}.',
   place: '{name}. {note}',
   npc: '{name}. {note}',
 };
@@ -229,6 +231,12 @@ export function isSignificant(record, state, preset) {
   if (record.kind === 'exam') {
     // В журнал `exam` попадает и назначение сессии, и исход. Запись хроники
     // заслуживает только исход: у него есть выставленное значение.
+    //
+    // Исход, который ещё не объявлен (`data.private`, 9.4.3), — нет: запись
+    // World Info подгрузится в промпт по имени предмета и выдаст оценку миру
+    // раньше ведомости. В хронику он попадёт записью объявления — у неё тоже
+    // есть значение, и дата у неё та, когда мир узнал.
+    if (record.data && record.data.private) return false;
     return Boolean(record.data && record.data.value);
   }
 
@@ -253,12 +261,62 @@ export function isSignificant(record, state, preset) {
 }
 
 /**
+ * Какие вехи студента (`core/milestones.mjs`) уходят в хронику — ответ на
+ * вопрос 8.5 «что ещё писать в лорбук».
+ *
+ * Не все, и по двум разным причинам:
+ *
+ * - `favorite`, `nemesis`, `onTheEdge` — это смена ярлыка отношения и порог
+ *   репутации, которые хроника пишет и так (`isSignificant`). Второй записи о
+ *   том же событии лорбук не заслуживает;
+ * - `cleanWeek` — у недели без прогулов нет участника: ни предмета, ни
+ *   наставника, ни места. Ключа World Info у записи не нашлось бы, а запись
+ *   без ключа не подгрузится никогда — это мусор, которого 3.7 и боится.
+ *
+ * Остальные — первая высшая оценка, закрытый хвост, сессия без пересдач,
+ * автомат, блестящая сдача — меняют то, как на героиню смотрят в сцене, и у
+ * каждой есть ключ: предмет, наставник или слово сессии.
+ */
+export const CHRONICLE_MILESTONES = ['firstTop', 'debtCleared', 'cleanSession', 'autoPass', 'brilliant'];
+
+/**
  * Значимые события семестра — из журнала механики, а не из пересказа чата.
  * Тем хроника и полезнее мемори-бука: события точные и не врут (3.7).
+ *
+ * С вехами (9.4.2) источников два: журнал и пересчёт вех по состоянию. Веха
+ * без даты в хронику не идёт — «когда» у записи хроники обязательно, а
+ * выдумывать его нельзя. uid вехи дату НЕ содержит: дата у вехи может
+ * уточниться, а запись в лорбуке от этого сиротеть не должна. События обоих
+ * источников сливаются по дню, чтобы потолок (`buildEntries`) вытеснял старое,
+ * а не всё, что пришло вторым источником.
  *
  * @returns {Array<{uid: string, kind: string, day: string, record: Object}>}
  */
 export function significantEvents(state, preset) {
+  const fromJournal = journalEvents(state, preset);
+  // Веха по предмету, чей итог ещё не объявлен (9.4.3), ждёт объявления: «первая
+  // пятёрка по химии» в лорбуке — та же утечка оценки, что и запись исхода.
+  const secret = new Set(((state.exams && state.exams.items) || [])
+    .filter((i) => i && i.announced === false)
+    .map((i) => i.subjectId));
+  const fromMilestones = milestones(state, preset)
+    .filter((m) => m.when && CHRONICLE_MILESTONES.includes(m.kind))
+    .filter((m) => !(m.subjectId && secret.has(m.subjectId)))
+    .map((m) => ({
+      uid: `academy:chronicle:milestone:${m.id}`,
+      kind: 'milestone',
+      day: m.when,
+      record: { kind: 'milestone', day: m.when, data: m },
+    }));
+  // Сортировка устойчивая: в пределах дня журнал идёт первым и в своём порядке.
+  return [...fromJournal, ...fromMilestones]
+    .map((ev, i) => ({ ev, i }))
+    .sort((a, b) => (a.ev.day < b.ev.day ? -1 : a.ev.day > b.ev.day ? 1 : a.i - b.i))
+    .map((x) => x.ev);
+}
+
+/** Значимые записи журнала — прежний и единственный до вех источник хроники. */
+function journalEvents(state, preset) {
   const seen = new Map();
   const out = [];
 
@@ -315,6 +373,22 @@ export function chronicleEntry(event, state, preset) {
       to: labelFor(labels, numberOr(record.data && record.data.to, 0)),
     });
     keys = nameKeys(teacher && teacher.name);
+  } else if (record.kind === 'milestone') {
+    const m = record.data || {};
+    const subject = m.subjectId ? findSubject(state, m.subjectId) : null;
+    const teacher = m.teacherId
+      ? findTeacher(state, m.teacherId)
+      : (m.subjectId ? teacherOfSubject(state, m.subjectId) : null);
+    template = templateOf(preset, 'chronicleMilestone');
+    vars.milestone = milestoneName(m, state, preset);
+    // Участники вехи: предмет и его наставник. У сессии без пересдач
+    // участника-человека нет — ключом служит слово сессии из пресета, оно и
+    // всплывёт в сцене, когда о ней заговорят.
+    keys = [
+      ...(subject ? [subject.name] : []),
+      ...nameKeys(teacher && teacher.name),
+      ...(m.kind === 'cleanSession' && vars.examPeriod ? [vars.examPeriod] : []),
+    ];
   } else {
     return null;
   }

@@ -33,7 +33,8 @@ import { dayPlan, currentPeriod } from './core/schedule.mjs';
 import { debts, overallScore } from './core/gradebook.mjs';
 import { relationLabel } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
-import { examMode } from './core/exams.mjs';
+import { examMode, publicView } from './core/exams.mjs';
+import { upcomingEvents } from './core/upcoming.mjs';
 
 /**
  * Слова и шаблоны по умолчанию — ДАННЫЕ, а не логика: каждое поле перекрывается
@@ -74,6 +75,20 @@ export const DEFAULT_LABELS = {
   glue: '. ',
   end: '.',
   listGlue: ', ',
+
+  /**
+   * Ближние события (9.4.4, `core/upcoming.mjs`). «Когда» — словом, без чисел:
+   * сегодня, завтра, дальше — день недели с предлогом. Слово дня недели
+   * съедало бы позицию из шести, если бы было датой.
+   */
+  nearToday: 'сегодня',
+  nearTomorrow: 'завтра',
+  weekdaysOn: ['в понедельник', 'во вторник', 'в среду', 'в четверг', 'в пятницу', 'в субботу', 'в воскресенье'],
+  nearExam: '{when} — {what}',
+  nearExamSubject: '{when} — {what}: {subject}',
+  nearAnnounce: '{when} объявят итог: {subject}',
+  nearBirthday: '{when} день рождения: {teacher}',
+  nearGlue: '; ',
 };
 
 /**
@@ -88,9 +103,29 @@ export const DEFAULT_LABELS = {
  * не на месте в тексте: `parse-marker.MARKER_RE` ищет метку где угодно, поэтому
  * разбор от переезда не меняется. Замер трёх моделей (`tools/probe-marker.mjs`,
  * вариант `first`, 24 ответа) дал 100% попаданий с валидным `t=`.
+ *
+ * **Отношение просится словом силы, а не числом** (9.3.4): «minor+ или major-»
+ * вместо «дельта». Модели калибруют два слова устойчивее, чем числа, и слово
+ * дешевле объяснять: знак при нём и так читается как направление. Число
+ * `parse-marker` по-прежнему принимает — старые метки в контексте и модели,
+ * которые упрямо пишут `-1`, не ломаются. Русские синонимы («сильно-»)
+ * принимаются молча и в инструкцию не идут: каждое слово здесь — токены на
+ * каждом запросе.
+ *
+ * **«Первой» — после чужого блока состояния сцены, а не до него** (9.2). Scene
+ * State и радио BB просятся первым блоком; метка, поставленная *внутрь* такого
+ * блока, ломает его разбор у соседа, а нам позиция не важна (`MARKER_RE`
+ * не якорный). Оговорка дешевле, чем спор двух инструкций за первую строку.
+ *
+ * **Повод у отношения — три слова, а не абзац** (9.7B): «(:повод)»
+ * (`rel=petrova:major-:сорван зачёт`; скобки, если модель их скопирует,
+ * разбор снимает). Повод механика и так видит по событиям
+ * того же ответа (оценка, прогул, экзамен — `engine.relReason`); слова модели
+ * нужны там, где механика слепа: помогла с опытом, нагрубила в коридоре.
+ * Потолок инструкции — 400 знаков, и он держится тестом.
  */
 export const DEFAULT_PROMPTS = {
-  marker: 'Первой строкой ответа, до всего остального текста, добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=предмет:оценка; rel={teacher}:дельта; skip=предмет; late=предмет. Только то, что случилось в ответе.',
+  marker: 'Первой строкой ответа (если он открыт блоком состояния сцены — сразу после него) добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=предмет:оценка; rel={teacher}:minor+ или major- (:повод); skip=предмет; late=предмет. Только то, что случилось в ответе.',
   markerIds: 'Предметы: {subjects}.',
   markerTeachers: '{teacherPlural}: {teachers}.',
 };
@@ -115,7 +150,10 @@ export function statusLine(state, preset) {
   if (!state || state.started !== true || !state.calendar) return '';
 
   const L = labelsOf(preset);
-  const segments = segmentsOf(state, preset, L);
+  // Строка — знание МИРА, а не расширения (9.4.3): итог, который посчитан, но
+  // ещё не объявлен, в балл и хвосты строки не входит — иначе «Хвосты: химия»
+  // объявил бы провал раньше ведомости. См. `exams.publicView`.
+  const segments = segmentsOf(publicView(state, preset), preset, L);
 
   // Отбор по потолку чисел. Сегменты идут в порядке значимости, поэтому первый
   // же не поместившийся просто пропускается, а следующие — беcчисленные —
@@ -142,6 +180,9 @@ export function statusLine(state, preset) {
  * 2. что идёт сейчас — то, что модель отыгрывает прямо в этом ответе;
  * 3. сессия — остаток и несданное, тон меняется целиком (3.5);
  * 4. хвосты — то, что висит и требует действий;
+ * 4½. ближние события — «завтра — сессия; в пятницу день рождения Петровой»
+ *    (9.4.4). После хвостов: хвост уже висит, событие только впереди. Чисел в
+ *    сегменте нет, так что потолок из шести он не съедает;
  * 5. балл — фон, а не событие;
  * 6. отношение преподавателя, который в кадре, — словом;
  * 7. репутация — словом, и только когда ей есть что сказать.
@@ -172,6 +213,8 @@ function segmentsOf(state, preset, L) {
     id: 'debts',
     text: list.length ? fill(L.debts, { debtPlural: vocab.debtPlural || vocab.debt || '', list: list.join(L.listGlue) }) : '',
   });
+
+  out.push({ id: 'near', text: nearSegment(state, preset, L) });
 
   const score = overallScore(state, preset);
   out.push({
@@ -253,6 +296,42 @@ function relationSegment(state, preset, L, mode) {
   const label = relationLabel(state, teacher.id, preset);
   if (!label || label === labelFor(scale.labels || [], numberOr(scale.start, 0))) return '';
   return fill(L.relation, { teacher: teacher.name || teacher.id, label });
+}
+
+/**
+ * Ближние события одним сегментом (9.4.4). Что и сколько — решает
+ * `core/upcoming.mjs` по пресету; здесь только слова.
+ */
+function nearSegment(state, preset, L) {
+  const list = upcomingEvents(state, preset);
+  if (!list.length) return '';
+  const parts = [];
+  for (const ev of list) {
+    const when = nearWhen(ev, L);
+    if (!when) continue;
+    if (ev.kind === 'exam') {
+      const subject = ev.subjectId ? subjectName(state, ev.subjectId) : '';
+      parts.push(fill(subject ? L.nearExamSubject : L.nearExam, { when, what: ev.what || '', subject }));
+    } else if (ev.kind === 'announce') {
+      parts.push(fill(L.nearAnnounce, { when, subject: subjectName(state, ev.subjectId) }));
+    } else if (ev.kind === 'birthday') {
+      const t = (state.teachers || []).find((x) => x.id === ev.teacherId);
+      parts.push(fill(L.nearBirthday, { when, teacher: (t && (t.name || t.id)) || ev.teacherId }));
+    }
+  }
+  return parts.join(L.nearGlue);
+}
+
+/** «сегодня» / «завтра» / «в пятницу». */
+function nearWhen(ev, L) {
+  if (ev.days === 0) return L.nearToday;
+  if (ev.days === 1) return L.nearTomorrow;
+  return (L.weekdaysOn || [])[dayOfWeek(ev.day) - 1] || '';
+}
+
+function subjectName(state, id) {
+  const s = (state.subjects || []).find((x) => x.id === id);
+  return (s && (s.name || s.id)) || String(id || '');
 }
 
 /** Репутация словом — и только когда она съехала со стартовой (3.4). */

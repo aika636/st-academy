@@ -3,6 +3,11 @@
   "schemaVersion": 1,
   "lang": "ru",
   "displayName": "Магическая академия",
+  "stopNames": [
+    "рассказчик",
+    "narrator",
+    "Совет наставников"
+  ],
   "vocab": {
     "period": "занятие",
     "periodPlural": "занятия",
@@ -142,27 +147,39 @@
       {
         "id": "trial",
         "name": "испытание",
-        "scale": "points"
+        "scale": "points",
+        "dc": 9
       },
       {
         "id": "admission",
         "name": "допуск к практике",
-        "scale": "pass"
+        "scale": "pass",
+        "dc": 8
       }
     ],
     "retakes": 0,
-    "autoPassScore": 9,
-    "weights": {
-      "score": 0.5,
-      "relation": 0.2,
-      "luck": 0.3
+    "announce": {
+      "weekday": 5
     },
-    "maxLuck": 0.3
+    "autoPassScore": 9,
+    "dc": {
+      "base": 9,
+      "score": 24,
+      "relation": 8,
+      "reputation": 6,
+      "critMargin": 10,
+      "safeScore": 8
+    }
   },
   "relations": {
     "min": -3,
     "max": 3,
     "start": 0,
+    "impact": {
+      "minor": 1,
+      "major": 2
+    },
+    "repeatLimit": 1,
     "labels": [
       {
         "upTo": -3,
@@ -238,7 +255,8 @@
     },
     "debtAfterSkips": 2,
     "lateEqualsSkip": 2,
-    "inferHorizonDays": 5
+    "inferHorizonDays": 5,
+    "skipPolicy": "attend"
   },
   "limits": {
     "maxSubjects": 7,
@@ -253,11 +271,25 @@
     "maxLorebookEntries": 50
   },
   "phrases": {
+    "milestones": {
+      "firstTop": "Первый триумф: {subject}",
+      "cleanWeek": "Седмица без небрежения",
+      "debtCleared": "Прореха залатана: {subject}",
+      "cleanSession": "Испытания с первого раза",
+      "autoPass": "Признание мастера: {subject}",
+      "brilliant": "Блистательное испытание: {subject}",
+      "favorite": "Избранница: {teacher}",
+      "nemesis": "Проклята наставником: {teacher}",
+      "onTheEdge": "На волосок от отлучения"
+    },
     "exams": {
       "auto": "Свершилось: {subject} — {value}, испытания не потребовалось ({teacher}). Отыграй это как уже случившееся.",
       "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
       "failed": "Свершилось: {subject} — {value} ({teacher}). Дозволена ещё одна попытка, осталось: {left}. Отыграй это как уже случившееся.",
       "exhausted": "Свершилось: {subject} — {value} ({teacher}). Второй попытки не дают, {debt} остаётся до конца круга. Отыграй это как уже случившееся.",
+      "announceLater": "Свершилось: {subject} — испытание позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итоги огласят {date} на построении; до того исход не знает никто, включая её. Отыграй само испытание как уже случившееся.",
+      "announced": "Итоги оглашены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как она узнаёт итог.",
+      "resultExhausted": "{value}, второй попытки не дают, {debt} остаётся",
       "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} возможно. Провал на ровном месте отыгрывать запрещено.",
       "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} исключено; {teacher} испытывает её наравне со всеми. Блестящий исход без испытания отыгрывать запрещено.",
       "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, чары могут не отозваться; {teacher} вправе оборвать испытание. Успешный исход отыгрывать запрещено, его считает система.",
@@ -272,6 +304,7 @@
       "chronicleWarn": "{day}. {warning}. Об ученице ныне говорят так: {reputation}.",
       "chronicleExpel": "{day}. {expulsion}: {expelled}.",
       "chronicleRelation": "{day}. Отношение {teacher} к ученице переменилось: было «{from}», стало «{to}».",
+      "chronicleMilestone": "{day}. Отмечено в свитках: {milestone}.",
       "place": "{name}. {note}",
       "npc": "{name}. {note}"
     }
@@ -312,12 +345,12 @@
     "listGlue": ", "
   },
   "prompts": {
-    "marker": "Первой строкой ответа, до всего остального текста, добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=предмет:оценка; rel={teacher}:дельта; skip=предмет; late=предмет. Только то, что случилось в ответе.",
+    "marker": "Первой строкой ответа (если он открыт блоком состояния сцены — сразу после него) добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=предмет:оценка; rel={teacher}:minor+ или major- (:повод); skip=предмет; late=предмет. Только то, что случилось в ответе.",
     "markerIds": "Предметы: {subjects}.",
     "markerTeachers": "{teacherPlural}: {teachers}.",
     "plan": {
       "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
-      "user": "Составь список дисциплин магической академии.\nЭпоха: {era}. Мир: {country}. Тип заведения: {institution}. Кафедра/направление: {faculty}. Круг обучения: {year}. Язык названий и имён: {lang}.\nДисциплин не больше {maxSubjects}, наставников не больше {maxTeachers}.\nУ каждой дисциплины ровно один наставник. Имя наставника — в традиции выдуманного мира, с титулом («магистр», «архивариус»); одна-две черты характера, из которых может вырасти конфликт («злопамятен», «не прощает небрежности в круге»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — название дисциплины на языке {lang}.\nФормат ответа:\n{\"subjects\":[{\"id\":\"alchemy\",\"name\":\"…\",\"teacherId\":\"veyl\"}],\"teachers\":[{\"id\":\"veyl\",\"name\":\"…\",\"traits\":[\"…\"]}]}"
+      "user": "Составь список дисциплин магической академии.\nЭпоха: {era}. Мир: {country}. Тип заведения: {institution}. Кафедра/направление: {faculty}. Круг обучения: {year}. Язык названий и имён: {lang}.\nДисциплин не больше {maxSubjects}, наставников не больше {maxTeachers}.\nУ каждой дисциплины ровно один наставник. Имя наставника — в традиции выдуманного мира, с титулом («магистр», «архивариус»); одна-две черты характера, из которых может вырасти конфликт («злопамятен», «не прощает небрежности в круге»).\nПоле id — короткий латинский идентификатор без пробелов, поле name — название дисциплины на языке {lang}. Поле birthday у преподавателя — день рождения ММ-ДД.\nФормат ответа:\n{\"subjects\":[{\"id\":\"alchemy\",\"name\":\"…\",\"teacherId\":\"veyl\"}],\"teachers\":[{\"id\":\"veyl\",\"name\":\"…\",\"traits\":[\"…\"],\"birthday\":\"03-14\"}]}"
     },
     "survey": {
       "system": "Ты читаешь карточку персонажа ролевой игры и заполняешь анкету учебного заведения. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев. Чего в тексте нет — оставляй пустой строкой: пустое поле лучше выдумки.",
@@ -523,6 +556,17 @@
     "cmdCounted": "Прогулов зачтено: {count}.",
     "cmdNotCounted": "Посещаемость не считалась: пропущено занятий — {count}. Нужно зачесть — добавьте count=yes.",
     "cmdReputationMoved": "Репутация: {from} → {to}.",
-    "cmdCountArg": "зачесть пропущенные занятия прогулами: yes"
+    "cmdCountArg": "зачесть пропущенные занятия прогулами: yes",
+    "buildingField": "Башня",
+    "buildingHint": "Восточная",
+    "roomField": "Зала",
+    "roomHint": "Зала зеркал",
+    "checkTiers": {
+      "critSuccess": "озарение",
+      "success": "успех",
+      "fail": "осечка",
+      "critFail": "срыв"
+    },
+    "jumpToast": "Прошло занятий: {periods}, из них пропущено: {missed}."
   }
 }

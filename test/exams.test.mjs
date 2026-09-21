@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createState, takePending } from '../core/state.mjs';
 import {
   scheduleExams, rollOutcome, applyOutcome, resolveConflict, examMode, permissionLine,
-  outcomeLadder, autoValue, outcomeWeights, retakesLeft, DEFAULTS,
+  outcomeLadder, autoValue, retakesLeft, DEFAULTS, withSceneGuard,
 } from '../core/exams.mjs';
 
 const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
@@ -68,14 +68,19 @@ test('отличница не заваливается даже у ненави�
   }
 });
 
-test('зажим держится и против пресета, выкрутившего случайность в лотерею', () => {
-  const lottery = { ...preset, exams: { ...preset.exams, weights: { score: 1, relation: 1, luck: 100 } } };
-  const w = outcomeWeights(lottery);
-  assert.ok(w.luck <= DEFAULTS.maxLuck, `доля случая ${w.luck} выше потолка`);
+// Было: «зажим держится против пресета, выкрутившего вес случая в лотерею»
+// (`outcomeWeights`, `maxLuck`). Весов случая после 9.4.1 нет — у d20 размах
+// фиксирован, — и злой пресет теперь выглядит иначе: сложность под потолок и
+// ноль веса балла. Страховка балла обязана пережить и это: она правило, а не вес.
+test('зажим держится и против пресета, задравшего сложность и обнулившего вес балла', () => {
+  const brutal = { ...preset, exams: { ...preset.exams, dc: { ...preset.exams.dc, base: 30, score: 0 }, kinds: preset.exams.kinds.map((k) => ({ ...k, dc: 30 })) } };
+  let saved = 0;
   for (let i = 0; i < 1000; i += 1) {
-    const { value } = rollOutcome({ score: 4.4, relation: 0, kind: 'exam' }, lottery, tape(i / 1000));
-    assert.ok(passing(value), `лотерейный пресет уронил отличницу до «${value}»`);
+    const { value, check } = rollOutcome({ score: 4.4, relation: preset.relations.min, reputation: 1, kind: 'exam' }, brutal, tape(i / 1000));
+    assert.ok(passing(value), `злой пресет уронил отличницу до «${value}»`);
+    if (check.saved) saved += 1;
   }
+  assert.equal(saved, 1000, 'при DC 30 спасает только страховка — и это видно флагом');
 });
 
 test('двоечница не получает автомат и не получает высшую оценку', () => {
@@ -203,12 +208,13 @@ test('провал даёт пересдачу, а исчерпанные поп
 test('фразы инжекта берутся из пресета, а не из кода', () => {
   const custom = { ...preset, phrases: { exams: { passed: 'DONE {subject} {value}', auto: 'AUTO {subject}' } } };
   const { pending } = applyOutcome(semester(), { examId: '0:chemistry:credit', value: 'зачёт', day: '2024-12-20' }, custom);
-  assert.equal(pending.text, 'DONE аналитическая химия зачёт');
+  // Хвостом вердикта идёт оговорка «сцена не для пары» (9.4.9) — тоже из пресета.
+  assert.equal(pending.text, withSceneGuard('DONE аналитическая химия зачёт', custom));
 
   // Автомат по шкале «зачёт/незачёт» неотличим от обычной сдачи по значению —
   // отличает его причина исхода, приехавшая из rollOutcome.
   const auto = applyOutcome(semester(), { examId: '0:chemistry:credit', value: 'зачёт', day: '2024-12-20', reason: 'auto' }, custom);
-  assert.equal(auto.pending.text, 'AUTO аналитическая химия');
+  assert.equal(auto.pending.text, withSceneGuard('AUTO аналитическая химия', custom));
 });
 
 // --- «считает расширение, но не задним числом» -------------------------------

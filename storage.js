@@ -54,8 +54,21 @@ export const DEFAULT_SETTINGS = {
   relativeWords: false,
   /** Глубина инжекта состояния в чат (`setExtensionPrompt`, IN_CHAT). */
   injectDepth: 1,
+  /**
+   * Строку состояния ставит человек макросом `{{academy}}` туда, куда хочет
+   * (9.3.1): хвост промпта на глубине 0–2 тесный (9.5), и место строки там
+   * решает не Academy. Включено — автоинжект строки гаснет; инструкция метки и
+   * одноразовый факт остаются инжектами, их место важно (3.1, 3.5).
+   */
+  statusViaMacro: false,
   /** Режим отладки: журнал и разбор ответа в панели. */
   debug: false,
+  /**
+   * Короткий звук на новую веху (9.4.2, `ui.playChime`). Выключен: расширение
+   * не шумит без спроса, а браузер всё равно глушит звук до первого жеста.
+   * Всплывашка с названием вехи приходит и без него.
+   */
+  milestoneSound: false,
   api: {
     /**
      * Откуда генерировать (правка «актуальный API»):
@@ -82,6 +95,13 @@ export const DEFAULT_SETTINGS = {
    * расходятся они законно, и панель об этом говорит вслух.
    */
   preset: 'ru-university',
+  /**
+   * Свои пресеты человека (9.3.2): `{ [id]: пресет }`, каждый — уже прошедший
+   * `core/preset.mjs: normalizePreset` при загрузке. Лежат здесь, а не файлами
+   * в папке установки: на телефоне и на хостинге папки нет. Встроенные сюда не
+   * копируются никогда — они файлы и обновляются вместе с расширением.
+   */
+  presets: {},
   /**
    * Лорбук академии (3.7). Жил в `lorebook.js` временно — на время, пока
    * блок настроек не был написан. `enabled: false` — требование плана
@@ -261,12 +281,108 @@ export async function flushState(ctx, state) {
   return target;
 }
 
-/** Забыть семестр в этом чате. */
+/** Забыть семестр в этом чате — вместе с историей ходов, которая без него бессмысленна. */
 export function clearState(ctx) {
   const c = context(ctx);
   const md = c.chatMetadata;
-  if (md) delete md[KEY];
+  if (md) {
+    delete md[KEY];
+    delete md[TURNS_KEY];
+  }
   c.saveMetadataDebounced();
+}
+
+// --- история ходов (ремонт 9.1.1) --------------------------------------------
+//
+// Снимок «до ответа» нужен свайпу, правке и удалению: без него новый вариант
+// ответа ложится поверх старого, и оценки с прогулами удваиваются. Раньше
+// снимки жили только в памяти вкладки (`live.snapshots`), и после F5 откатывать
+// было не к чему.
+//
+// Три решения.
+//
+// 1. **История лежит рядом с состоянием, а не внутри него** — отдельным ключом
+//    `academy_turns` в тех же метаданных чата. Внутри состояния снимок был бы
+//    состоянием в состоянии: `validateState` пришлось бы учить его форме,
+//    выгрузка (3.8) унесла бы в файл пять копий семестра, а загрузка привезла бы
+//    снимки, указывающие на сообщения чужого чата. Рядом — форма семестра не
+//    меняется, `SCHEMA_VERSION` не растёт, миграции не нужно. У истории своя
+//    версия формата (`v`): её данные одноразовые, и истории из будущей версии
+//    расширение не читает, а просто начинает новую.
+//
+// 2. **История короткая** (`TURN_HISTORY`). Метаданные чата таверна пишет
+//    целиком при каждом сохранении, а снимок — это полное состояние семестра.
+//    Свайпнуть можно только последний ответ; удалить подряд несколько последних —
+//    бывает, но редко больше пары. Снимки старше этого окна нужны только на
+//    правку старого ответа, а её расширение и так не пересчитывает (см. index.js,
+//    правило «откатывается только последний ход»).
+//
+// 3. **Снимок проходит тот же путь загрузки, что и состояние**: `readState`, то
+//    есть миграция и проверка. Снимок, записанный старой схемой, после
+//    обновления расширения поднимается; битый — выбрасывается, и ход становится
+//    «ходом без снимка», который не откатывается. Лучше не откатить, чем
+//    откатить в мусор.
+
+/** Ключ истории ходов в `chat_metadata`. */
+export const TURNS_KEY = `${KEY}_turns`;
+
+/** Версия формата истории ходов — не схемы состояния (решение 1). */
+export const TURNS_FORMAT = 1;
+
+/** Сколько последних ходов помнить (решение 2). */
+export const TURN_HISTORY = 5;
+
+/**
+ * Чистое ядро чтения истории: сырое значение из метаданных → список ходов.
+ * Ход — `{mesId, stamp, before, oneShotBefore, oneShot}`; всё, что на него не
+ * похоже, выбрасывается молча: история — подсказка для отката, а не данные
+ * человека, и отказ здесь значил бы только «свайп не откатится».
+ */
+export function readTurns(raw, preset) {
+  if (!raw || typeof raw !== 'object' || raw.v !== TURNS_FORMAT || !Array.isArray(raw.list)) return [];
+  const out = [];
+  for (const t of raw.list) {
+    if (!t || typeof t !== 'object' || !Number.isInteger(t.mesId) || t.mesId < 0) continue;
+    const report = readState(t.before, preset);
+    if (report.status !== 'ok' && report.status !== 'migrated') continue;
+    out.push({
+      mesId: t.mesId,
+      stamp: typeof t.stamp === 'string' ? t.stamp : null,
+      before: report.state,
+      oneShotBefore: typeof t.oneShotBefore === 'string' ? t.oneShotBefore : '',
+      oneShot: typeof t.oneShot === 'string' ? t.oneShot : '',
+    });
+  }
+  return out.slice(-TURN_HISTORY);
+}
+
+/** История ходов текущего чата. Пустой список — «откатывать не к чему». */
+export function loadTurns(ctx, preset) {
+  const c = context(ctx);
+  const md = c.chatMetadata || {};
+  return readTurns(md[TURNS_KEY], preset);
+}
+
+/**
+ * Записать историю ходов. Тем же дебаунсом, что и состояние, и всегда вместе
+ * с ним: состояние без своей истории (или наоборот) после F5 откатило бы свайп
+ * не туда. Длина режется здесь, чтобы ни один вызывающий не мог её раздуть.
+ */
+export function saveTurns(ctx, list) {
+  const c = context(ctx);
+  const md = c.chatMetadata;
+  if (!md) throw new Error('academy/storage: у чата нет метаданных');
+  const turns = (Array.isArray(list) ? list : []).slice(-TURN_HISTORY).map((t) => ({
+    mesId: t.mesId,
+    stamp: t.stamp,
+    // Ключ API не едет и сюда: снимок — такое же состояние, как основное.
+    before: stripSecrets(t.before),
+    oneShotBefore: t.oneShotBefore || '',
+    oneShot: t.oneShot || '',
+  }));
+  md[TURNS_KEY] = { v: TURNS_FORMAT, list: turns };
+  c.saveMetadataDebounced();
+  return turns;
 }
 
 /**
@@ -456,6 +572,10 @@ export function readExport(source, preset) {
 
   const warnings = [];
   let envelope = data;
+  if (data.format === 'academy-preset') {
+    // Файлы двух выгрузок лежат рядом в «Загрузках», и перепутать их легко.
+    return fail('preset-file', 'Это пресет заведения, а не состояние семестра. Его загружают в блоке «Пресет заведения».');
+  }
   if (data.format !== EXPORT_FORMAT) {
     if (looksLikeBareState(data)) {
       // Состояние без конверта: скопировано прямо из метаданных чата. Работает,
@@ -609,6 +729,10 @@ export async function importState(ctx, source, preset, opts = {}) {
     };
   }
 
+  // История ходов относится к заменяемому семестру: снимок «до последнего
+  // ответа» оттуда откатил бы свайп к состоянию ДО загрузки (ремонт 9.1.1).
+  const md = context(ctx).chatMetadata;
+  if (md) delete md[TURNS_KEY];
   await flushState(ctx, parsed.state);
   return { ok: true, state: parsed.state, status: parsed.status, warnings: parsed.warnings, replaced: occupied };
 }
@@ -670,6 +794,53 @@ export function deepAssign(target, patch) {
     }
   }
   return target;
+}
+
+// --- свои пресеты (9.3.2) ------------------------------------------------------
+//
+// Хранилище, и только оно: проверка формы — `core/preset.mjs`, выбор и откат —
+// `index.js`. Пресет пишется в настройки присвоением, а не через `deepAssign`:
+// слияние оставило бы в сохранённом пресете ключи его прошлой версии, и
+// «загрузила исправленный файл» не исправляло бы ничего.
+
+/** Карта своих пресетов из живых настроек. Не объект — пусто, а не исключение. */
+export function userPresetMap(ctx) {
+  const s = loadSettings(ctx);
+  if (!s.presets || typeof s.presets !== 'object' || Array.isArray(s.presets)) s.presets = {};
+  return s.presets;
+}
+
+/** Список своих пресетов для выпадашки: `[{id, name, basedOn}]`, без тел. */
+export function listUserPresets(ctx) {
+  return Object.entries(userPresetMap(ctx))
+    .filter(([, p]) => p && typeof p === 'object')
+    .map(([id, p]) => ({ id, name: String(p.displayName || p.name || id), basedOn: String(p.basedOn || '') }));
+}
+
+/** Сырой свой пресет или `null`. Нормализация — забота вызывающего. */
+export function getUserPreset(ctx, id) {
+  const p = userPresetMap(ctx)[String(id || '')];
+  return p && typeof p === 'object' ? p : null;
+}
+
+/** Положить свой пресет (заменой). `id` — из самого пресета. */
+export function putUserPreset(ctx, preset) {
+  const c = context(ctx);
+  const map = userPresetMap(c);
+  map[String(preset.id)] = preset;
+  c.saveSettingsDebounced();
+  return preset;
+}
+
+/** Убрать свой пресет. `true` — был и убран. */
+export function removeUserPreset(ctx, id) {
+  const c = context(ctx);
+  const map = userPresetMap(c);
+  const key = String(id || '');
+  if (!(key in map)) return false;
+  delete map[key];
+  c.saveSettingsDebounced();
+  return true;
 }
 
 /** Настройки API одним куском — то, что уходит в `api.js`. */

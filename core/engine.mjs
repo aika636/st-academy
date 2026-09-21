@@ -37,60 +37,176 @@ import {
   cloneState, pushJournal, takePending, teacherOfSubject,
 } from './state.mjs';
 import {
-  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays,
+  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays, parseDay,
 } from './time.mjs';
 import { dayPlan } from './schedule.mjs';
-import { parseMarker, stripMarker, MARKER_RE } from './parse-marker.mjs';
-import { parseContext } from './parse-context.mjs';
+import { parseMarker, MARKER_RE } from './parse-marker.mjs';
+import { readTime } from './time-source.mjs';
 import { addGrade, setDebt, REJECT_UNKNOWN_VALUE } from './gradebook.mjs';
 import { mark, inferMissed, shouldInfer, countsAttendance } from './attendance.mjs';
-import { applyRelationDeltas } from './relations.mjs';
+import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
   examTermIndex, examSessionEnded, closeExamSession, isPassing, examScore,
-  scheduleDatedExams, datedExams, sittableExams, isDatedExam,
+  scheduleDatedExams, datedExams, sittableExams, isDatedExam, kindOf, seededRng, examSeed,
+  announceResults, awaitingAnnouncement, externalValue,
 } from './exams.mjs';
 
 /** Режимы источника времени из таблицы 3.2. */
 export const MODES = ['auto', 'context', 'marker'];
 
-/** Позиция в дне при точности «только день»: счётчик пар, а не часы. */
-const posOf = (state) => (Number.isFinite(state.calendar.periodIndex) ? state.calendar.periodIndex : 0);
+/**
+ * Как считать посещаемость за дни, перешагнутые промоткой времени (9.2, 3.4):
+ *
+ * - `attend` — умолчание: человек промотал учёбу, а не прогулял её. По духу
+ *   README («ремонт не наказывает»): кнопка «через неделю» в Enhance-Gen — это
+ *   монтаж, и платить за монтаж отчислением было бы наказанием за сюжет;
+ * - `absent` — как любой прыжок датой: всё, что стояло в пропущенных днях,
+ *   прошло без неё (прежнее поведение, для строгих заведений);
+ * - `ask` — зарезервировано под вопрос человеку. Спросить можно только
+ *   после ответа, а придержать ведомость до ответа значит завести в состоянии
+ *   ещё одно ожидание рядом с `heldJump` (схема и панель — не этот шаг). Пока
+ *   `ask` ведёт себя как `attend` и оставляет строчку в отладке.
+ */
+export const SKIP_POLICIES = ['attend', 'absent', 'ask'];
 
-/** Год, в котором сейчас живёт календарь: им достраиваются даты без года. */
-function yearOf(state) {
-  const day = state && state.calendar && state.calendar.day;
-  const year = typeof day === 'string' ? Number(day.slice(0, 4)) : NaN;
-  return Number.isFinite(year) ? year : undefined;
+/** Политика пресета (`attendance.skipPolicy`); чего нет или не знаем — `attend`. */
+export function skipPolicyOf(preset) {
+  const raw = preset && preset.attendance && preset.attendance.skipPolicy;
+  return SKIP_POLICIES.includes(raw) ? raw : 'attend';
+}
+
+/** Обычный потолок прыжка датой — тот же, что у `time.setAbsolute`. */
+function jumpCapOf(preset) {
+  const v = Number(preset && preset.limits && preset.limits.maxForwardJump);
+  return Number.isFinite(v) ? v : 1;
 }
 
 /**
- * Переход через Новый год для даты, у которой год подставили мы.
+ * Потолок прыжка в ответе после промотки (9.2).
  *
- * «3 января» в конце декабря с подставленным текущим годом уезжает на одиннадцать
- * месяцев назад, и `setAbsolute` отвергнет это как откат. Учебный год через
- * январь переваливает у всех трёх пресетов, так что случай обычный, а не
- * краевой. Правим только там, где год подставлен нами (`yearFromText === false`)
- * и промах больше полугода: настоящий флешбэк с написанным годом не трогаем
- * никогда, а обычный сдвиг вперёд на день-два под условие не попадает.
+ * План предлагает «например, 2×`maxForwardJump`» — при умолчании в сутки это
+ * двое суток, а анализатор Enhance-Gen нарочно предлагает и «длинную» главу
+ * («недели», его промпт `ts_analyzer`). Промотка на неделю с потолком в двое
+ * суток снова спросила бы человека «принять?» о том, что он только что выбрал.
+ * Поэтому: заказанная длина плюс сутки запаса («неделя спустя, в понедельник
+ * утром» — это и 7, и 8 суток), но не меньше 2×`maxForwardJump`. Сверху —
+ * `limits.maxTimeShift`, общий потолок одного сдвига у метки: промотка не
+ * должна уметь больше, чем умеет `t=`.
+ *
+ * @param {Object} preset
+ * @param {?number} days сколько суток заказано (`cues.skipDays`), `null` — неизвестно
+ * @returns {number}
  */
-const ROLLOVER_DAYS = 180;
-
-function rollYear(hit, state) {
-  if (!hit || !hit.day || hit.yearFromText) return hit;
-  const from = state && state.calendar && state.calendar.day;
-  if (typeof from !== 'string') return hit;
-
-  const gapDays = (Date.parse(from) - Date.parse(hit.day)) / 86400000;
-  if (!Number.isFinite(gapDays) || gapDays <= ROLLOVER_DAYS) return hit;
-
-  const parts = hit.dateParts;
-  if (!parts || typeof parts.year !== 'number') return hit;
-  const bumped = { ...parts, year: parts.year + 1 };
-  const day = `${String(bumped.year).padStart(4, '0')}-${String(bumped.month).padStart(2, '0')}-${String(bumped.day).padStart(2, '0')}`;
-  return { ...hit, day, dateParts: bumped };
+export function timeSkipCap(preset, days = null) {
+  const base = jumpCapOf(preset);
+  let cap = 2 * base;
+  if (Number.isFinite(days) && days >= 0) cap = Math.max(cap, Math.ceil(days) + 1);
+  const limit = Number(preset && preset.limits && preset.limits.maxTimeShift);
+  if (Number.isFinite(limit)) cap = Math.min(cap, Math.max(limit, base));
+  return cap;
 }
+
+/**
+ * Ближайший день после сегодняшнего, в который можно сесть за контрольное, — в
+ * пределах `horizon` суток; `null` — такого нет.
+ *
+ * Анализатор промотки календаря Academy не видит, и модель, получившая «через
+ * две недели», спокойно перешагнёт сессию — а несевшее при закрытии сессии
+ * становится хвостом (`exams.closeExamSession`). Поэтому день ищется тем же
+ * путём, каким его нашёл бы календарь, дойдя туда сам: пробное состояние на
+ * этот день, `calendarEvents` (откроет сессию, заведёт событие своей недели),
+ * `sittableExams`. Сегодняшний день не считается: «останови сцену накануне»
+ * про сегодня сказать нельзя.
+ *
+ * @returns {?{day: string, days: number, what: string}}
+ */
+export function examAhead(state, preset, horizon) {
+  const today = state && state.calendar && state.calendar.day;
+  const n = Math.floor(Number(horizon));
+  if (!today || !Number.isFinite(n) || n < 1) return null;
+  for (let k = 1; k <= n; k += 1) {
+    const day = addDays(today, k);
+    const probe = cloneState(state);
+    probe.calendar.day = day;
+    const s = calendarEvents(probe, preset).state;
+    const due = sittableExams(s, preset, day);
+    if (!due.length) continue;
+    const item = due.find((i) => !i.outcome) || due[0];
+    const vocab = (preset && preset.vocab) || {};
+    // Слово — из пресета: событие своей недели называется своим видом
+    // («промежуточная аттестация»), всё остальное — периодом сессии.
+    const dated = isDatedExam(preset, item);
+    const what = dated
+      ? String((kindOf(preset, item.kind) || {}).name || item.kind || '')
+      : String(vocab.examPeriod || item.kind || '');
+    // `subjectId` и `count` — для ближних событий строки (9.4.4): одно событие
+    // называется по предмету, пачка («середина по всем предметам») — видом.
+    return { day, days: k, what, subjectId: item.subjectId, count: due.length, dated };
+  }
+  return null;
+}
+
+/**
+ * Промотка для этого ответа: потолок, политика, контрольное впереди — либо
+ * `null`, если cue нет. Потолок не перешагивает контрольное: прыжок дальше дня
+ * контрольного снова придерживается до слова человека (обычный «принять?»),
+ * но и ниже обычного потолка не опускается — без промотки такой прыжок прошёл
+ * бы и так.
+ */
+function timeSkipOf(state, preset, cue) {
+  if (!cue) return null;
+  const days = cue && typeof cue === 'object' && Number.isFinite(cue.days) ? cue.days : null;
+  let cap = timeSkipCap(preset, days);
+  const exam = examAhead(state, preset, cap);
+  if (exam) cap = Math.max(jumpCapOf(preset), Math.min(cap, exam.days));
+  return {
+    days,
+    cap,
+    policy: skipPolicyOf(preset),
+    exam,
+    // Поднятый потолок уходит в `setAbsolute` копией пресета: `time.mjs` про
+    // промотку не знает и знать не должен — у него один потолок, и он его
+    // спрашивает у пресета.
+    preset: { ...preset, limits: { ...((preset && preset.limits) || {}), maxForwardJump: cap } },
+  };
+}
+
+/** Фраза по умолчанию; пресет перекрывает её `phrases.timeSkip.examAhead`. */
+export const TIME_SKIP_PHRASES = {
+  examAhead: 'Промотка времени не может перешагнуть {date}: в этот день — {what}. Останови сцену накануне.',
+};
+
+/**
+ * Одноразовая строка к генерации после промотки (9.2): «пропуск не может
+ * перешагнуть контрольное DD.MM — останови сцену накануне». Пусто, если cue нет
+ * или контрольного в пределах промотки нет.
+ *
+ * @param {Object} state
+ * @param {Object} preset
+ * @param {?Object} cue `cues.readTimeSkip(...)`
+ * @returns {string}
+ */
+export function timeSkipWarning(state, preset, cue) {
+  if (!cue || !state || !state.started) return '';
+  const days = typeof cue === 'object' && Number.isFinite(cue.days) ? cue.days : null;
+  const exam = examAhead(state, preset, timeSkipCap(preset, days));
+  if (!exam) return '';
+  const p = parseDay(exam.day);
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${pad(p.d)}.${pad(p.m)}`;
+  const phrases = (preset && preset.phrases && preset.phrases.timeSkip) || {};
+  const tpl = typeof phrases.examAhead === 'string' && phrases.examAhead ? phrases.examAhead : TIME_SKIP_PHRASES.examAhead;
+  return tpl.replace(/\{date\}/g, date).replace(/\{what\}/g, exam.what);
+}
+
+/** Позиция в дне при точности «только день»: счётчик пар, а не часы. */
+const posOf = (state) => (Number.isFinite(state.calendar.periodIndex) ? state.calendar.periodIndex : 0);
+
+// Год календаря, эпоха анкеты и переход через Новый год для дат без года жили
+// здесь (`yearOf`, `rollYear`) и переехали в `core/time-source.mjs`: это часть
+// чтения времени, а не его движения (9.7, «Часы сюжета»).
 
 /**
  * Один ответ модели, прогнанный по всей цепочке.
@@ -106,11 +222,25 @@ function rollYear(hit, state) {
  *   сама и забирает `out.modelSaid` (так делает `index.js`) — 8.1
  * @param {string}  [opts.examId] какое именно контрольное, если не ближайшее
  * @param {string}  [opts.modelSaid] исход, который модель уже отыграла в этом ответе
+ * @param {?{days: ?number}} [opts.timeSkip] промотка времени, выбранная человеком в
+ *   реплике перед этим ответом (`cues.readTimeSkip`, 9.2): поднятый потолок прыжка
+ *   и политика посещаемости `skipPolicy` за перешагнутые дни
+ * @param {boolean} [opts.phoneTurn=false] реплика перед ответом — ход в телефоне
+ *   (`cues.readPhoneTurn`, 9.2): время из метки не проводится, прогулы не выводятся
  * @param {() => number} [opts.rng=Math.random]
+ * @param {string} [opts.seed] строка чата для воспроизводимого броска (9.3.9);
+ *   `opts.rng` сильнее её — см. `sitExam`
+ * @param {{user?: string|string[], char?: string|string[]}} [opts.names] имена
+ *   героини (`name1`) и карточки (`name2`) для стоп-листа `rel=` (9.3.6). Без
+ *   них стоп-лист держится только на названии заведения и словах пресета.
+ * @param {?{tier: string, roll: ?number, dc: ?number}} [opts.dice] кубик
+ *   Enhance-Gen в реплике человека перед этим ответом (`cues.readDiceRoll`,
+ *   9.4.1): при `opts.exam` уходит в `sitExam` — см. там
  * @returns {{state: Object, injects: Array, rejected: Array, missed: Array,
  *   notes: string[], exam: ?Object, permission: string, divergence: ?Object,
  *   modelSaid: ?{examId: string, subjectId: string, value: string},
- *   debug: {mode: string, source: ?('A'|'B'), moved: boolean, marker: ?string,
+ *   jump: ?{fromDay: string, toDay: string, days: number, periods: number, missed: number, present: number},
+ *   debug: {mode: string, source: ?('A+'|'A'|'B'), via: ?string, moved: boolean, marker: ?string,
  *     applied: Array, rejected: Array, notes: string[], stalled: boolean, idle: number}}}
  */
 export function applyResponse(state, text, preset, opts = {}) {
@@ -131,9 +261,15 @@ export function applyResponse(state, text, preset, opts = {}) {
     modelSaid: null,
     // Прыжок вперёд, придержанный до слова человека (`time.setAbsolute`).
     heldJump: null,
+    // Сводка прыжка через дни (9.4.4): одно «+N пар» для тоста вместо пачки.
+    jump: null,
     debug: {
       mode,
       source: null,
+      // Что именно сработало внутри источника: имя машинного тега соседа
+      // (`tel:time`, `RP_DATE`…), шаг разбора прозы (`header`, `line`…) или
+      // `marker`. «Какой источник сработал» — первый вопрос отладки (3.2).
+      via: null,
       moved: false,
       marker: markerText(src),
       applied: [],
@@ -151,7 +287,13 @@ export function applyResponse(state, text, preset, opts = {}) {
 
   // Метка разбирается всегда, даже в режиме «из контекста»: время из неё там
   // брать запрещено, а оценки, прогулы и отношения из прозы не вытащить ничем.
-  const lexicon = { ...preset, subjects: s.subjects, teachers: s.teachers };
+  const lexicon = {
+    ...preset,
+    subjects: s.subjects,
+    teachers: s.teachers,
+    survey: s.survey,
+    names: opts.names && typeof opts.names === 'object' ? opts.names : null,
+  };
   const parsed = parseMarker(src, lexicon);
   out.rejected = parsed.rejected;
   out.debug.rejected = parsed.rejected;
@@ -173,27 +315,70 @@ export function applyResponse(state, text, preset, opts = {}) {
   }
 
   // --- (1,2,4) время --------------------------------------------------------
+  // Что человек сказал о времени своей репликой (9.2, `core/cues.mjs`): ход в
+  // телефоне ставит сцену на паузу, промотка Enhance-Gen — это прыжок, который
+  // человек уже выбрал сам. Решает ядро, найти реплику — дело `index.js`.
+  const skip = opts.phoneTurn ? null : timeSkipOf(s, preset, opts.timeSkip);
+  if (opts.phoneTurn) out.debug.applied.push({ kind: 'phone-turn' });
+  if (skip) {
+    out.debug.applied.push({
+      kind: 'time-skip', days: skip.days, cap: skip.cap, policy: skip.policy,
+      examDay: skip.exam ? skip.exam.day : null,
+    });
+  }
   const fromDay = s.calendar.day;
   const fromPos = posOf(s);
-  const moveRes = applyTime(s, src, parsed, mode, preset, opts);
+  const moveRes = applyTime(s, src, parsed, mode, preset, { ...opts, skip, phoneTurn: Boolean(opts.phoneTurn) });
   s = moveRes.state;
   out.notes.push(...moveRes.notes);
   out.debug.source = moveRes.source;
+  out.debug.via = moveRes.via;
   out.debug.moved = moveRes.moved;
   out.heldJump = s.calendar.heldJump || null;
   out.debug.applied.push(...moveRes.applied);
 
   // --- (4) что стало с парами, которые прошли -------------------------------
-  const sweep = sweepAttendance(s, fromDay, fromPos, moveRes.unit, preset);
+  // Телефонный ход ведомость не трогает вовсе: ни выведенных прогулов, ни
+  // выведенного присутствия. Переписка — пауза, а не пара (9.2). Явные `skip=`
+  // из метки выше при этом остались: их модель сказала словами, а не временем.
+  // Промотка обходит ведомость по политике пресета (`skipPolicy`, 3.4).
+  const sweep = sweepAttendance(
+    s, fromDay, fromPos, opts.phoneTurn ? null : moveRes.unit, preset,
+    { policy: skip ? skip.policy : 'absent' },
+  );
   s = sweep.state;
   out.missed = sweep.missed;
+  out.jump = sweep.summary || null;
   absorb(effects, sweep.effects);
   if (sweep.missed.length) out.debug.applied.push({ kind: 'missed', count: sweep.missed.length });
 
   // --- отношения из метки ---------------------------------------------------
+  // Штампованный повтор гасится до применения (9.3.5). «Новое событие» —
+  // оценка, отметка или выведенный прогул по предмету наставника в этом же
+  // ответе; смену дня `dampRepeats` видит сам. Вызов — на каждый ответ, и без
+  // `rel=` тоже: пустой ответ обрывает серию.
   const relEvents = parsed.events.filter((e) => e.kind === 'rel');
-  s = applyRelationDeltas(s, relEvents, preset).state;
-  for (const ev of relEvents) out.debug.applied.push({ kind: 'rel', teacherId: ev.teacherId, delta: ev.delta });
+  const touched = [
+    ...parsed.events.filter((e) => e.kind === 'grade' || e.kind === 'attendance').map((e) => e.subjectId),
+    ...sweep.missed,
+  ];
+  const damp = dampRepeats(s, relEvents, preset, { fresh: teachersOfSubjects(s, touched) });
+  s = damp.state;
+  // Повод сдвига (9.7B): из того, что механика видит в этом же ответе, плюс
+  // слова модели из метки, если она их написала (`rel=petrova:major-:…`).
+  const reasons = new Map(relEvents.map((ev) => [ev, relReason(s, ev, parsed.events, sweep.missed)]));
+  s = applyRelationDeltas(s, damp.events.map((ev) => ({ ...ev, reason: reasons.get(ev) })), preset).state;
+  for (const ev of relEvents) {
+    const reason = reasons.get(ev);
+    out.debug.applied.push({
+      kind: 'rel',
+      teacherId: ev.teacherId,
+      delta: ev.delta,
+      ...(ev.impact ? { impact: ev.impact } : {}),
+      ...(reason ? { reason } : {}),
+      ...(damp.events.includes(ev) ? {} : { damped: true }),
+    });
+  }
 
   // --- (5) эффекты посещаемости одним пакетом -------------------------------
   s = applyRelationDeltas(s, effects.relation, preset).state;
@@ -296,7 +481,9 @@ export function applyResponse(state, text, preset, opts = {}) {
     const said = opts.modelSaid === undefined || opts.modelSaid === null || opts.modelSaid === ''
       ? held
       : opts.modelSaid;
-    const sat = sitExam(s, preset, { rng: opts.rng, examId: opts.examId, modelSaid: said });
+    const sat = sitExam(s, preset, {
+      rng: opts.rng, seed: opts.seed, examId: opts.examId, modelSaid: said, dice: opts.dice,
+    });
     s = sat.state;
     out.exam = sat.exam;
     out.permission = sat.permission;
@@ -318,8 +505,8 @@ export function applyResponse(state, text, preset, opts = {}) {
  * репутация. Ровно те же пять шагов, что в `applyResponse`, но одним вызовом —
  * их повторяют и принятый прыжок, и ручной сдвиг со счётом посещаемости.
  */
-function sweepAndSettle(state, fromDay, fromPos, unit, preset) {
-  const sweep = sweepAttendance(state, fromDay, fromPos, unit, preset);
+function sweepAndSettle(state, fromDay, fromPos, unit, preset, opts = {}) {
+  const sweep = sweepAttendance(state, fromDay, fromPos, unit, preset, opts);
   let s = sweep.state;
   s = applyRelationDeltas(s, sweep.effects.relation, preset).state;
   for (const id of sweep.effects.debt) s = setDebt(s, id, true, preset);
@@ -364,6 +551,15 @@ function calendarEvents(state, preset) {
       applied.push({ kind: 'exams-scheduled', day: s.calendar.day, term });
     }
   }
+  // Объявление итогов (9.4.3) — тоже событие календаря: «ведомость вывесят в
+  // пятницу» случается, когда наступила пятница, чем бы время ни двинулось —
+  // меткой, прозой, промоткой или принятым прыжком. Стоит последним: пересдача,
+  // которую объявление открывает, сядется уже вызывающим (`sitExam`).
+  const told = announceResults(s, preset, s.calendar.day);
+  if (told.announced.length) {
+    s = told.state;
+    applied.push({ kind: 'announced', examIds: told.announced });
+  }
   return { state: s, applied };
 }
 
@@ -399,12 +595,18 @@ export function resolveHeldJump(state, preset, accept = true) {
 
   const fromDay = state.calendar.day;
   const fromPos = posOf(state);
-  const r = setAbsolute(state, { day: held.day, time: held.time, daypart: held.daypart }, 'A', preset, { force: true });
+  // Подпись источника — та, что придержала прыжок: A+ остаётся A+ и после
+  // «принять». Старые прыжки, придержанные до правки, подписи не несут — это A.
+  const r = setAbsolute(state, { day: held.day, time: held.time, daypart: held.daypart }, held.source || 'A', preset, { force: true });
   let s = cloneState(r.state);
   s.calendar.heldJump = null;
   if (!r.applied) return { state: s, applied: false, reason: r.reason, missed: [] };
 
-  const swept = sweepAndSettle(s, fromDay, fromPos, 'absolute', preset);
+  // Прыжок, придержанный из промотки (он вышел за её потолок или перешагнул
+  // контрольное), после «принять» обходит ведомость по той же политике, что
+  // и промотка в потолке: человек выбирал промотку, а не прогул (9.2, 3.4).
+  const policy = held.skipPolicy && SKIP_POLICIES.includes(held.skipPolicy) ? held.skipPolicy : 'absent';
+  const swept = sweepAndSettle(s, fromDay, fromPos, 'absolute', preset, { policy });
   // И то, что календарь заводит сам: сессия, закрытая или открытая прыжком.
   s = calendarEvents(swept.state, preset).state;
   return { state: s, applied: true, reason: r.reason, missed: swept.missed };
@@ -524,12 +726,30 @@ export function todaysExam(state, preset) {
  *
  * @param {Object} state
  * @param {Object} preset
- * @param {{rng?: () => number, examId?: string, modelSaid?: string}} [opts]
+ * `opts.dice` — кубик Enhance-Gen из реплики человека (`cues.readDiceRoll`):
+ * бросок соседа уже велел модели отыграть «провал» или «успех», и спорить с
+ * ним посчитанный исход не может. Свой бросок всё равно делается (в журнале и
+ * в истории бросков видно, что дала бы Academy), а исход переписывается
+ * значением по ступени кубика через тот же `resolveConflict` с
+ * `source: 'dice'` (9.7B: вход для чужих исходов один). Версия модели
+ * (`modelSaid`) сильнее кубика: она написана после него, ответом на него.
+ *
+ * @param {{rng?: () => number, seed?: string, examId?: string, modelSaid?: string,
+ *   dice?: ?{tier: string, roll: ?number, dc: ?number}}} [opts]
  * @returns {{state: Object, exam: ?Object, permission: string,
  *   divergence: ?Object, applied: boolean}}
  */
 export function sitExam(state, preset, opts = {}) {
-  const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
+  // Источник случайности, по старшинству (9.3.9):
+  // 1. `opts.rng` — подставной, для тестов и для того, кто знает лучше;
+  // 2. `opts.seed` — воспроизводимый бросок: строка чата (id чата из
+  //    `index.js`) плюс событие, попытка и день (`exams.examSeed`). Свайп
+  //    пересчитывает ответ из того же снимка — и выпадает то же число;
+  // 3. иначе `Math.random`, как было: вызывающий, не передавший ни того ни
+  //    другого, получает прежнее поведение, а не тихо сменившийся бросок.
+  const rng = typeof opts.rng === 'function'
+    ? opts.rng
+    : (opts.seed !== undefined && opts.seed !== null && opts.seed !== '' ? null : Math.random);
   const mode = examMode(state, preset);
   // Порядок очереди: сперва то, за чем ещё не садились, и только потом
   // пересдачи. Иначе первый же незачёт запирал бы сессию — расширение сажало
@@ -543,7 +763,9 @@ export function sitExam(state, preset, opts = {}) {
   // спрашивают — ворота дня стоят у вызывающего (`index.js:maybeSitExam`,
   // `todaysExam`), и это правило старше нынешней правки.
   const dated = datedExams(state, preset, state.calendar && state.calendar.day);
-  const queue = [...dated, ...mode.pending.filter((i) => !dated.some((d) => d.id === i.id))];
+  // Итог, ещё не объявленный (9.4.3), пересдавать рано — см. `exams.sittableExams`.
+  const queue = [...dated, ...mode.pending.filter((i) => !dated.some((d) => d.id === i.id)
+    && !awaitingAnnouncement(i))];
   const item = opts.examId
     ? queue.find((i) => i.id === opts.examId)
     : (queue.find((i) => !i.outcome) || queue[0]);
@@ -558,23 +780,42 @@ export function sitExam(state, preset, opts = {}) {
   const teacher = teacherOfSubject(state, item.subjectId);
   const permission = permissionLine(state, preset, { subjectId: item.subjectId, score, kind: item.kind });
 
+  // Репутация входит в сложность (9.4.1, вопрос 8.8): «дают ли поблажку на
+  // пересдаче» — это она. Берётся ДО сдачи: исход меняет репутацию ниже, и
+  // судить попытку по репутации, которую она сама же и сдвинет, нельзя.
   const roll = rollOutcome(
-    { score, relation: teacher ? teacher.relation : 0, kind: item.kind },
+    {
+      score,
+      relation: teacher ? teacher.relation : 0,
+      reputation: state.reputation ? state.reputation.value : undefined,
+      kind: item.kind,
+    },
     preset,
-    rng,
+    rng || seededRng(examSeed(opts.seed, item, state.calendar && state.calendar.day)),
   );
   let s = applyOutcome(
     state,
-    { examId: item.id, value: roll.value, day: state.calendar.day, reason: roll.reason },
+    { examId: item.id, value: roll.value, day: state.calendar.day, reason: roll.reason, check: roll.check },
     preset,
   ).state;
 
   // Расхождение с текстом модели: спорить с уже написанным нельзя (3.5).
   let divergence = null;
+  let external = null;
   if (opts.modelSaid !== undefined && opts.modelSaid !== null && opts.modelSaid !== '') {
     const conflict = resolveConflict(s, { examId: item.id, modelSaid: opts.modelSaid }, preset);
     s = conflict.state;
     divergence = conflict.divergence;
+  } else if (opts.dice && roll.reason !== 'auto') {
+    // Автомат кубиком не переигрывается: его ставят без испытания, и бросок
+    // соседа в этот день — про что-то другое.
+    const value = externalValue(preset, item.kind, opts.dice);
+    if (value) {
+      const conflict = resolveConflict(s, { examId: item.id, modelSaid: value, source: 'dice' }, preset);
+      s = conflict.state;
+      divergence = conflict.divergence;
+      external = { source: 'dice', tier: opts.dice.tier, roll: opts.dice.roll ?? null, dc: opts.dice.dc ?? null, value };
+    }
   }
 
   const done = s.exams.items.find((i) => i.id === item.id) || item;
@@ -594,7 +835,15 @@ export function sitExam(state, preset, opts = {}) {
   }, preset).state;
   return {
     state: s,
-    exam: { examId: item.id, subjectId: item.subjectId, value: done.outcome, reason: roll.reason },
+    // `check` — вся проверка (DC, слагаемые, бросок, ступень): её печатает
+    // отладка (`ui.describeApplied`) и её же покажет анимация броска. У
+    // автомата проверки нет — `null`.
+    exam: {
+      examId: item.id, subjectId: item.subjectId, value: done.outcome, reason: roll.reason, check: roll.check,
+      ...(external ? { external } : {}),
+      // Итог посчитан, но ещё не объявлен (9.4.3) — дата объявления.
+      ...(awaitingAnnouncement(done) ? { announceOn: done.announceOn } : {}),
+    },
     permission,
     divergence,
     applied: true,
@@ -606,13 +855,19 @@ export function sitExam(state, preset, opts = {}) {
 /**
  * Кто двигает календарь в этом ответе.
  *
- * Таблица 3.2, слева направо:
+ * Таблица 3.2, слева направо, плюс машинные теги соседей (9.2):
  *
- * | режим     | A (проза) | B (метка) |
- * |-----------|-----------|-----------|
- * | context   | да        | нет       |
- * | marker    | нет       | да        |
- * | auto      | первым    | подстраховкой |
+ * | режим     | A+ (теги) | A (проза) | B (метка) |
+ * |-----------|-----------|-----------|-----------|
+ * | context   | первым    | да        | нет       |
+ * | marker    | нет       | нет       | да        |
+ * | auto      | первым    | вторым    | подстраховкой |
+ *
+ * Кого спрашивать и в каком порядке, решает `time-source.readTime` — здесь
+ * только применение. A+ и A применяются ОДНИМ путём (`fromContext`): тот же
+ * `setAbsolute`, та же защита от отката, тот же потолок прыжка с
+ * придерживанием. Доверие к тегу даёт ему место в очереди, но не право мимо
+ * защиты: чужое расширение тоже может завести свой календарь в чужом году.
  *
  * «Первым» — то самое расхождение с черновиком `post()`, где метка спрашивалась
  * раньше прозы. Подстраховка вступает в дело только тогда, когда источник A
@@ -625,29 +880,41 @@ function applyTime(state, text, parsed, mode, preset, opts) {
   const notes = [];
   const applied = [];
   let held = null;
-  const timeEvents = mode === 'context' ? [] : parsed.events.filter((e) => e.kind === 'time');
 
   let moved = false;
   let unit = null;
   let source = null;
+  let via = null;
 
-  // Проза читается один раз на ответ: `parseContext` сам расставляет приоритеты
-  // внутри поста, второго мнения у сшивки нет.
-  const rawHit = mode === 'marker'
-    ? null
-    : parseContext(stripMarker(text), {
-      relative: Boolean(opts.relativeWords),
-      // Год из текущего календаря. `parseContext` умышленно не додумывает его
-      // сам (см. `build`): без года `day` остаётся null, а день с месяцем
-      // уезжают в `dateParts` — «чтобы вызывающий подставил год сам».
-      // Вызывающий — здесь, и до сих пор он этого не делал: «Среда,
-      // 2 сентября» в шапке двигала часы и не двигала дату, потому что год в
-      // отыгрыше почти никогда не пишут. Календарь при этом навсегда застревал
-      // в одном дне — том самом «время не идёт», ради которого писалась
-      // отладка. Поймано на живой таверне 1.18.0.
-      year: yearOf(s),
-    });
-  const hit = rollYear(rawHit, s);
+  // Время читается один раз на ответ и в одном месте: `readTime` сам
+  // расставляет очередь источников (A+ → A → B) и сам достраивает год — год
+  // календаря для дат без года, опорный год для двузначного (9.1.5), переход
+  // через Новый год. Второго мнения у сшивки нет.
+  //
+  // История, которую здесь хранил комментарий: год в прозу когда-то никто не
+  // подставлял, и «Среда, 2 сентября» в шапке двигала часы и не двигала дату —
+  // календарь навсегда застревал в одном дне. Поймано на живой таверне 1.18.0;
+  // теперь это делает `time-source`.
+  const read = readTime(text, {
+    mode,
+    state: s,
+    relative: Boolean(opts.relativeWords),
+    markerEvents: parsed.events,
+  });
+  const hit = read.context;
+  // Телефонный ход (9.2): сцена на паузе, пока героиня переписывается, и
+  // `t=+1` из метки за такой ход не проводится — иначе пара, которую
+  // «пересидела» переписка, становилась прогулом. Проза и теги соседей
+  // остаются: их время видно в тексте, и спорить с ним нельзя (3.2); а часы
+  // телефона (`tel:time`) на паузе стоят и сами никуда не уводят.
+  const timeEvents = read.marker && !opts.phoneTurn ? read.marker.events : [];
+  if (opts.phoneTurn && read.marker && read.marker.events.length) {
+    applied.push({ kind: 'time-dropped', reason: 'phone-turn', events: read.marker.events.length });
+  }
+  // Промотка, которую выбрал человек (9.2): потолок прыжка поднят для этого
+  // ответа, и только для прыжка датой. Защита от отката остаётся на месте —
+  // «промотать назад» кнопка Enhance-Gen не умеет, а модель умеет ошибиться.
+  const jumpPreset = opts.skip ? opts.skip.preset : preset;
 
   // Часть суток словом календарь не двигает (3.2), она только уточняет `daypart`
   // — и потому не считается высказыванием источника: «она проснулась утром» не
@@ -668,6 +935,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
       const r = advance(s, hit.relative, preset);
       s = r.state;
       source = 'A';
+      via = hit.via || null;
       if (r.applied) {
         moved = true;
         unit = hit.relative.unit;
@@ -678,13 +946,16 @@ function applyTime(state, text, parsed, mode, preset, opts) {
     }
 
     if (!(hit.day || hit.time)) return false;
-    const r = setAbsolute(s, { day: hit.day, time: hit.time, daypart: hit.daypart }, 'A', preset);
+    // A+ и A — одна ветка и один вызов: различаются они только подписью.
+    const who = hit.source === 'A+' ? 'A+' : 'A';
+    const r = setAbsolute(s, { day: hit.day, time: hit.time, daypart: hit.daypart }, who, jumpPreset);
     s = r.state;
-    source = 'A';
+    source = who;
+    via = hit.via || null;
     if (r.applied) {
       moved = true;
       unit = 'absolute';
-      applied.push({ kind: 'time', source: 'A', day: hit.day, time: hit.time, matched: hit.matched });
+      applied.push({ kind: 'time', source: who, via, day: hit.day, time: hit.time, matched: hit.matched });
     } else {
       notes.push(r.reason);
       // Прыжок вперёд дальше потолка календарь не двигает, но и не забывает:
@@ -694,9 +965,14 @@ function applyTime(state, text, parsed, mode, preset, opts) {
       // отвечает «принять» или «не надо» одной кнопкой в панели.
       if (r.held) {
         s = cloneState(s);
-        s.calendar.heldJump = { ...r.held, matched: hit.matched };
+        // Подпись источника едет вместе с прыжком: панель скажет, чей это тег,
+        // а «принять» применит его под той же подписью (`resolveHeldJump`).
+        s.calendar.heldJump = { ...r.held, matched: hit.matched, source: who, via };
+        // Придержанный из промотки прыжок помнит её политику посещаемости:
+        // «принять» обойдёт ведомость так же, как обошла бы промотка в потолке.
+        if (opts.skip) s.calendar.heldJump.skipPolicy = opts.skip.policy;
         held = s.calendar.heldJump;
-        applied.push({ kind: 'time-held', source: 'A', day: r.held.day, jump: r.held.jump });
+        applied.push({ kind: 'time-held', source: who, via, day: r.held.day, jump: r.held.jump });
       }
     }
     return true; // источник высказался — молчанием это уже не считается
@@ -714,9 +990,11 @@ function applyTime(state, text, parsed, mode, preset, opts) {
         moved = true;
         unit = ev.unit;
         source = 'B';
+        via = 'marker';
         applied.push({ kind: 'time', source: 'B', unit: ev.unit, n: ev.n });
       } else {
         source = source || 'B';
+        via = via || 'marker';
         notes.push(r.reason);
       }
     }
@@ -728,7 +1006,9 @@ function applyTime(state, text, parsed, mode, preset, opts) {
   else if (mode === 'context') spoke = fromContext();
   else spoke = fromContext() || fromMarker();
 
-  if (!spoke) s = noteIdle(s);
+  // Телефонный ход без единого источника — не простой: сцена стоит на паузе
+  // нарочно, и индикатор «время стоит» (3.2) не должен копить переписку.
+  if (!spoke && !opts.phoneTurn) s = noteIdle(s);
 
   // Время всё-таки пошло — придержанный прыжок протух: он был про «отсюда
   // туда», а «отсюда» уже другое. Держать его дальше значит однажды предложить
@@ -737,7 +1017,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
     s = cloneState(s);
     s.calendar.heldJump = null;
   }
-  return { state: s, moved, unit, source, notes, applied, held };
+  return { state: s, moved, unit, source, via, notes, applied, held };
 }
 
 // --- ведомость --------------------------------------------------------------
@@ -758,12 +1038,29 @@ function applyTime(state, text, parsed, mode, preset, opts) {
  *
  * Записи, которые уже есть (`skip=` из метки), ни одна ветка не трогает:
  * `inferMissed` их пропускает, `present` ставится только на пустой слот.
+ *
+ * `opts.policy` — как считать дни, перешагнутые промоткой (`skipPolicyOf`):
+ * `absent` — как любой прыжок, прогулом; `attend`/`ask` — присутствием.
+ *
+ * **Прыжок через дни — одна сводка, а не пачка (9.4.4).** Неделя без героини —
+ * двадцать отметок, и по строке журнала на каждую (плюс строка сдвига
+ * отношения на каждый прогул) выедали кольцевой журнал: двести строк, из
+ * которых хроника лорбука и вехи берут даты экзаменов и переходов отношения.
+ * Поэтому при прыжке через дни отметки пишутся без журнала, сдвиги отношения
+ * сводятся по наставникам (`relations.mergeDeltas`), а в журнал ложится одна
+ * строка `jump` со счётом. Та же сводка возвращается `summary` — из неё панель
+ * делает один тост «+N пар» вместо пачки. Ход по парам (`t=+1`) — не прыжок:
+ * там отметок одна-две, и журнал остаётся прежним.
  */
-export function sweepAttendance(state, fromDay, fromPos, unit, preset) {
+export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}) {
   let s = state;
+  const policy = SKIP_POLICIES.includes(opts.policy) ? opts.policy : 'absent';
   const missed = [];
   const effects = { relation: [], reputation: 0, debt: [] };
-  if (!unit) return { state: s, missed, effects };
+  if (!unit) return { state: s, missed, effects, summary: null };
+  const quiet = unit !== 'period';
+  const markOpts = quiet ? { journal: false } : {};
+  let presentCount = 0;
 
   const present = (acc, day, from, to) => {
     // Сутки заведения семестра ведомостью не обсчитываются вовсе, ни в одну
@@ -776,18 +1073,38 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset) {
         (r) => r.day === day && r.subjectId === item.subjectId && r.periodIndex === item.index,
       );
       if (taken) continue;
-      const res = mark(acc, { subjectId: item.subjectId, status: 'present', day, periodIndex: item.index }, preset);
+      const res = mark(acc, { subjectId: item.subjectId, status: 'present', day, periodIndex: item.index }, preset, markOpts);
       acc = res.state;
+      presentCount += 1;
       absorb(effects, res.effects);
     }
     return acc;
   };
 
   if (unit === 'period') {
-    if (s.calendar.day === fromDay) return { state: present(s, fromDay, fromPos, posOf(s)), missed, effects };
+    if (s.calendar.day === fromDay) return { state: present(s, fromDay, fromPos, posOf(s)), missed, effects, summary: null };
     s = present(s, fromDay, fromPos, Infinity);
-    return { state: present(s, s.calendar.day, 0, posOf(s)), missed, effects };
+    return { state: present(s, s.calendar.day, 0, posOf(s)), missed, effects, summary: null };
   }
+
+  // Сводка прыжка — одна на вызов, чем бы он ни кончился.
+  const finish = (acc) => {
+    const days = isDayStr(fromDay) && isDayStr(acc.calendar.day) ? Math.max(0, dayDiff(fromDay, acc.calendar.day)) : 0;
+    const summary = {
+      fromDay, toDay: acc.calendar.day, days,
+      periods: missed.length + presentCount, missed: missed.length, present: presentCount, policy,
+    };
+    effects.relation = mergeDeltas(effects.relation);
+    if (summary.periods) {
+      acc = pushJournal(cloneState(acc), {
+        kind: 'attendance',
+        text: `jump ${fromDay} -> ${acc.calendar.day}: +${summary.periods} (skip ${summary.missed}, present ${summary.present})`,
+        data: { jump: true, ...summary },
+      }, preset);
+    }
+    // Прыжок внутри тех же суток без единой пары — не о чем и тостить.
+    return { state: acc, missed, effects, summary: summary.days || summary.periods ? summary : null };
+  };
 
   // Решение «дозаполнять ли ведомость за этот прыжок» принимает ядро, и ровно
   // один раз на прыжок: горизонта в сшивке нет ни константой, ни условием.
@@ -797,7 +1114,19 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset) {
       text: `attendance skipped: ${fromDay} -> ${s.calendar.day}`,
       data: { fromDay, toDay: s.calendar.day },
     }, preset);
-    return { state: s, missed, effects };
+    return finish(s);
+  }
+
+  // Промотка с политикой «была на парах» (`skipPolicy: attend`, 9.2): те же
+  // дни, тот же горизонт, но вместо прогула — присутствие. Человек промотал
+  // скучную неделю, а не прогулял её; «ремонт не наказывает» (README). `ask`
+  // пока ведёт себя как `attend` — см. `skipPolicyOf`.
+  if (policy !== 'absent') {
+    for (let day = fromDay; day < s.calendar.day; day = addDays(day, 1)) {
+      if (!isStudyDay(preset, day)) continue;
+      s = present(s, day, day === fromDay ? fromPos : 0, Infinity);
+    }
+    return finish(s);
   }
 
   // День сменился прыжком: всё, что стояло в пройденных учебных днях, прошло мимо.
@@ -805,15 +1134,54 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset) {
     if (!isStudyDay(preset, day)) continue;
     const expected = dayPlan(s, preset, day).map((p) => ({ subjectId: p.subjectId, periodIndex: p.index }));
     if (!expected.length) continue; // сессия и каникулы: лекций нет, прогуливать нечего
-    const res = inferMissed(s, { day, expected }, preset);
+    const res = inferMissed(s, { day, expected }, preset, markOpts);
     s = res.state;
     missed.push(...res.missed);
     absorb(effects, res.effects);
   }
-  return { state: s, missed, effects };
+  return finish(s);
+}
+
+// --- повод сдвига отношения (9.7B) -----------------------------------------
+
+/**
+ * Повод одного `rel=` из метки — по тому, что механика видит в этом же ответе.
+ *
+ * Порядок — от самого точного к самому общему: оценка по предмету наставника
+ * в этой же метке; контрольное по его предмету, сданное сегодня (сцена
+ * экзамена — самый частый повод «сорван зачёт»); отметка из метки (`skip=`,
+ * `late=`); прогул, выведенный календарём. Ничего не нашлось — повод из слов
+ * модели (`kind: 'marker'`), а нет и их — `null`. Слова модели, если есть,
+ * едут с любым найденным поводом полем `text`.
+ */
+function relReason(state, ev, events, missed) {
+  const subjects = (state.subjects || [])
+    .filter((x) => x.teacherId === ev.teacherId)
+    .map((x) => x.id);
+  const mine = (id) => subjects.includes(id);
+  const text = ev.reason ? { text: ev.reason } : {};
+
+  const grade = events.find((x) => x.kind === 'grade' && mine(x.subjectId));
+  if (grade) return { kind: 'grade', subjectId: grade.subjectId, value: String(grade.value), ...text };
+
+  const day = state.calendar && state.calendar.day;
+  const exam = ((state.exams && state.exams.items) || [])
+    .find((i) => i.outcome && i.day === day && mine(i.subjectId));
+  if (exam) return { kind: 'exam', subjectId: exam.subjectId, examId: exam.id, value: String(exam.outcome), ...text };
+
+  const mark = events.find((x) => x.kind === 'attendance' && mine(x.subjectId));
+  if (mark) return { kind: mark.status, subjectId: mark.subjectId, ...text };
+
+  const skipped = (missed || []).filter(mine);
+  if (skipped.length) return { kind: 'skip', subjectId: skipped[0], count: skipped.length, ...text };
+
+  return ev.reason ? { kind: 'marker', text: ev.reason } : null;
 }
 
 // --- мелочи -----------------------------------------------------------------
+
+const isDayStr = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const dayDiff = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
 function absorb(acc, effects) {
   acc.relation.push(...effects.relation);

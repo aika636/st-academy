@@ -5,14 +5,19 @@
 //
 // 1. **Исход считает расширение, а не модель.** Модель исход отыгрывает, но не
 //    выдумывает: иначе накопленный балл, прогулы и отношения не значат ничего.
-//    Формула — накопленный балл + отношение преподавателя + случайность.
+//    Форма — видимая проверка d20 против сложности (9.4.1):
+//    `DC = база вида − f(балл) − f(отношение) − f(репутация)`, запас броска над
+//    DC раскладывается по ступеням шкалы пресета. Почему d20, а не прежняя
+//    взвешенная сумма, — у `rollOutcome`.
 //
 // 2. **Случайность зажата.** Прямое требование 3.5: отличница не должна
-//    заваливаться на ровном месте. Зажим устроен не «переброс, если не нравится»,
-//    а долей в взвешенной сумме: вклад случая ограничен сверху (`exams.maxLuck`),
-//    поэтому у сильного балла нижняя граница результата лежит выше проходной.
-//    Это проверяемое свойство, а не обещание — см. тест на тысячу прогонов.
-//    `rng` инжектится аргументом ровно ради воспроизводимости тестов.
+//    заваливаться на ровном месте. У d20 размах фиксирован, и зажим поэтому не
+//    вес, а правило — **страховка балла** (`exams.dc.safeScore`): на балле не
+//    ниже порога проваленный бросок засчитывается низшей проходной ступенью, и
+//    в отладке это видно словом, а не спрятано в сумме. Проверяемое свойство,
+//    а не обещание — см. тест на тысячу прогонов. `rng` инжектится аргументом,
+//    а без него бросок можно сделать воспроизводимым от seed (`seededRng`) —
+//    свайп тогда не «выбивает» исход (9.3.9).
 //
 // 3. **Считает расширение, но не задним числом.** Если модель уже написала свой
 //    исход, `resolveConflict` принимает версию модели и пишет расхождение в
@@ -33,7 +38,7 @@ import {
 // Календарь считает `time.mjs`, зачётку — `gradebook.mjs`. Здесь только исход и
 // его подача: своя арифметика дат и своя запись оценки означали бы два ответа на
 // один вопрос — см. правки швов ниже по файлу.
-import { addDays, diffDays, mondayOf, termAt, phaseOf } from './time.mjs';
+import { addDays, diffDays, mondayOf, termAt, phaseOf, dayOfWeek } from './time.mjs';
 import { addGrade, subjectScore, stampDebt, DEBT_EXAM, DEBT_MISSED } from './gradebook.mjs';
 
 /**
@@ -41,13 +46,37 @@ import { addGrade, subjectScore, stampDebt, DEBT_EXAM, DEBT_MISSED } from './gra
  * Лежат здесь одним блоком, чтобы ниже в коде не было ни одной голой константы.
  */
 export const DEFAULTS = {
-  /** Веса слагаемых исхода. Нормируются по сумме, так что пресет волен писать любые числа. */
-  weights: { score: 0.6, relation: 0.2, luck: 0.2 },
-  /** Потолок доли случая после нормировки. Тот самый зажим из 3.5. */
-  maxLuck: 0.25,
   /** Сколько пересдач сверх первой попытки, если пресет молчит. */
   retakes: 1,
+  /**
+   * Проверка против сложности (9.4.1), блок `preset.exams.dc`. Каждое число —
+   * «сколько пунктов DC стоит полный размах шкалы», а не множитель в вакууме:
+   * так их можно читать и сравнивать между пресетами с разными шкалами.
+   *
+   * - `base` — сложность вида при среднем всём; вид перекрывает её своим `dc`.
+   * - `score` — балл: от худшей до лучшей оценки шкалы. Отсчёт от проходного
+   *   балла, а не от середины: на проходном балле поправки нет, выше — легче.
+   * - `relation` — отношение наставника: от «ненавидит» до «любимица».
+   *   Отсчёт от стартового отношения пресета: нейтральный наставник не мешает.
+   * - `reputation` — репутация: от отчисления до «гордости». Отсчёт от
+   *   стартовой репутации. Это и есть закрытие вопроса 8.8: вес виден числом.
+   * - `critMargin` — запас (или недобор), с которого исход считается
+   *   блестящим (крит-успех) или позорным (крит-провал).
+   *
+   * `safeScore` умолчания здесь не имеет: оно считается от шкалы пресета —
+   * середина между проходным баллом и автоматом (`dcParams`).
+   */
+  dc: { base: 8, score: 24, relation: 6, reputation: 6, critMargin: 10 },
 };
+
+/** Грани кубика. Не параметр пресета: «d20» — это и есть понятность формы. */
+export const DIE = 20;
+
+/**
+ * Ступени проверки. Ключи, а не слова: названия живут в отладке (`ui.js`) и в
+ * фразах пресета, ядро их не знает.
+ */
+export const TIERS = ['critFail', 'fail', 'success', 'critSuccess'];
 
 /**
  * Фразы по умолчанию. Это тоже данные: пресет перекрывает их блоком
@@ -69,7 +98,27 @@ export const DEFAULT_PHRASES = {
   // режим, которого не будет. Названием тут служит сам вид из пресета.
   scheduledKind: '{kind}: назначено {count}.',
   missed: '{examPeriod} закончена: {subject} — не сдано, {debt} остаётся.',
+  // «Знает расширение / знает мир» (9.4.3). Итог посчитан, но объявят его
+  // позже: модель получает его как закрытое знание симуляции, а персонажи —
+  // нет. Формулировка повелительная, как у остальных вердиктов: не справка
+  // «оценка 3», а запрет на неё в сцене до даты.
+  announceLater: 'Свершилось: {subject} — сдача позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итог объявят {date}; до того оценку в сцене не знает никто, включая героиню. Отыграй саму сдачу как уже случившееся.',
+  announced: 'Итоги объявлены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как героиня узнаёт итог.',
+  // Итог словами — одна вставка `{result}` на обе фразы выше, по исходу попытки.
+  resultPassed: '{value}',
+  resultFailed: '{value}, пересдача (попыток осталось: {left})',
+  resultExhausted: '{value}, попытки исчерпаны, {debt} остаётся',
 };
+
+/**
+ * Оговорка «сцена не для пары» (9.4.9, `intimateSceneGuard` у chaos-events):
+ * одноразовый вердикт повелителен, и без оговорки модель оборвёт интимную или
+ * просто неподходящую сцену ради зачёта. Текст — `preset.prompts.sceneGuard`;
+ * пустая строка в пресете выключает оговорку.
+ */
+export const DEFAULT_SCENE_GUARD = 'Если сцена сейчас интимная или для этого неподходящая — не обрывай её: отложи это до первой уместной минуты.';
+
+
 
 // --- чтение пресета ---------------------------------------------------------
 
@@ -529,6 +578,7 @@ export function datedExams(state, preset, day = state && state.calendar && state
     && (!Number.isFinite(i.term) || i.term === term)
     && !i.missed
     && unfinished(preset, i)
+    && !awaitingAnnouncement(i)
     && (!isDay(i.day) || diffDays(i.day, day) >= 0));
 }
 
@@ -549,7 +599,13 @@ export function sittableExams(state, preset, day = state && state.calendar && st
   if (phase === 'study' || phase === 'exams') out.push(...datedExams(state, preset, day));
   const mode = examMode(state, preset);
   if (phase === 'exams' && mode.active) {
-    for (const item of mode.pending) if (!out.some((x) => x.id === item.id)) out.push(item);
+    for (const item of mode.pending) {
+      // Пересдача — только после объявления итога (9.4.3): садить героиню
+      // пересдавать то, о провале чего она ещё не знает, значит объявить
+      // провал самим фактом пересдачи.
+      if (awaitingAnnouncement(item)) continue;
+      if (!out.some((x) => x.id === item.id)) out.push(item);
+    }
   }
   return out;
 }
@@ -623,28 +679,6 @@ function daysLeftOf(state, preset) {
 
 // --- исход ------------------------------------------------------------------
 
-/**
- * Веса после нормировки и зажима случая. Пресет может написать любые числа —
- * сумма приводится к единице, а доля случая обрезается потолком `maxLuck`, и
- * отнятое уходит в балл. Без этой обрезки пресет с «весом случая 10» вернул бы
- * лотерею и сломал бы требование 3.5 из чужого файла настроек.
- */
-export function outcomeWeights(preset) {
-  const w = { ...DEFAULTS.weights, ...(examsOf(preset).weights || {}) };
-  const score = Math.max(0, numberOr(w.score, 0));
-  const relation = Math.max(0, numberOr(w.relation, 0));
-  const luckRaw = Math.max(0, numberOr(w.luck, 0));
-  const sum = score + relation + luckRaw;
-  if (!sum) return { score: 1, relation: 0, luck: 0 };
-  const cap = clamp(numberOr(examsOf(preset).maxLuck, DEFAULTS.maxLuck), 0, 1);
-  const luck = Math.min(luckRaw / sum, cap);
-  const rest = 1 - luck;
-  const other = score + relation;
-  return other
-    ? { score: (score / other) * rest, relation: (relation / other) * rest, luck }
-    : { score: rest, relation: 0, luck };
-}
-
 /** Накопленный балл в долю 0..1 по размаху числовой шкалы пресета. */
 export function normalizeScore(preset, score) {
   const points = (gradesOf(preset).values || []).filter(isPointScale).map((v) => v.points);
@@ -664,30 +698,260 @@ export function normalizeRelation(preset, relation) {
 }
 
 /**
- * Исход контрольного события.
+ * Параметры проверки: блок `preset.exams.dc` поверх умолчаний.
  *
- * @param {{score: number, relation: number, kind: string}} input
- * @param {Object} preset
- * @param {() => number} [rng] инжектится ради воспроизводимости тестов
- * @returns {{value: string, roll: number, reason: string, parts: Object}}
+ * Мусор в пресете (строка, отрицательный вес) не ломает исход, а тихо уступает
+ * умолчанию: пресет — чужой файл, и падать на нём посреди сессии нельзя.
+ *
+ * `safeScore` — порог страховки балла. Пресет пишет его явно; молчит — берётся
+ * середина между проходным баллом и автоматом. Середина, а не сам проходной:
+ * на проходном балле ученица сдаёт «как повезёт», и страховать её там значило
+ * бы убрать провал из игры вовсе. Нет ни проходного, ни автомата — страховки
+ * нет (`Infinity`), и это честно: судить о «сильном балле» не по чему.
  */
-export function rollOutcome({ score, relation, kind }, preset, rng = Math.random) {
-  const w = outcomeWeights(preset);
-  const s = normalizeScore(preset, score);
-  const r = normalizeRelation(preset, relation);
-  const luck = clamp(numberOr(rng(), 0), 0, 1);
-  const roll = w.score * s + w.relation * r + w.luck * luck;
-  const parts = { score: s, relation: r, luck, weights: w };
+export function dcParams(preset) {
+  const own = (examsOf(preset).dc && typeof examsOf(preset).dc === 'object') ? examsOf(preset).dc : {};
+  const pick = (key, min = 0) => {
+    const v = own[key];
+    return typeof v === 'number' && Number.isFinite(v) && v >= min ? v : DEFAULTS.dc[key];
+  };
+  const pass = numberOr(gradesOf(preset).passMark, null);
+  const auto = numberOr(examsOf(preset).autoPassScore, null);
+  const guessed = pass !== null && auto !== null ? (pass + auto) / 2 : Infinity;
+  return {
+    base: pick('base', -Infinity),
+    score: pick('score'),
+    relation: pick('relation'),
+    reputation: pick('reputation'),
+    critMargin: Math.max(1, pick('critMargin', 1)),
+    safeScore: numberOr(own.safeScore, guessed),
+  };
+}
 
+/** Сложность вида: собственный `dc` вида, иначе общая база пресета. */
+function kindBase(preset, kindId) {
+  const kind = kindOf(preset, kindId);
+  const own = kind && kind.dc;
+  return typeof own === 'number' && Number.isFinite(own) ? own : dcParams(preset).base;
+}
+
+/**
+ * Сложность проверки и из чего она сложилась.
+ *
+ * Каждое слагаемое округляется **отдельно**, а не сумма целиком: иначе в
+ * отладке «12 = 14 − 1 − 1 + 0» арифметика не сходилась бы на глаз, и вопрос
+ * «почему так вышло» упирался бы в невидимые дроби.
+ *
+ * Знак у поправок — «сколько снято со сложности»: плюс помогает, минус мешает.
+ * Отсчёт у каждой от своего «нейтрального» значения:
+ *
+ * - балл — от проходного (`grades.passMark`): ниже проходного экзамен труднее
+ *   базы, выше — легче;
+ * - отношение — от стартового (`relations.start`), репутация — от стартовой
+ *   (`reputation.start`): новичок, которого никто ещё не знает, сдаёт по базе.
+ *
+ * Не заданное значение (нет наставника, нет репутации в вызове) даёт ноль, а не
+ * штраф: отсутствие сведений — не повод валить.
+ *
+ * @param {{score?: number, relation?: number, reputation?: number, kind?: string}} input
+ * @param {Object} preset
+ * @returns {{dc: number, base: number, mods: {score: number, relation: number, reputation: number}}}
+ */
+export function examDC({ score, relation, reputation, kind } = {}, preset) {
+  const p = dcParams(preset);
+  const base = kindBase(preset, kind);
+
+  // Балл: доля размаха шкалы над проходным баллом.
+  const points = (gradesOf(preset).values || []).filter(isPointScale).map((v) => v.points);
+  const span = points.length >= 2 ? Math.max(...points) - Math.min(...points) : 0;
+  const pass = numberOr(gradesOf(preset).passMark, null);
+  const scoreMod = span > 0 && pass !== null && typeof score === 'number' && Number.isFinite(score)
+    ? round(p.score * (score - pass) / span)
+    : 0;
+
+  const r = (preset && preset.relations) || {};
+  const relSpan = numberOr(r.max, 0) - numberOr(r.min, 0);
+  const relationMod = relSpan > 0 && typeof relation === 'number' && Number.isFinite(relation)
+    ? round(p.relation * (relation - numberOr(r.start, 0)) / relSpan)
+    : 0;
+
+  const rep = (preset && preset.reputation) || {};
+  const repSpan = numberOr(rep.max, 0) - numberOr(rep.min, 0);
+  const reputationMod = repSpan > 0 && typeof reputation === 'number' && Number.isFinite(reputation)
+    ? round(p.reputation * (reputation - numberOr(rep.start, numberOr(rep.min, 0))) / repSpan)
+    : 0;
+
+  const mods = { score: scoreMod, relation: relationMod, reputation: reputationMod };
+  return { dc: base - scoreMod - relationMod - reputationMod, base, mods };
+}
+
+/**
+ * Ступень по запасу броска над сложностью.
+ *
+ * Крит считается **по запасу, а не по натуральным 1 и 20.** В Enhance-Gen и в
+ * настольных играх «натуралка» решает сама, но у Academy два требования 3.5
+ * сразу: отличница не заваливается на ровном месте, а двоечница не получает
+ * высшую оценку «потому что выпало 20». Натуральная единица дала бы первой 5%
+ * провала при любом балле, натуральная двадцатка — второй 5% пятёрок. Запас же
+ * зависит от DC, то есть от состояния: блестяще сдаёт тот, кому и было легко.
+ * Сама натуралка видна в отладке числом броска — анимации есть что показать.
+ */
+export function checkTier(roll, dc, preset) {
+  const { critMargin } = dcParams(preset);
+  const margin = roll - dc;
+  if (margin >= critMargin) return 'critSuccess';
+  if (margin >= 0) return 'success';
+  if (margin > -critMargin) return 'fail';
+  return 'critFail';
+}
+
+/** d20 из rng в [0, 1). Мусор из rng — середина, а не падение. */
+export function rollDie(rng) {
+  const x = clamp(numberOr(typeof rng === 'function' ? rng() : NaN, 0.5), 0, 0.999999);
+  return 1 + Math.floor(x * DIE);
+}
+
+/**
+ * Ступень → значение шкалы пресета.
+ *
+ * Лестница делится чертой «сдал / не сдал» (`pass` у значения):
+ *
+ * - крит-успех — высшая ступень;
+ * - успех — проходные ступени **кроме высшей**, по запасу: каждые
+ *   `critMargin / n` пунктов запаса — ступенью выше. Высшая оценка зарезервирована
+ *   за блестящей сдачей — иначе она выпадала бы на обычном успехе с запасом 9,
+ *   и крит ничего бы не значил. Проходная ступень одна («зачёт») — она и есть
+ *   ответ и на успех, и на крит;
+ * - провал — лучшая из непроходных, крит-провал — худшая.
+ *
+ * Шкала без непроходных ступеней (не бывает, но пресет чужой) — провал даёт
+ * низшую проходную; без проходных — худшую из того, что есть.
+ */
+function valueForTier(ladder, tier, margin, preset) {
+  const passing = ladder.filter((v) => v.pass !== false);
+  const failing = ladder.filter((v) => v.pass === false);
+  const { critMargin } = dcParams(preset);
+
+  if (tier === 'critSuccess' && passing.length) return passing[0];
+  if ((tier === 'success' || tier === 'critSuccess') && passing.length) {
+    const rungs = passing.length > 1 ? passing.slice(1) : passing; // от лучшей к худшей
+    const n = rungs.length;
+    const up = clamp(Math.floor((Math.max(0, margin) * n) / critMargin), 0, n - 1);
+    return rungs[n - 1 - up];
+  }
+  if (!failing.length) return passing[passing.length - 1] || ladder[ladder.length - 1];
+  return tier === 'critFail' ? failing[failing.length - 1] : failing[0];
+}
+
+/**
+ * Исход контрольного события — видимая проверка d20 против сложности (9.4.1).
+ *
+ * **Почему d20, а не прежняя взвешенная сумма.** Сумма «0.6·балл + 0.2·отношение
+ * + 0.2·случай» была честной, но непрозрачной: на вопрос «почему тройка»
+ * ответом была дробь 0.47, которую не проверишь в голове, а вес репутации в неё
+ * было не вставить так, чтобы его стало видно. d20 против DC — форма, которую
+ * игроки уже читают (Enhance-Gen, настолки): «DC 12 = 14 − 1 − 1 + 0; выпало 15
+ * → успех». Каждое слагаемое — целое число с именем, и репутация — одно из них
+ * (вопрос 8.8 закрыт весом, а не формулировкой).
+ *
+ * Два ограничения 3.5 выполнены правилами, а не весами:
+ *
+ * - **страховка балла**: балл не ниже `dc.safeScore` — проваленная проверка
+ *   засчитывается низшей проходной ступенью (`check.saved`);
+ * - **высшая оценка — только за крит**, а крит — по запасу над DC, не по
+ *   натуральной 20 (`checkTier`); и **потолок балла**: ниже проходного балла
+ *   крит даёт лучший обычный успех, а не высшую (`check.capped`). Без потолка
+ *   двоечница, у которой наставник в любимицах и репутация под потолком,
+ *   добирала бы запас крита на двадцатке.
+ *
+ * Автомат — по-прежнему порог балла и не бросок: `check` у него нет.
+ *
+ * @param {{score: number, relation?: number, reputation?: number, kind: string}} input
+ *   `reputation` — число `state.reputation.value`; не передано — поправки нет
+ * @param {Object} preset
+ * @param {() => number} [rng] источник случайности в [0, 1)
+ * @returns {{value: string, roll: ?number, reason: 'auto'|'roll'|'noScale', check: ?Object}}
+ *   `check`: `{dc, base, mods, roll, margin, tier, saved, capped}` — всё, что нужно
+ *   отладке, чтобы ответить «почему так вышло»
+ */
+export function rollOutcome({ score, relation, reputation, kind }, preset, rng = Math.random) {
   const auto = numberOr(examsOf(preset).autoPassScore, Infinity);
   if (numberOr(score, -Infinity) >= auto) {
-    return { value: autoValue(preset, kind), roll, reason: 'auto', parts };
+    return { value: autoValue(preset, kind), roll: null, reason: 'auto', check: null };
   }
 
+  const { dc, base, mods } = examDC({ score, relation, reputation, kind }, preset);
+  const roll = rollDie(rng);
+  const margin = roll - dc;
+  const tier = checkTier(roll, dc, preset);
+  const check = { dc, base, mods, roll, margin, tier, saved: false, capped: false };
+
   const ladder = outcomeLadder(preset, kind);
-  if (!ladder.length) return { value: '', roll, reason: 'noScale', parts };
-  const idx = clamp(Math.floor((1 - roll) * ladder.length), 0, ladder.length - 1);
-  return { value: String(ladder[idx].value), roll, reason: 'roll', parts };
+  if (!ladder.length) return { value: '', roll, reason: 'noScale', check };
+
+  let picked = valueForTier(ladder, tier, margin, preset);
+  const passing = ladder.filter((v) => v.pass !== false);
+  const failed = tier === 'fail' || tier === 'critFail';
+  if (failed && numberOr(score, -Infinity) >= dcParams(preset).safeScore && passing.length) {
+    picked = passing[passing.length - 1];
+    check.saved = true;
+  }
+  // Потолок балла — зеркало страховки. Ниже проходного балла крит засчитывается
+  // лучшим обычным успехом, а не высшей оценкой: любимица наставника с
+  // гордостью факультета за спиной может вытянуть на двадцатке блестящий
+  // ответ, но пятёрку двоечнице не ставят — ставят четвёрку и удивляются.
+  const pass = numberOr(gradesOf(preset).passMark, null);
+  if (tier === 'critSuccess' && pass !== null && numberOr(score, Infinity) < pass && passing.length > 1) {
+    picked = passing[1];
+    check.capped = true;
+  }
+  return { value: String(picked.value), roll, reason: 'roll', check };
+}
+
+// --- воспроизводимый бросок (9.3.9) ------------------------------------------
+
+/**
+ * FNV-1a, 32 бита. Хеш строки seed в число — первый шаг воспроизводимого
+ * броска. Выбран за то, что пишется в пять строк без зависимостей и одинаково
+ * считается в Node и в браузере (`Math.imul` вместо переполнения умножения).
+ */
+export function fnv1a(text) {
+  let h = 0x811c9dc5;
+  const s = String(text == null ? '' : text);
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/**
+ * Генератор в [0, 1) от строки seed: FNV-1a даёт зерно, mulberry32 — поток.
+ * Хеш сам по себе плохо размазан по старшим битам на похожих строках
+ * («…:1» и «…:2»), а mulberry32 перемешивает их до равномерного броска.
+ */
+export function seededRng(seed) {
+  let a = fnv1a(seed);
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Строка seed одной попытки: чат + событие + номер попытки + день.
+ *
+ * Состав выбран так, чтобы **свайп не выбивал исход**, а всё остальное — да:
+ * свайп пересчитывает тот же ответ из того же снимка, и все четыре части
+ * совпадают; пересдача — другая попытка, другой день — другой бросок, другой
+ * чат — другой. id события уже содержит период, предмет и вид.
+ */
+export function examSeed(chatSeed, item, day) {
+  const attempt = numberOr(item && item.attempts, 0) + 1;
+  return [String(chatSeed == null ? '' : chatSeed), (item && item.id) || '', attempt, day || ''].join('|');
 }
 
 // --- запись исхода ----------------------------------------------------------
@@ -700,9 +964,15 @@ export function rollOutcome({ score, relation, kind }, preset, rng = Math.random
  * фраз пресета, id инжекта включает номер попытки — пересдача должна инжектиться
  * заново, а не считаться дублем.
  *
+ * `check` — проверка из `rollOutcome`, если исход брошен (9.4.1). Она уходит
+ * в две стороны: полностью — в запись журнала (`data.check`, отладка отвечает
+ * по ней на «почему так вышло»), и сжатой строкой — в историю бросков события
+ * (`item.rolls`, см. `rollRecord`). Журнал кольцевой и за семестр забывает
+ * начало, история бросков — нет: событие из состояния не удаляется никогда.
+ *
  * @returns {{state: Object, pending: ?Object}}
  */
-export function applyOutcome(state, { examId, value, day, reason }, preset) {
+export function applyOutcome(state, { examId, value, day, reason, check }, preset) {
   let next = cloneState(state);
   let item = next.exams.items.find((i) => i.id === examId);
   if (!item) return { state: next, pending: null };
@@ -712,6 +982,18 @@ export function applyOutcome(state, { examId, value, day, reason }, preset) {
   item.outcome = String(value);
   item.attempts = numberOr(item.attempts, 0) + 1;
   if (when) item.day = when;
+  // Объявление итога (9.4.3). Автомат объявлять нечего: он известен до сдачи,
+  // сдачи и не было. Иначе — по правилу пресета; «сразу» (нет правила) не
+  // оставляет на событии ни одного поля, и состояние выглядит как до правки.
+  const announceOn = reason === 'auto' ? null : announceDay(preset, item.kind, when);
+  delete item.announced;
+  delete item.announceOn;
+  if (announceOn) {
+    item.announced = false;
+    item.announceOn = announceOn;
+  }
+  const record = rollRecord({ day: when, value, reason, check });
+  if (record) item.rolls = [...(Array.isArray(item.rolls) ? item.rolls : []), record];
 
   // Шов с `gradebook.mjs`: оценку в зачётку пишет он, а не мы. Своя запись
   // `subject.grades.push` рядом с `addGrade` означала бы два места, где оценка
@@ -726,7 +1008,6 @@ export function applyOutcome(state, { examId, value, day, reason }, preset) {
   }
 
   const subject = findSubject(next, item.subjectId);
-  const teacher = teacherOfSubject(next, item.subjectId);
   if (subject) {
     if (!graded.applied) subject.grades.push({ value: String(value), day: when });
     subject.debt = !passed && retakesLeft(preset, item) <= 0;
@@ -739,16 +1020,38 @@ export function applyOutcome(state, { examId, value, day, reason }, preset) {
   }
 
   const left = retakesLeft(preset, item);
+  const verdict = verdictText(next, preset, item, value, reason);
+  const inject = { id: `exam:${item.id}:${item.attempts}`, kind: 'exam', text: withSceneGuard(verdict, preset) };
+  pushPending(next, inject);
+  pushJournal(next, {
+    kind: 'exam',
+    text: verdict,
+    // `private` — итог ещё не объявлен (9.4.3): хроника лорбука такую запись не
+    // берёт (`lorebook.isSignificant`), иначе World Info выдал бы оценку миру
+    // раньше ведомости. В хронику итог попадёт записью объявления.
+    data: {
+      examId, value: String(value), passed, left, ...(check ? { check } : {}),
+      ...(announceOn ? { private: true, announceOn } : {}),
+    },
+  }, preset);
+
+  return { state: next, pending: inject };
+}
+
+/**
+ * Текст вердикта по событию (без оговорки `withSceneGuard`) — одна функция на два места: исход броска
+ * (`applyOutcome`) и исход кубика соседа (`resolveConflict` с `source: 'dice'`).
+ *
+ * Итог ещё не объявлен (`item.announced === false`) — фраза `announceLater`:
+ * модель знает исход, персонажи нет. Иначе — прежние четыре фразы.
+ */
+export function verdictText(state, preset, item, value, reason) {
   const ph = phrasesOf(preset);
-  const info = gradeInfo(preset, value);
-  const vars = {
-    subject: (subject && subject.name) || item.subjectId,
-    value: (info && info.label) || String(value),
-    teacher: (teacher && teacher.name) || vocabOf(preset).teacher || '',
-    left: String(left),
-    debt: vocabOf(preset).debt || '',
-    examPeriod: vocabOf(preset).examPeriod || '',
-  };
+  const vars = verdictVars(state, preset, item, value);
+  if (awaitingAnnouncement(item)) {
+    return fill(ph.announceLater, { ...vars, result: resultText(preset, item, value, vars), date: shortDate(item.announceOn) });
+  }
+  const passed = isPassing(preset, value);
   // «Без испытания» узнаётся по причине исхода, а не по значению: в шкале
   // «зачёт/незачёт» автомат и обычная сдача — одно и то же слово, и сравнение
   // значений объявило бы автоматом каждый сданный зачёт.
@@ -757,13 +1060,275 @@ export function applyOutcome(state, { examId, value, day, reason }, preset) {
         && !outcomeLadder(preset, item.kind).some((v) => String(v.value) === String(value)));
   const template = passed
     ? (wasAuto ? ph.auto : ph.passed)
-    : (left > 0 ? ph.failed : ph.exhausted);
+    : (retakesLeft(preset, item) > 0 ? ph.failed : ph.exhausted);
+  return fill(template, vars);
+}
 
-  const inject = { id: `exam:${item.id}:${item.attempts}`, kind: 'exam', text: fill(template, vars) };
-  pushPending(next, inject);
-  pushJournal(next, { kind: 'exam', text: inject.text, data: { examId, value: String(value), passed, left } }, preset);
+function verdictVars(state, preset, item, value) {
+  const subject = findSubject(state, item.subjectId);
+  const teacher = teacherOfSubject(state, item.subjectId);
+  const info = gradeInfo(preset, value);
+  return {
+    subject: (subject && subject.name) || item.subjectId,
+    value: (info && info.label) || String(value),
+    teacher: (teacher && teacher.name) || vocabOf(preset).teacher || '',
+    left: String(retakesLeft(preset, item)),
+    debt: vocabOf(preset).debt || '',
+    examPeriod: vocabOf(preset).examPeriod || '',
+  };
+}
 
-  return { state: next, pending: inject };
+/** `{result}` фраз объявления: оценка и что из неё следует. */
+function resultText(preset, item, value, vars) {
+  const ph = phrasesOf(preset);
+  const template = isPassing(preset, value)
+    ? ph.resultPassed
+    : (retakesLeft(preset, item) > 0 ? ph.resultFailed : ph.resultExhausted);
+  return fill(template, vars);
+}
+
+/** `ДД.ММ` — дата объявления в тексте вердикта. Формат дат промпта, как у промотки. */
+function shortDate(day) {
+  if (!isDay(day)) return '';
+  const [, m, d] = day.split('-');
+  return `${d}.${m}`;
+}
+
+// --- «знает расширение / знает мир» (9.4.3) ---------------------------------
+//
+// Исход контрольного считается сразу (3.5: «до того, как модель начнёт его
+// описывать»), а объявляется — по правилу пресета: «ведомость вывесят в
+// пятницу». Между сдачей и объявлением итог знает расширение (зачётка в панели,
+// вехи, отладка) и модель — одноразовой пометкой «закрытые сведения симуляции,
+// не знание персонажей». Мир не знает: строка состояния, хроника лорбука и
+// пересдача ждут объявления. Приём — у Pregnancy («трекер знает о
+// беременности» против «героиня узнала»).
+//
+// Что НЕ меняется, и это нарочно: сама сдача по-прежнему отыгрывается сразу
+// одноразовым вердиктом (9.1.2 держит его через свайп и F5 — тот же `pending`,
+// тот же id `exam:<событие>:<попытка>`). Объявление касается только итоговой
+// оценки. `resolveConflict` (модель отыграла свою оценку) объявления не трогает:
+// оценка меняется, дата — нет.
+//
+// Правило задержки — `exams.announce` пресета или `announce` у вида (вид
+// сильнее): `{studyDays: n}` — n-й учебный день после сдачи (учебный — по дням
+// недели `week.studyDays`, каникулы НЕ пропускаются: ведомость вывешивают и в
+// январе); `{weekday: 1–7}` — ближайший такой день недели строго после сдачи
+// («в ближайшую пятницу»; сдача в пятницу — через неделю); число `n` —
+// сокращение `{studyDays: n}`. Пресет молчит или пишет 0 — объявлено сразу, как
+// было до правки.
+
+/** Потолок `studyDays`: «через месяц» — это не ведомость, а опечатка в пресете. */
+const MAX_ANNOUNCE_DAYS = 14;
+
+/**
+ * Правило объявления для вида; `null` — сразу.
+ *
+ * @returns {?({studyDays: number}|{weekday: number})}
+ */
+export function announceRule(preset, kindId) {
+  const kind = exactKind(preset, kindId);
+  const raw = kind && kind.announce !== undefined ? kind.announce : examsOf(preset).announce;
+  const rule = typeof raw === 'number' ? { studyDays: raw } : raw;
+  if (!rule || typeof rule !== 'object') return null;
+  const n = Number(rule.studyDays);
+  if (Number.isInteger(n) && n >= 1) return { studyDays: Math.min(n, MAX_ANNOUNCE_DAYS) };
+  const w = Number(rule.weekday);
+  if (Number.isInteger(w) && w >= 1 && w <= 7) return { weekday: w };
+  return null;
+}
+
+/**
+ * День объявления итога сдачи в `day`; `null` — объявлено сразу.
+ *
+ * @param {Object} preset
+ * @param {string} kindId вид события
+ * @param {string} day день сдачи, `ГГГГ-ММ-ДД`
+ * @returns {?string}
+ */
+export function announceDay(preset, kindId, day) {
+  const rule = announceRule(preset, kindId);
+  if (!rule || !isDay(day)) return null;
+  if (rule.weekday) {
+    for (let k = 1; k <= 7; k += 1) {
+      const d = addDays(day, k);
+      if (dayOfWeek(d) === rule.weekday) return d;
+    }
+    return null;
+  }
+  const study = (preset && preset.week && Array.isArray(preset.week.studyDays) && preset.week.studyDays.length)
+    ? preset.week.studyDays
+    : [1, 2, 3, 4, 5];
+  let left = rule.studyDays;
+  let d = day;
+  // Неделя без единого учебного дня (мусор в пресете) не зациклит: потолок
+  // обхода конечен, дальше — просто календарные дни.
+  for (let guard = 0; left > 0 && guard < MAX_ANNOUNCE_DAYS * 7; guard += 1) {
+    d = addDays(d, 1);
+    if (study.includes(dayOfWeek(d))) left -= 1;
+  }
+  return left > 0 ? addDays(day, rule.studyDays) : d;
+}
+
+/** Итог попытки посчитан, но ещё не объявлен. Старые события без поля — объявлены. */
+export const awaitingAnnouncement = (item) => Boolean(item) && item.announced === false;
+
+/**
+ * Объявить всё, чей день пришёл: событие получает `announced: true`, в очередь
+ * — одноразовое «итоги объявлены: …» (id `announce:<событие>:<попытка>`), в
+ * журнал — запись с `data.value` (её и возьмёт хроника лорбука, датой
+ * объявления). Зовётся календарём (`engine.calendarEvents`) — объявление
+ * случается, когда до него дошло время, а не по кнопке.
+ *
+ * @returns {{state: Object, announced: string[]}} id объявленных событий
+ */
+export function announceResults(state, preset, day = state && state.calendar && state.calendar.day) {
+  const items = (state && state.exams && state.exams.items) || [];
+  const due = items.filter((i) => awaitingAnnouncement(i) && isDay(i.announceOn) && isDay(day)
+    && diffDays(i.announceOn, day) >= 0);
+  if (!due.length) return { state, announced: [] };
+
+  const next = cloneState(state);
+  const ph = phrasesOf(preset);
+  const announced = [];
+  for (const raw of due) {
+    const item = next.exams.items.find((i) => i.id === raw.id);
+    item.announced = true;
+    const value = item.outcome;
+    const vars = verdictVars(next, preset, item, value);
+    const text = fill(ph.announced, { ...vars, result: resultText(preset, item, value, vars) });
+    pushPending(next, {
+      id: `announce:${item.id}:${numberOr(item.attempts, 0)}`, kind: 'announce', text: withSceneGuard(text, preset),
+    });
+    pushJournal(next, {
+      kind: 'exam',
+      text,
+      data: {
+        examId: item.id, value: String(value), passed: isPassing(preset, value),
+        left: retakesLeft(preset, item), announced: true,
+      },
+    }, preset);
+    announced.push(item.id);
+  }
+  return { state: next, announced };
+}
+
+/**
+ * Что знает мир: состояние, из которого вычтены необъявленные итоги (9.4.3).
+ *
+ * Для строки состояния (`prompt.statusLine`): оценка за сданное, но не
+ * объявленное, из зачётки убирается, а хвост, поставленный этим исходом, —
+ * гасится. Иначе «Балл: 3.1. Хвосты: химия» в строке объявили бы провал
+ * раньше ведомости. Последняя строка истории бросков тоже прячется: по ней
+ * считаются вехи «блестящая сдача» и «автомат» (`milestones.mjs`), и
+ * `milestones(publicView(s))` — это вехи, которые мир уже видел (для тоста в
+ * панели: он прозвучит в день объявления, а не в день сдачи). Состояние не
+ * меняется — возвращается копия; нечего прятать — возвращается сам объект.
+ *
+ * Чего НЕ прячет: репутацию (исход её уже сдвинул — наставник, поставивший
+ * оценку, её знает, и заведение вместе с ним) и счёт несданного в сессию.
+ */
+export function publicView(state, preset) {
+  const hidden = ((state && state.exams && state.exams.items) || []).filter(awaitingAnnouncement);
+  if (!hidden.length) return state;
+  const next = cloneState(state);
+  for (const item of hidden) {
+    const subject = findSubject(next, item.subjectId);
+    if (!subject) continue;
+    const grades = subject.grades || [];
+    for (let i = grades.length - 1; i >= 0; i -= 1) {
+      if (String(grades[i].value) === String(item.outcome) && (!item.day || grades[i].day === item.day)) {
+        grades.splice(i, 1);
+        break;
+      }
+    }
+    if (subject.debt && subject.debtReason === DEBT_EXAM) {
+      subject.debt = false;
+      delete subject.debtReason;
+    }
+    const own = next.exams.items.find((i) => i.id === item.id);
+    if (own && Array.isArray(own.rolls) && own.rolls.length) own.rolls = own.rolls.slice(0, -1);
+  }
+  return next;
+}
+
+// --- оговорка «сцена не для пары» (9.4.9) -----------------------------------
+
+/** Текст оговорки: `preset.prompts.sceneGuard`, иначе умолчание; `''` — выключено. */
+export function sceneGuard(preset) {
+  const own = preset && preset.prompts && preset.prompts.sceneGuard;
+  return typeof own === 'string' ? own.trim() : DEFAULT_SCENE_GUARD;
+}
+
+/**
+ * Вердикт с оговоркой — одной строкой, хвостом того же инжекта.
+ *
+ * Хвостом, а не отдельным инжектом, нарочно: «один вердикт — один инжект»
+ * держат и отладка, и снятие ставшего ложью вердикта (`resolveConflict` снимает
+ * по id события), и оговорка, пережившая свой вердикт, осталась бы приказом
+ * «отложи» ни о чём. В журнал оговорка не идёт — это наставление модели, а не
+ * событие.
+ */
+export function withSceneGuard(text, preset) {
+  const guard = sceneGuard(preset);
+  return guard ? `${text} ${guard}` : text;
+}
+
+// --- исход соседа: кубик Enhance-Gen (9.4.1, 9.7B) --------------------------
+
+/**
+ * Значение шкалы по исходу чужого броска (`cues.readDiceRoll`).
+ *
+ * Кубик Enhance-Gen в реплике человека уже велел модели отыграть «фиаско» или
+ * «триумф» (его `system_note`), поэтому посчитанный нами исход с ним спорить
+ * не может — тот же случай, что `resolveConflict` с версией модели (3.5).
+ * Ступень берётся у соседа, а значение — с НАШЕЙ лестницы тем же правилом,
+ * что у своего броска (`valueForTier`): запас = бросок − DC соседа; у крита DC
+ * сосед не пишет, и запасом считается ровно `critMargin`.
+ *
+ * @param {Object} preset
+ * @param {string} kindId
+ * @param {?{tier: string, roll: ?number, dc: ?number}} dice
+ * @returns {string} значение шкалы; `''` — перевести не во что
+ */
+export function externalValue(preset, kindId, dice) {
+  if (!dice || !TIERS.includes(dice.tier)) return '';
+  const ladder = outcomeLadder(preset, kindId);
+  if (!ladder.length) return '';
+  const { critMargin } = dcParams(preset);
+  const margin = Number.isFinite(dice.roll) && Number.isFinite(dice.dc)
+    ? dice.roll - dice.dc
+    : ({ critSuccess: critMargin, success: 0, fail: -1, critFail: -critMargin })[dice.tier];
+  const picked = valueForTier(ladder, dice.tier, margin, preset);
+  return picked ? String(picked.value) : '';
+}
+
+/**
+ * Одна строка истории бросков события — компактно, потому что живёт в
+ * `chat_metadata` вечно: день, бросок, DC, ступень, посчитанное значение, и
+ * флаги страховки и потолка, только если они сработали. Слагаемые DC сюда не входят —
+ * они в журнале; история отвечает на «что выпадало», а не на «из чего».
+ *
+ * Автомат — тоже строка истории, без броска: вехе «автомат» (`milestones.mjs`)
+ * нужно знать, что исход был автоматом, а по одному значению этого не понять
+ * (в шкале «зачёт/незачёт» автомат и сдача — одно слово). Исход без проверки
+ * и без автомата (вызов руками, старый код) строки не оставляет: выдумывать
+ * бросок, которого не было, нельзя.
+ *
+ * @returns {?{day: string, roll?: number, dc?: number, tier: string, value: string, saved?: true, capped?: true}}
+ */
+export function rollRecord({ day, value, reason, check }) {
+  if (reason === 'auto') return { day: day || '', tier: 'auto', value: String(value) };
+  if (!check || typeof check !== 'object' || !TIERS.includes(check.tier)) return null;
+  return {
+    day: day || '',
+    roll: check.roll,
+    dc: check.dc,
+    tier: check.tier,
+    value: String(value),
+    ...(check.saved ? { saved: true } : {}),
+    ...(check.capped ? { capped: true } : {}),
+  };
 }
 
 /**
@@ -777,8 +1342,12 @@ export function applyOutcome(state, { examId, value, day, reason }, preset) {
  *
  * @returns {{state: Object, divergence: ?Object}}
  */
-export function resolveConflict(state, { examId, modelSaid }, preset) {
+export function resolveConflict(state, { examId, modelSaid, source }, preset) {
   const next = cloneState(state);
+  // `source` — чей это исход, если не модели: `'dice'` — кубик соседа
+  // (`externalValue`). Вход один на всех (9.7B «приём внешнего исхода»): чужой
+  // исход не появляется мимо журнала и отладки.
+  const from = typeof source === 'string' && source ? { source } : {};
   const item = next.exams.items.find((i) => i.id === examId);
   if (!item) return { state: next, divergence: null };
 
@@ -794,7 +1363,7 @@ export function resolveConflict(state, { examId, modelSaid }, preset) {
     // — у записи расхождения его нет ни в одной ветке, так что в хронику она не
     // попадает и теперь. `kind` отвечает на вопрос «о чём событие», а не «удалось
     // ли его применить»: применённость лежит рядом, полем `applied`.
-    const divergence = { examId, subjectId: item.subjectId, computed: item.outcome, modelSaid: String(modelSaid), applied: false };
+    const divergence = { examId, subjectId: item.subjectId, computed: item.outcome, modelSaid: String(modelSaid), applied: false, ...from };
     pushJournal(next, { kind: 'exam', text: '', data: divergence }, preset);
     return { state: next, divergence };
   }
@@ -818,8 +1387,18 @@ export function resolveConflict(state, { examId, modelSaid }, preset) {
   }
 
   next.pending = next.pending.filter((p) => !String(p.id).startsWith(`exam:${item.id}:`));
+  if (from.source === 'dice') {
+    // Кубик соседа велел отыграть ступень («провал»), но не оценку: вердикт с
+    // оценкой модели всё ещё нужен, и он ставится заново — уже с итогом кубика.
+    // Версия модели (без `source`) — другое дело: оценку она уже написала сама.
+    pushPending(next, {
+      id: `exam:${item.id}:${numberOr(item.attempts, 0)}`,
+      kind: 'exam',
+      text: withSceneGuard(verdictText(next, preset, item, said, 'dice'), preset),
+    });
+  }
 
-  const divergence = { examId, subjectId: item.subjectId, computed, modelSaid: said, applied: true };
+  const divergence = { examId, subjectId: item.subjectId, computed, modelSaid: said, applied: true, ...from };
   const text = fill(phrasesOf(preset).divergence, {
     subject: (subject && subject.name) || item.subjectId,
     computed: computed === null ? '' : String(computed),
@@ -875,4 +1454,12 @@ export function fill(template, vars) {
 
 function numberOr(v, fallback) {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
+/**
+ * Округление слагаемого DC. `Math.round(-0.4)` даёт `-0`, и в отладке строка
+ * «− -0 репутация» читалась бы как ошибка; `+ 0` сводит минус-ноль к нулю.
+ */
+function round(v) {
+  return Math.round(v) + 0;
 }

@@ -283,7 +283,11 @@ function sitExam(state, rng, out) {
   const teacher = teacherOfSubject(state, item.subjectId);
   out.permission = permissionLine(state, preset, { subjectId: item.subjectId, score });
 
-  const roll = rollOutcome({ score, relation: teacher ? teacher.relation : 0, kind: item.kind }, preset, rng);
+  // Репутация входит в сложность с 9.4.1 — черновик держится в ногу с
+  // `engine.sitExam`, иначе сравнение с ним в `engine.test` потеряло бы смысл.
+  const roll = rollOutcome({
+    score, relation: teacher ? teacher.relation : 0, reputation: state.reputation.value, kind: item.kind,
+  }, preset, rng);
   const res = applyOutcome(state, { examId: item.id, value: roll.value, day: state.calendar.day, reason: roll.reason }, preset);
   out.exam = { subjectId: item.subjectId, value: roll.value, reason: roll.reason };
 
@@ -398,7 +402,9 @@ test('прилежная студентка доходит до сессии и 
   assert.ok(s.exams.items.every((i) => i.attempts === 1), 'все с первой попытки');
   // Обе шкалы пресета отработали: зачёт по накопленному баллу и оценка броском.
   assert.deepEqual(s.exams.items.map((i) => `${i.kind}=${i.outcome}`),
-    ['credit=зачёт', 'exam=4', 'credit=зачёт', 'exam=4']);
+    // Было `exam=4` — до проверки против DC (9.4.1). Середина кубика у
+    // прилежной студентки проходит с запасом больше `critMargin`: крит, высшая.
+    ['credit=зачёт', 'exam=5', 'credit=зачёт', 'exam=5']);
 
   const score = overallScore(s, preset);
   assert.ok(score > 4 && score <= 5, `итоговый балл вменяем: ${score}`);

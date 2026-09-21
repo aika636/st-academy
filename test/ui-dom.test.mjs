@@ -711,3 +711,277 @@ test('галочка «зачесть пропущенные» доезжает 
   assert.deepEqual(sent[1], { shift: { days: 1 }, count: true });
   api.destroy();
 });
+
+/* --- переносимые пресеты (9.3.2) --------------------------------------------- */
+
+/** Блок «Пресет заведения» живой панели: узлы, кнопки по тексту, тексты. */
+function presetBlock(host) {
+  const { api, node } = mount(host);
+  const block = findSection(openTab(node, 'settings'), ui.uiLabels(preset).presetSection);
+  assert.ok(block, 'блока пресета на вкладке нет');
+  const find = (pred) => { let hit = null; walk(block, (n) => { if (!hit && pred(n)) hit = n; }); return hit; };
+  const button = (text) => find((n) => n.textContent === text && n.listeners && n.listeners.click);
+  const texts = () => { const out = []; walk(block, (n) => { if (n.textContent) out.push(n.textContent); }); return out; };
+  return { api, node, block, find, button, texts };
+}
+
+const click = async (n) => {
+  await n.listeners.click[0]({ currentTarget: n });
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+};
+
+/** Хост со своим пресетом в списке. */
+function hostWithOwn(actions = {}, extra = {}) {
+  const host = fakeHost(started, {}, LOREBOOK_FULL, actions);
+  host.getPresets = () => ({
+    active: 'ru-university',
+    list: [
+      { id: 'ru-university', name: 'Российский вуз' },
+      { id: 'my-uni', name: 'Мой вуз', user: true },
+    ],
+    notice: '',
+    ...extra,
+  });
+  return host;
+}
+
+test('пресет: выгрузка берёт выбранный в выпадашке и отдаёт файл браузеру', async () => {
+  const asked = [];
+  const host = hostWithOwn({
+    exportPreset: async (id) => { asked.push(id); return { ok: true, json: '{}', filename: `academy-preset-${id}.json` }; },
+  });
+  const { api, find, button, texts } = presetBlock(host);
+  const select = find((n) => n.tagName === 'SELECT');
+  select.value = 'my-uni';
+  await click(button(ui.PRESET_TEXT.exportButton));
+  assert.deepEqual(asked, ['my-uni'], 'выгружается выбранный, а не активный');
+  assert.ok(texts().some((t) => t.includes('academy-preset-my-uni.json')), texts().join(' | '));
+  api.destroy();
+});
+
+test('пресет: «Удалить» есть только у своего и спрашивает перед удалением', async () => {
+  const removed = [];
+  const host = hostWithOwn({ deletePreset: async (id, opts) => { removed.push([id, opts]); return { ok: true }; } });
+  const { api, find, button } = presetBlock(host);
+  const select = find((n) => n.tagName === 'SELECT');
+  const del = button(ui.PRESET_TEXT.deleteButton);
+  assert.equal(del.hidden, true, 'у встроенного кнопки удаления нет');
+  // Свой пресет в выпадашке помечен.
+  assert.ok(select.children.some((o) => o.textContent === `Мой вуз (${ui.PRESET_TEXT.userMark})`));
+
+  select.value = 'my-uni';
+  for (const fn of select.listeners.change) fn();
+  assert.equal(del.hidden, false, 'у своего — есть');
+
+  await click(del);
+  assert.equal(removed.length, 0, 'первое нажатие только спрашивает');
+  const yes = button(ui.PRESET_TEXT.deleteYes);
+  assert.ok(yes, 'вопроса «удалить?» нет');
+  await click(yes);
+  assert.deepEqual(removed, [['my-uni', { confirm: false }]]);
+  api.destroy();
+});
+
+test('пресет: файл → превью «семестр · …» → «добавить и применить» доходит до действия', async () => {
+  const calls = [];
+  const host = hostWithOwn({
+    previewPreset: async (text) => {
+      calls.push(['preview', text]);
+      return { ok: true, summary: { id: 'friend', name: 'Вуз подруги', line: 'семестр · пары в день: 4 · 2–5 · хвост после 3 прогулов' }, renamed: true, warnings: ['пресет без конверта'] };
+    },
+    importPreset: async (text, opts) => { calls.push(['import', text, opts]); return { ok: true, added: 'friend', name: 'Вуз подруги' }; },
+  });
+  const { api, find, button, texts } = presetBlock(host);
+  // В блоке пресета — ровно один выбор файла, свой.
+  const file = find((n) => n.tagName === 'INPUT' && n.attrs.type === 'file');
+  file.files = [{ size: 100, text: async () => '{"format":"academy-preset"}' }];
+  for (const fn of file.listeners.change) await fn();
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  assert.deepEqual(calls[0], ['preview', '{"format":"academy-preset"}']);
+  const shown = texts();
+  assert.ok(shown.includes('Вуз подруги'));
+  assert.ok(shown.includes('семестр · пары в день: 4 · 2–5 · хвост после 3 прогулов'));
+  assert.ok(shown.some((t) => t.includes('«friend»')), 'про новый id сказано');
+  assert.ok(button(ui.PRESET_TEXT.add), 'кнопки «Добавить» нет');
+
+  await click(button(ui.PRESET_TEXT.addApply));
+  assert.deepEqual(calls[1], ['import', '{"format":"academy-preset"}', { apply: true }]);
+  api.destroy();
+});
+
+test('пресет: файл больше 1 МБ отвергается до чтения', async () => {
+  let read = false;
+  const host = hostWithOwn({ previewPreset: async () => ({ ok: true, summary: {} }) });
+  const { api, find, texts } = presetBlock(host);
+  const file = find((n) => n.tagName === 'INPUT' && n.attrs.type === 'file');
+  file.files = [{ size: 5 * 1024 * 1024, text: async () => { read = true; return ''; } }];
+  for (const fn of file.listeners.change) await fn();
+  assert.equal(read, false, 'гигабайт на телефоне читать ради отказа нельзя');
+  assert.ok(texts().includes(ui.PRESET_TEXT.tooBig));
+  api.destroy();
+});
+
+test('пресет: откат после удаления виден строкой в блоке', () => {
+  const host = hostWithOwn({}, { notice: 'Пресет «Мой вуз» удалён — включён встроенный «Российский вуз».' });
+  const { api, texts } = presetBlock(host);
+  assert.ok(texts().includes('Пресет «Мой вуз» удалён — включён встроенный «Российский вуз».'));
+  api.destroy();
+});
+
+test('список моделей через сервер таверны — строкой в статусе', async () => {
+  const host = fakeHost(started, { api: { source: 'own', endpoint: 'https://x.y', key: 'sk', model: '' } }, LOREBOOK_FULL, {
+    listModels: async () => ({ ok: true, models: ['a', 'b'], via: 'tavern-backend' }),
+  });
+  const { api, block } = apiBlock(host);
+  let btn = null;
+  walk(block, (n) => { if (n.textContent === 'Список моделей') btn = n; });
+  await click(btn);
+  const texts = [];
+  walk(block, (n) => { if (n.textContent) texts.push(n.textContent); });
+  assert.ok(texts.some((t) => /Моделей: 2/.test(t) && /сервер таверны/.test(t)), texts.join(' | '));
+  api.destroy();
+});
+
+/* --- проводка шага 4 и крючки 9.7 ---------------------------------------------- */
+
+/** Все тексты дерева — одной строкой через « | ». */
+const allTexts = (root) => {
+  const out = [];
+  walk(root, (n) => { if (n.textContent) out.push(n.textContent); });
+  return out;
+};
+const findNode = (root, pred) => {
+  let hit = null;
+  walk(root, (n) => { if (!hit && pred(n)) hit = n; });
+  return hit;
+};
+
+test('«Сегодня»: исход сегодняшней проверки — строкой с броском; кубик «выпадает» один раз', () => {
+  const s = {
+    ...started,
+    calendar: { ...started.calendar, day: '2024-12-23' },
+    exams: {
+      ...started.exams,
+      items: [{
+        id: '0:chem:exam', subjectId: 'chem', kind: 'exam', day: '2024-12-23', outcome: '4', attempts: 1,
+        rolls: [{ day: '2024-12-23', roll: 15, dc: 7, tier: 'success', value: '4' }],
+      }],
+    },
+  };
+  const { api, node } = mount(fakeHost(s, {}, LOREBOOK_FULL));
+  let body = openTab(node, 'today');
+  assert.ok(allTexts(body).includes('бросок 15 против DC 7 — успех'), allTexts(body).join(' | '));
+  const roll = findNode(body, (n) => n.textContent === '15');
+  assert.match(roll.className, /academy-roll-fresh/, 'первый показ — с анимацией');
+  body = openTab(node, 'today');
+  const again = findNode(body, (n) => n.textContent === '15');
+  assert.doesNotMatch(again.className, /academy-roll-fresh/, 'перерисовка кубик заново не бросает');
+  api.destroy();
+});
+
+test('«Люди»: портрет миниатюрой, нажатие открывает окно, правка доходит до действия', async () => {
+  const s = { ...started, teachers: [{ ...started.teachers[0], portrait: 'characters/P/p.png', birthday: '03-08' }] };
+  const sent = [];
+  const host = fakeHost(s, {}, LOREBOOK_FULL, {
+    setTeacherDetails: async (id, patch) => { sent.push([id, patch]); return { ok: true }; },
+  });
+  const { api, node } = mount(host);
+  const body = openTab(node, 'people');
+  const img = findNode(body, (n) => n.tagName === 'IMG');
+  assert.equal(img.attrs.src, 'characters/P/p.png');
+  assert.ok(allTexts(body).includes('день рождения: 8 марта'));
+
+  const before = document.body.children.length;
+  await img.listeners.click[0]({ currentTarget: img });
+  const overlay = document.body.children[document.body.children.length - 1];
+  assert.equal(document.body.children.length, before + 1);
+  assert.match(overlay.className, /academy-portrait-overlay/);
+
+  const inputs = [];
+  walk(body, (n) => { if (n.tagName === 'INPUT' && n.attrs.type === 'text') inputs.push(n); });
+  const [portrait, birthday] = inputs;
+  portrait.value = 'javascript:alert(1)';
+  const save = findNode(body, (n) => n.textContent === 'Сохранить' && n.listeners.click);
+  await click(save);
+  assert.deepEqual(sent, [], 'негодный портрет отвергнут до хоста');
+  portrait.value = 'https://example.com/p.png';
+  birthday.value = '8.3';
+  await click(save);
+  assert.deepEqual(sent, [['petrova', { portrait: 'https://example.com/p.png', birthday: '8.3' }]]);
+  api.destroy();
+});
+
+test('«Зачётка»: блок «Вехи» с названием и датой', () => {
+  const s = {
+    ...started,
+    subjects: [{ ...started.subjects[0], grades: [{ value: '5', day: '2024-09-02' }] }],
+  };
+  const { api, node } = mount(fakeHost(s, {}, LOREBOOK_FULL));
+  const texts = allTexts(openTab(node, 'gradebook'));
+  assert.ok(texts.includes('Вехи'));
+  assert.ok(texts.includes('Первая пятёрка: аналитическая химия'), texts.join(' | '));
+  assert.ok(texts.includes('понедельник, 2 сентября'));
+  api.destroy();
+});
+
+test('«Отладка»: доктор промпта рисует причину и таблицу, если хост её отдаёт', () => {
+  const host = fakeHost(started, { debug: true }, LOREBOOK_FULL);
+  host.getPromptDoctor = () => ui.promptDoctorView({
+    prompts: {
+      academy_marker: { value: 'метка', position: 1, depth: 2, role: 0 },
+      scene: { value: 'MANDATORY: first line of your response is the scene block', position: 1, depth: 0, role: 0 },
+    },
+    own: ['academy_marker'],
+    markerKey: 'academy_marker',
+    markerSeen: false,
+  });
+  const { api, node } = mount(host);
+  const texts = allTexts(openTab(node, 'debug'));
+  assert.ok(texts.includes(ui.DOCTOR_TEXT.title));
+  assert.ok(texts.some((t) => t.includes('«scene» просит начало ответа')), texts.join(' | '));
+  api.destroy();
+});
+
+test('настройки: блок «Вехи» — галочка звука уезжает в настройки, по умолчанию выключена', () => {
+  const patches = [];
+  const host = fakeHost(started, {}, LOREBOOK_FULL);
+  host.setSettings = (patch) => { patches.push(patch); };
+  const { api, node } = mount(host);
+  const body = openTab(node, 'settings');
+  // Галочка звука — соседка подписи в том же <label>.
+  let sound = null;
+  walk(body, (n) => {
+    if (n.tagName === 'LABEL' && n.children.some((c) => c.textContent === ui.EXTRA_UI.soundToggle)) {
+      sound = n.children.find((c) => c.tagName === 'INPUT');
+    }
+  });
+  assert.ok(sound, 'галочки звука нет');
+  assert.equal(sound.checked, false);
+  sound.checked = true;
+  for (const fn of sound.listeners.change) fn();
+  assert.deepEqual(patches, [{ milestoneSound: true }]);
+  api.destroy();
+});
+
+test('таблица плана: корпус и аудитория доходят до setSubjects', async () => {
+  const saved = [];
+  const host = fakeHost(started, {}, LOREBOOK_FULL, {
+    setSubjects: async (plan) => { saved.push(plan); return { ok: true }; },
+  });
+  const { api, node } = mount(host);
+  const body = openTab(node, 'settings');
+  let building = null;
+  walk(body, (n) => {
+    if (n.tagName === 'INPUT' && n.attrs.placeholder === ui.EXTRA_UI.buildingHint && !building) building = n;
+  });
+  assert.ok(building, 'поля корпуса нет');
+  building.value = 'Б';
+  for (const fn of building.listeners.input) fn();
+  const save = findNode(body, (n) => n.textContent === 'Сохранить таблицу');
+  await click(save);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].subjects[0].building, 'Б');
+  assert.equal(saved[0].subjects[0].room, '');
+  api.destroy();
+});

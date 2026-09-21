@@ -29,6 +29,9 @@
  * внутри комментария не должен её ломать. Ограничитель `\]{0,2}\s*-->` съедает
  * закрывающие скобки, если они есть.
  */
+import { impactWeight } from './relations.mjs';
+import { stopList, stopHit, strictest, HARD_STOPS, STOP_USER, STOP_CHAR } from './stop-names.mjs';
+
 export const MARKER_RE =
   /<!--\s*\[{0,2}\s*academy\b([\s\S]*?)\]{0,2}\s*-->|\[{1,2}\s*academy\b([^\]\n]*)\]{1,2}/gi;
 
@@ -68,6 +71,21 @@ const KEY_RE = new RegExp(
   `(?<![\\p{L}\\p{M}\\d_])([\\p{L}\\d_-]{1,24})\\s*=\\s*`,
   'giu',
 );
+
+// --- сила отношения словом (9.3.4) ------------------------------------------
+// `rel=петрова:minor-`, `rel=петрова:+major`, `rel=петрова:сильно-`. Вес слова —
+// из пресета (`relations.impact`, см. `relations.impactWeight`), здесь только
+// лексика. Словарь нарочно короткий: инструкция метки называет два английских
+// слова, а русские синонимы — то, что модель пишет «от себя» в русской сцене.
+// «Очень» сюда не взято: без знака оно встречалось как оценка отношения, а не
+// сила, и должно по-прежнему уходить в rejected.
+const IMPACT_WORDS = {
+  minor: ['minor', 'small', 'слегка', 'чуть', 'немного'],
+  major: ['major', 'big', 'сильно', 'крупно'],
+};
+
+const IMPACT_BY_WORD = new Map();
+for (const [level, words] of Object.entries(IMPACT_WORDS)) for (const w of words) IMPACT_BY_WORD.set(w, level);
 
 // --- единицы времени -------------------------------------------------------
 // Хвост `[а-яё]*` намеренно короткий и привязан к основе: «+2 пары», «+день»,
@@ -232,24 +250,113 @@ function parseGrade(value, raw, ctx, events, rejected) {
   events.push({ kind: 'grade', subjectId, value: graded });
 }
 
-/** `rel=препод:дельта`. Зажим по модулю — не здесь, а в relations.mjs (3.1). */
+/**
+ * `rel=препод:дельта`, где дельта — число (`-1`) или слово силы со знаком
+ * (`minor-`, `+major`, `сильно-`, 9.3.4). Зажим — не здесь, а в relations.mjs
+ * (3.1); гашение повторов — там же (9.3.5), ему нужна история ответов.
+ *
+ * Стоп-лист имён (9.3.6, `core/stop-names`) проверяется и по тому, что
+ * написала модель, и по имени найденного преподавателя: `rel=voronova` при
+ * героине «Алиса Воронова» ловится по второму. Героиня, заведение и служебные
+ * слова пресета запрещены всегда; карточка (`name2`) — только когда такого
+ * преподавателя в таблице нет: карточка-преподавательница остаётся живой.
+ */
 function parseRel(value, raw, ctx, events, rejected) {
   const at = value.lastIndexOf(':');
   if (at < 0) {
     rejected.push({ raw, reason: 'нет двоеточия: ожидается «преподаватель:дельта»' });
     return;
   }
-  const teacherId = ctx.findTeacher(value.slice(0, at));
+  // Повод третьим полем (9.7B): `rel=petrova:major-:сорван зачёт`. Ищется
+  // справа налево первое поле, которое читается как дельта, — всё правее него
+  // повод. Так старый вид (`petrova:-1`) разбирается ровно как раньше: последнее
+  // поле и есть дельта, повода нет.
+  const split = splitReason(value, ctx);
+  if (split) {
+    parseRelCore(split.head, raw, ctx, events, rejected, split.reason);
+    return;
+  }
+  parseRelCore(value, raw, ctx, events, rejected, '');
+}
+
+/** Потолок длины повода: это подпись к сдвигу, а не пересказ сцены. */
+const REASON_MAX = 60;
+
+/**
+ * `кто:дельта:повод` → `{head: 'кто:дельта', reason}`; `null` — повода нет.
+ * Скобки вокруг повода и дельты снимаются: инструкция пишет «:повод» в
+ * скобках, и модель может скопировать их буквально.
+ */
+function splitReason(value, ctx) {
+  const parts = value.split(':');
+  for (let k = parts.length - 2; k >= 1; k -= 1) {
+    const word = parts[k].replace(/[[\]()]/g, '').trim();
+    if (!/^[+-]?\d{1,2}$/.test(word) && !parseImpact(word, ctx)) continue;
+    const reason = parts.slice(k + 1).join(':')
+      .replace(/[[\]()]/g, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+      .slice(0, REASON_MAX);
+    return { head: `${parts.slice(0, k).join(':')}:${word}`, reason };
+  }
+  return null;
+}
+
+function parseRelCore(value, raw, ctx, events, rejected, reason) {
+  const at = value.lastIndexOf(':');
+  const who = value.slice(0, at).trim();
+  const teacherId = ctx.findTeacher(who);
+  const hit = strictest([
+    ctx.stopHit(who),
+    teacherId ? ctx.stopHit(ctx.teacherName(teacherId)) : null,
+    teacherId ? ctx.stopHit(teacherId) : null,
+  ]);
+  if (hit && (HARD_STOPS.includes(hit.kind) || !teacherId)) {
+    rejected.push({ raw, reason: `стоп-лист (${STOP_WORDS[hit.kind] || hit.kind}): «${who}» — не преподаватель` });
+    return;
+  }
   if (!teacherId) {
-    rejected.push({ raw, reason: `неизвестный преподаватель: «${value.slice(0, at).trim()}»` });
+    rejected.push({ raw, reason: `неизвестный преподаватель: «${who}»` });
     return;
   }
-  const d = value.slice(at + 1).trim().match(/^([+-]?\d{1,2})$/);
-  if (!d) {
-    rejected.push({ raw, reason: `дельта отношения не число: «${value.slice(at + 1).trim()}»` });
+  const word = value.slice(at + 1).trim();
+  const why = reason ? { reason } : {};
+  const d = word.match(/^([+-]?\d{1,2})$/);
+  if (d) {
+    events.push({ kind: 'rel', teacherId, delta: Number(d[1]), ...why });
     return;
   }
-  events.push({ kind: 'rel', teacherId, delta: Number(d[1]) });
+  const w = parseImpact(word, ctx);
+  if (!w) {
+    rejected.push({ raw, reason: `дельта отношения не число и не слово силы: «${word}»` });
+    return;
+  }
+  events.push({ kind: 'rel', teacherId, delta: w.delta, impact: w.level, ...why });
+}
+
+/** Подписи видов стоп-листа для отладки. */
+const STOP_WORDS = {
+  [STOP_USER]: 'героиня',
+  institution: 'заведение',
+  preset: 'служебное слово',
+  [STOP_CHAR]: 'карточка',
+};
+
+/**
+ * Слово силы со знаком: `minor-`, `-minor`, `major+`, `+ major`. Знак
+ * обязателен и ровно один: слово без знака не говорит, в какую сторону, а
+ * угадывать направление по тону — ровно то, чего метка должна избавлять.
+ * Типографский минус и тире модель ставит сама — они приравнены к «-».
+ */
+function parseImpact(word, ctx) {
+  const v = String(word).replace(/[−‒–—―]/g, '-').replace(/\s+/g, '').toLowerCase();
+  const m = v.match(/^([+-]?)([\p{L}]+)([+-]?)$/u);
+  if (!m) return null;
+  const sign = m[1] || m[3];
+  if (!sign || (m[1] && m[3])) return null;
+  const level = IMPACT_BY_WORD.get(m[2].replace(/ё/g, 'е'));
+  if (!level) return null;
+  const weight = ctx.impactWeight(level);
+  if (!weight) return null;
+  return { level, delta: sign === '-' ? -weight : weight };
 }
 
 /** `skip=предмет`, `late=предмет` — ключи посещаемости из 3.4. */
@@ -296,9 +403,28 @@ function buildContext(preset) {
     graded.set(norm(alias), canon);
   }
 
+  // Вес слова силы — из шкалы пресета: склейка `{...preset, …}` несёт
+  // `relations` сверху, голое состояние — внутри `preset`.
+  const scaleOwner = p.relations ? p : inner;
+
+  // Стоп-лист (9.3.6): готовый список (`stop`) или его вход (`names` из
+  // вызывающего — `name1`/`name2` знает только `index.js`). Название заведения
+  // и служебные слова пресета берутся всегда, даже когда имён не передали.
+  const stop = Array.isArray(p.stop) ? p.stop : stopList({
+    ...((p.names && typeof p.names === 'object') ? p.names : {}),
+    preset: p.displayName || p.stopNames ? p : inner,
+    survey: p.survey || inner.survey,
+  });
+
   return {
     findSubject: (raw) => byIdOrName(subjects, raw),
     findTeacher: (raw) => byIdOrName(teachers, raw),
+    teacherName: (id) => {
+      const t = teachers.find((x) => x && x.id === id);
+      return t ? (t.name || t.id) : '';
+    },
+    impactWeight: (level) => impactWeight(scaleOwner, level),
+    stopHit: (raw) => stopHit(raw, stop),
     findGrade: (raw) => {
       const key = norm(raw);
       return graded.has(key) ? graded.get(key) : null;

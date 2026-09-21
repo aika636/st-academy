@@ -192,6 +192,23 @@ test('инструкция про метку короткая и перечис�
   assert.ok(text.length <= 400, `инструкция раздулась: ${text.length} знаков`);
 });
 
+test('инструкция называет слова силы для rel= и не раздувается от них (9.3.4)', () => {
+  const text = markerInstruction(scene(), preset);
+  assert.ok(text.includes('minor+'), text);
+  assert.ok(text.includes('major-'), text);
+  // Русские синонимы принимает разбор, а в промпт они не идут: токены.
+  assert.equal(/сильно|слегка/.test(text), false, text);
+});
+
+test('свой текст метки у пресета тоже знает слова силы', () => {
+  for (const f of ['ru-university.json', 'jp-highschool.json', 'magic-academy.json']) {
+    const p = JSON.parse(readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'));
+    const text = markerInstruction(scene(), p);
+    assert.ok(text.includes('minor+') && text.includes('major-'), `${p.id}: ${text}`);
+    assert.ok(text.length <= 400, `${p.id}: инструкция раздулась: ${text.length} знаков`);
+  }
+});
+
 test('инструкция без плана не ссылается на несуществующие предметы', () => {
   const bare = createState(preset, { startDay: '2024-09-02' });
   bare.started = true;

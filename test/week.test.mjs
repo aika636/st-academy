@@ -243,10 +243,17 @@ test('учебная неделя целиком: пары, оценки, хво
   assert.equal(afterFirst.subjects.find((x) => x.id === 'chemistry').passed, true);
 
   // --- исход второй: сдано броском -------------------------------------------
-  const second = post(s, 't=+1 day', { exam: true, rng: tape(0.9) });
+  // Лента 0.4 — d20 = 9. До проверки против DC (9.4.1) здесь стояло 0.9, но
+  // у физики балл 4.0, DC = 1, и 19 на кубике — запас 18, крит и пятёрка.
+  // Четвёрка теперь — обычный успех: запас от половины `critMargin` до него.
+  const second = post(s, 't=+1 day', { exam: true, rng: tape(0.4) });
   s = second.state;
   assert.equal(second.exam.subjectId, 'physics');
   assert.equal(second.exam.reason, 'roll');
+  assert.deepEqual(
+    { roll: second.exam.check.roll, dc: second.exam.check.dc, tier: second.exam.check.tier },
+    { roll: 9, dc: 1, tier: 'success' },
+  );
   assert.equal(second.exam.value, '4');
   assert.equal(gradebookView(s, preset).openExams.length, 2);
 
@@ -257,8 +264,13 @@ test('учебная неделя целиком: пары, оценки, хво
   s = third.state;
   assert.equal(third.exam.subjectId, 'history');
   assert.equal(third.exam.value, 'незачёт');
-  assert.ok(third.injects[0].text.includes('пересдач'), third.injects[0].text);
-  assert.ok(third.injects[0].text.includes('попыток осталось: 2'), third.injects[0].text);
+  // Письменный экзамен по физике объявляют на следующий учебный день (9.4.3,
+  // `announce` у вида в пресете): итог вчерашнего идёт своим фактом рядом с
+  // сегодняшним вердиктом — поэтому вердикт ищется по виду, а не первым.
+  assert.deepEqual(third.injects.map((i) => i.kind), ['announce', 'exam']);
+  const thirdVerdict = third.injects.find((i) => i.kind === 'exam').text;
+  assert.ok(thirdVerdict.includes('пересдач'), thirdVerdict);
+  assert.ok(thirdVerdict.includes('попыток осталось: 2'), thirdVerdict);
   assert.ok(s.reputation.value < repBefore, 'провал бьёт по репутации, а не поднимает её');
 
   // Расхождение, вскрытое этим прогоном, и оставленное как есть — оно про
@@ -288,6 +300,8 @@ test('учебная неделя целиком: пары, оценки, хво
   s = fourth.state;
   assert.equal(fourth.exam.subjectId, 'math', 'сперва то, за чем не садились, и только потом пересдачи');
   assert.equal(fourth.exam.value, '2');
+  // Экзамен объявляется завтра: сегодня в зачётке он есть, а мир его не знает.
+  assert.equal(s.exams.items.find((i) => i.subjectId === 'math').announced, false);
 
   // --- пересдачи до исчерпания попыток ---------------------------------------
   // Пересдача — не новое событие, а вторая попытка того же: `attempts` растёт,
@@ -296,11 +310,18 @@ test('учебная неделя целиком: пары, оценки, хво
   s = retake.state;
   assert.equal(retake.exam.subjectId, 'history', 'к пересдаче очередь дошла сама');
   assert.equal(s.exams.items.find((i) => i.subjectId === 'history').attempts, 2);
-  assert.ok(retake.injects[0].text.includes('попыток осталось: 1'), retake.injects[0].text);
+  const retakeVerdict = retake.injects.find((i) => i.kind === 'exam').text;
+  assert.ok(retakeVerdict.includes('попыток осталось: 1'), retakeVerdict);
 
   // К этому ответу репутация переваливает нижний порог, и предупреждение
   // уходит в игру вместе с исходом — двумя разными одноразовыми фактами.
-  assert.deepEqual(retake.injects.map((i) => i.id), ['exam:0:history:credit:2', 'reputation-warn']);
+  assert.deepEqual(retake.injects.filter((i) => i.kind !== 'announce').map((i) => i.id),
+    ['exam:0:history:credit:2', 'reputation-warn']);
+  // Итог математики объявят в следующий учебный день после сдачи (9.4.3): пока
+  // он не наступил, мир итога не знает, и объявления среди фактов нет.
+  const mathItem = s.exams.items.find((i) => i.subjectId === 'math');
+  assert.equal(mathItem.announced, s.calendar.day >= mathItem.announceOn);
+  assert.equal(retake.injects.some((i) => i.kind === 'announce'), mathItem.announced);
   assert.equal(s.reputation.warned, true);
   assert.equal(gradebookView(s, preset).reputation, 'под угрозой отчисления');
 

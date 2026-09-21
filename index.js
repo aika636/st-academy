@@ -11,16 +11,33 @@
  * `etap2-st-facts.md`; здесь на эти факты только ссылки.
  */
 
-import { applyResponse, sitExam } from './core/engine.mjs';
+import { applyResponse, sitExam, timeSkipWarning } from './core/engine.mjs';
 import { buildPrompt } from './prompt.mjs';
-import { sittableExams } from './core/exams.mjs';
 import {
-  createState, defaultStartDay, isDay, joinSentences, normalizeSubject, normalizeTeacher,
+  awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams,
+} from './core/exams.mjs';
+import {
+  cloneState, createState, defaultStartDay, isDay, joinSentences, normalizeBirthday, normalizePortrait,
+  normalizeSubject, normalizeTeacher,
 } from './core/state.mjs';
-import { parseContext } from './core/parse-context.mjs';
+import { readTime } from './core/time-source.mjs';
+import { readDiceRoll, readTimeSkip, readPhoneTurn } from './core/cues.mjs';
+import { diffMilestones, milestoneName, milestones } from './core/milestones.mjs';
+import { stopList, filterPeople } from './core/stop-names.mjs';
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump } from './core/engine.mjs';
 import { alignToGrid } from './core/time.mjs';
+import {
+  BUILTIN_PRESETS, DEFAULT_BASE, USER_PRESETS_MAX, freeId, freeName, normalizePreset,
+  presetEnvelope, presetFilename, presetSummary, readPresetFile,
+} from './core/preset.mjs';
+// Вью панели — для пробного прогона чужого пресета (`PRESET_PROBES`). `ui.js`
+// и так уже загружен статически через `storage.js`, так что ни риска, ни цены
+// этот импорт не добавляет; монтирование панели по-прежнему ленивое.
+import {
+  extraLabels, fill, gradebookView, hookJournal, hookNow, hookSummary, hookToday, playChime,
+  promptDoctorView, todayView, PRESET_TEXT,
+} from './ui.js';
 import * as storage from './storage.js';
 import * as api from './api.js';
 import * as lorebook from './lorebook.js';
@@ -34,12 +51,13 @@ const EXT_NAME = (() => {
 const MODULE = 'academy';
 
 /**
- * Пресеты, лежащие в папке. Список именно здесь, а не в панели: панель про
- * файлы ничего не знает, а `id` — это имя файла, то есть факт раскладки папки.
+ * Пресеты, лежащие в папке. Список живёт в `core/preset.mjs` (по нему же
+ * решается, чей `id` занят при загрузке своего пресета), здесь — только
+ * псевдоним: панель про файлы ничего не знает, а `id` — это имя файла.
  * Отображаемые имена берутся из самих пресетов (`displayName`) — слова
  * заведения в код не едут.
  */
-const PRESET_IDS = ['ru-university', 'jp-highschool', 'magic-academy'];
+const PRESET_IDS = BUILTIN_PRESETS;
 
 /** Ключи инжектов. Три разных: постоянный, инструкция и одноразовый (3.3, 3.5). */
 const INJECT = {
@@ -50,15 +68,49 @@ const INJECT = {
 
 const ctx = () => SillyTavern.getContext();
 
-/** Живое состояние вкладки: пресет, семестр и снимки «до ответа». */
+/** Живое состояние вкладки: пресет, семестр и история ходов. */
 const live = {
   preset: null,
   state: null,
   report: null,
-  /** Снимок до применённого ответа: свайп и правка обязаны откатывать (см. ниже). */
-  snapshots: new Map(),
-  /** Какой ответ уже посчитан: id сообщения и отпечаток текста. */
-  applied: { mesId: null, stamp: null },
+  /**
+   * История последних посчитанных ходов (ремонт 9.1.1): `{mesId, stamp, before,
+   * oneShotBefore, oneShot}`. Зеркало `chat_metadata.academy_turns` — пишется
+   * вместе с состоянием при каждом `commit`, поэтому переживает F5. Раньше здесь
+   * были `snapshots: Map` по голому индексу и `applied` в памяти: после
+   * перезагрузки откатывать было не к чему, а удаление сообщения из середины
+   * сдвигало индексы и откатывало ход, которого никто не трогал (9.1.6).
+   * Как ход находит своё сообщение — см. `findTurn`.
+   */
+  turns: [],
+  /**
+   * Одноразовый факт, взведённый для СЛЕДУЮЩЕЙ генерации ответа (3.5, ремонт
+   * 9.1.2). Держится отдельно от того, что сейчас лежит в `setExtensionPrompt`:
+   * на время фоновой генерации инжекты гасятся, а взведённое остаётся (9.1.3).
+   */
+  oneShot: '',
+  /** Идёт фоновая (`quiet`) генерация соседа: инжекты погашены (ремонт 9.1.3). */
+  quiet: false,
+  /**
+   * Тип идущей обычной генерации (`GENERATION_STARTED`) или `null`. Нужен
+   * одному месту: регенерация срезает ответ ПОСЛЕ старта (ремонт, факт 2), и
+   * предупреждение промотки пересчитывается по откаченному состоянию уже в
+   * `handleDeleted` — но только если генерация действительно идёт.
+   */
+  generating: null,
+  /**
+   * Одноразовая строка к идущей генерации после промотки времени (9.2):
+   * «промотка не может перешагнуть контрольное DD.MM». Отдельно от `oneShot`:
+   * тот — функция истории ходов и переживает F5, а эта — функция реплики
+   * человека и живёт ровно одну генерацию.
+   */
+  skipWarning: '',
+  /**
+   * Счётчик смен чата (ремонт 9.1.4). Долгие `await` (генерация плана,
+   * автоанкета, лорбук) сверяют его до и после: ответ, пришедший в другой чат,
+   * не применяется. См. `captureOperation`.
+   */
+  epoch: 0,
   panel: null,
   lastRun: null,
   /**
@@ -67,33 +119,124 @@ const live = {
    * NPC и места: они живут в памяти вкладки и в лорбук сами не попадают.
    */
   lorebook: { signature: null, report: null, error: null, suggested: [] },
-  /** Список пресетов для выбора в панели: `[{id, name}]`. */
+  /** Список пресетов для выбора в панели: `[{id, name, user?, broken?}]`. */
   presets: [],
+  /**
+   * Прочитанные встроенные пресеты по `id`. Нужны не только для выбора: свой
+   * пресет человека ложится поверх встроенного (`core/preset.mjs`, решение 2),
+   * и основа должна быть под рукой без похода за файлом на каждую нормализацию.
+   */
+  builtins: {},
+  /**
+   * Что случилось с пресетом, о чём человек должен узнать из панели, а не из
+   * консоли: «пресет удалён — включён встроенный» (9.3.2). Живёт до следующей
+   * смены пресета.
+   */
+  presetNotice: '',
   /** Версия из `manifest.json` — единственная правда о ней (см. `storage.js`). */
   version: '',
+  /** Куда зарегистрирован `{{academy}}`: `'engine'`, `'legacy'` или `null` (9.3.1). */
+  macro: null,
+  /**
+   * Вехи, о которых человеку уже сказали тостом (9.4.2). В памяти вкладки, а
+   * не в состоянии: вехи — чистый пересчёт (`core/milestones.mjs`, решение 1),
+   * и хранить «показанное» в чате значило бы чинить его на каждом свайпе.
+   * Отозванная веха отсюда НЕ вычёркивается нарочно: отношение, колеблющееся
+   * у порога «любимицы», иначе давало бы тост на каждый второй ответ. Заново
+   * засевается при смене чата и замене состояния (`primeMilestones`).
+   */
+  shownMilestones: new Set(),
+  /**
+   * События `academy:*`, отложенные на время фоновой генерации соседа (9.1.3):
+   * во время `quiet` наружу не уходит ничего, после — всё по порядку.
+   */
+  hookQueue: [],
+  /**
+   * Шов для прогона: подставной источник случайности броска экзамена. В
+   * таверне всегда `null` — бросок идёт от seed (`examSeedBase`). Тестам,
+   * которым нужен «зажатый» бросок, раньше хватало подмены `Math.random`; с
+   * seed она больше ни на что не влияет, и нужен явный вход.
+   */
+  examRng: null,
+  /** Звук вехи. Шов: прогон подменяет его счётчиком — WebAudio в Node нет. */
+  chime: playChime,
 };
 
 // --- пресет -----------------------------------------------------------------
 
 /**
- * Пресет читается файлом из папки расширения. Своих правил у `index.js` нет:
- * если пресет не читается, расширение молчит целиком, а не играет умолчаниями.
+ * Встроенный пресет читается файлом из папки расширения. Своих правил у
+ * `index.js` нет: если пресет не читается, расширение молчит целиком, а не
+ * играет умолчаниями.
  */
-async function loadPreset(id = 'ru-university') {
+async function loadBuiltin(id) {
+  if (live.builtins[id]) return live.builtins[id];
   const url = `/scripts/extensions/${EXT_NAME}/presets/${id}.json`;
   const res = await fetch(url, { cache: 'no-cache' });
   if (!res.ok) throw new Error(`пресет ${id} не читается: HTTP ${res.status}`);
-  return res.json();
+  const p = await res.json();
+  live.builtins[id] = p;
+  return p;
+}
+
+/** Все встроенные, какие читаются. Промах одного — не повод терять остальные. */
+async function ensureBuiltins() {
+  for (const id of PRESET_IDS) {
+    if (live.builtins[id]) continue;
+    try {
+      await loadBuiltin(id);
+    } catch (err) {
+      console.warn(`[${MODULE}] пресет ${id} не прочитан:`, err);
+    }
+  }
+  return live.builtins;
 }
 
 /**
- * Имена пресетов для выбора в панели.
+ * Дополнительные шаги пробного прогона чужого пресета (`core/preset.mjs:
+ * probePreset`): строка состояния и два главных экрана панели. Ядро про них
+ * не знает, а упасть на пресете они могут ровно так же — и лучше при загрузке
+ * файла, чем посреди игры.
+ */
+const PRESET_PROBES = [
+  function statusLine(state, preset) { buildPrompt(state, preset, { injects: [], withMarker: true }); },
+  function today(state, preset) { todayView(state, preset); },
+  function gradebook(state, preset) { gradebookView(state, preset); },
+];
+
+/** Отказ «такого пресета нет» — отдельным кодом: на нём держится откат (9.3.2). */
+function missingPreset(id) {
+  const err = new Error(`пресета «${id}» нет ни среди встроенных, ни среди своих`);
+  err.code = 'missing';
+  return err;
+}
+
+/**
+ * Пресет по `id`: встроенный — файлом, свой — из настроек через
+ * `normalizePreset`. Нормализация идёт при каждой загрузке, а не только при
+ * импорте (`core/preset.mjs`, решение 2): пресет в настройках — снимок, и
+ * ключи, которые встроенные пресеты получили после его сохранения, доезжают
+ * до него только так.
+ */
+async function loadPreset(id = DEFAULT_BASE) {
+  if (PRESET_IDS.includes(id)) return loadBuiltin(id);
+  const raw = storage.getUserPreset(ctx(), id);
+  if (!raw) throw missingPreset(id);
+  const builtins = await ensureBuiltins();
+  const res = normalizePreset(raw, { builtins, basedOn: raw.basedOn, probe: PRESET_PROBES });
+  if (!res.ok) throw new Error(res.message);
+  // `id` — ключ, под которым пресет лежит: на него ссылаются чаты.
+  return { ...res.preset, id };
+}
+
+/**
+ * Имена пресетов для выбора в панели: встроенные, потом свои.
  *
- * Читается один раз при запуске и по одному отдельному промаху не роняется:
- * пресет, файл которого не прочитался, в списке остаётся под своим `id`.
- * Выбрать его всё равно можно — и тогда отказ придёт в ответ на выбор, текстом
- * рядом с кнопкой, а не пустым списком, из которого не видно, что вообще
- * случилось.
+ * По одному отдельному промаху не роняется: встроенный пресет, файл которого
+ * не прочитался, в списке остаётся под своим `id`. Выбрать его всё равно
+ * можно — и тогда отказ придёт в ответ на выбор, текстом рядом с кнопкой, а не
+ * пустым списком, из которого не видно, что вообще случилось. Свои пресеты
+ * здесь не нормализуются (это пробный прогон на каждый) — только имена.
  */
 async function loadPresetList(active) {
   const out = [];
@@ -103,14 +246,121 @@ async function loadPresetList(active) {
       continue;
     }
     try {
-      const p = await loadPreset(id);
+      const p = await loadBuiltin(id);
       out.push({ id, name: String((p && (p.displayName || p.name)) || id) });
     } catch (err) {
       console.warn(`[${MODULE}] пресет ${id} не прочитан для списка:`, err);
       out.push({ id, name: id, broken: true });
     }
   }
+  let own = [];
+  try {
+    own = storage.listUserPresets(ctx());
+  } catch (err) {
+    console.warn(`[${MODULE}] свои пресеты не прочитаны:`, err);
+  }
+  for (const p of own) {
+    if (PRESET_IDS.includes(p.id)) continue; // встроенный не подменяется своим никогда
+    out.push({ id: p.id, name: p.name, user: true, basedOn: p.basedOn });
+  }
   return out;
+}
+
+/** Всплывашка таверны. Вежливость, а не условие: без `toastr` всё работает. */
+function toast(kind, text, title = 'Academy') {
+  try {
+    if (globalThis.toastr && typeof globalThis.toastr[kind] === 'function') globalThis.toastr[kind](text, title);
+  } catch { /* не условие работы */ }
+}
+
+/** Свой пресет из настроек или `null` — без исключений (запуск, откат). */
+function safeUserPreset(c, id) {
+  try { return storage.getUserPreset(c, id); } catch { return null; }
+}
+
+/** Отображаемое имя пресета по `id` — из списка, иначе сам `id`. */
+function presetName(id) {
+  const hit = live.presets.find((p) => p.id === id);
+  if (hit) return hit.name;
+  const b = live.builtins[id];
+  return String((b && (b.displayName || b.name)) || id);
+}
+
+/**
+ * Пресет, на который ссылается чат, исчез (9.3.2: «удалённый пресет → откат на
+ * встроенный с сообщением»). Сообщение уходит и всплывашкой, и строкой в
+ * панель: всплывашку легко проморгать, а панель человек откроет, когда
+ * заметит, что слова стали другими.
+ */
+function announce(text) {
+  live.presetNotice = text;
+  toast('warning', text);
+}
+
+/**
+ * Чат заведён пресетом, которого больше нет ни среди встроенных, ни среди
+ * своих. Состояние не переписывается: пресет могли удалить по ошибке и
+ * загрузить обратно тем же файлом — тогда всё встанет как было. Играет чат
+ * активным пресетом, и человек должен это знать: всплывашкой при открытии
+ * чата, а строка в панели считается самой панелью (`ui.js: presetsView`) —
+ * она про этот чат, а не про пресет, и хранить её в `live` значило бы
+ * протащить её в следующий чат.
+ */
+function checkStatePreset() {
+  const id = String((live.state && live.state.presetId) || '');
+  if (!id || !live.preset || id === live.preset.id) return false;
+  if (live.presets.some((p) => p.id === id)) return false;
+  toast('warning', fill(PRESET_TEXT.stateGone, { id, active: presetName(live.preset.id) }));
+  return true;
+}
+
+/**
+ * Разобрать файл пресета и подготовить его к добавлению: формат, нормализация
+ * поверх основы, пробный прогон, свободные `id` и имя. Общая половина превью
+ * и загрузки — чтобы превью не обещало того, от чего загрузка откажется.
+ */
+async function readAndNormalize(source) {
+  const file = readPresetFile(source);
+  if (!file.ok) return { ok: false, code: file.code, error: file.message, errors: file.errors };
+  const builtins = await ensureBuiltins();
+  const res = normalizePreset(file.raw, { builtins, basedOn: file.basedOn, probe: PRESET_PROBES });
+  const warnings = [...file.warnings, ...(res.warnings || [])];
+  if (!res.ok) return { ok: false, code: res.code, error: res.message, errors: res.errors, warnings };
+  // Новые `id` при коллизии (9.3.2): занятый встроенным или своим пресетом
+  // получает хвост. Заменять молча нельзя — на старый могут ссылаться чаты.
+  const own = storage.listUserPresets(ctx());
+  const id = freeId(res.preset.id, [...PRESET_IDS, ...own.map((p) => p.id)]);
+  const takenNames = [...PRESET_IDS.map((b) => presetName(b)), ...own.map((p) => p.name)];
+  const name = freeName(res.preset.displayName, takenNames);
+  return { ok: true, preset: res.preset, id, name, renamed: id !== res.preset.id, warnings };
+}
+
+/**
+ * Поставить пресет активным — общая половина ручной смены и отката после
+ * удаления. Вопросов не задаёт: к этому месту они уже заданы.
+ */
+async function switchPreset(wanted, next) {
+  storage.saveSettings({ preset: wanted }, ctx());
+  live.preset = next;
+  if (live.state && live.state.presetId !== wanted) {
+    // Часы привязываются к сетке звонков нового пресета. Состояние смену
+    // переживает, а сетка берётся из активного пресета — и без этой правки
+    // панель показывала две соседние строки с разным временем: в шапке
+    // старые 15:00, а в «Сейчас» 14:05, начало той пары, в которую они
+    // попадают по новой сетке. Поймано на живой таверне.
+    const aligned = alignToGrid({ ...live.state, presetId: wanted }, next);
+    // Снимки собраны под старый пресет и старую сетку звонков: свайп
+    // вернул бы старый `presetId` в состояние (9.1.1).
+    forgetTurns();
+    await commit(aligned.state, { flush: true });
+  }
+  live.presets = await loadPresetList(next);
+  reloadState();
+  setInjects({ oneShot: '' });
+  // Лорбук говорит словами пресета: тексты записей после смены другие.
+  live.lorebook.signature = null;
+  await syncLorebook();
+  refreshPanel();
 }
 
 /** Версия расширения из манифеста. Не константа-копия: копия разъедется (см. `storage.js`). */
@@ -134,13 +384,103 @@ function reloadState() {
   const report = storage.loadStateReport(ctx(), live.preset);
   live.report = report;
   live.state = report.state;
+  // История ходов читается тем же походом: она живёт рядом с состоянием и
+  // без него не значит ничего (storage.js, «история ходов»).
+  live.turns = storage.loadTurns(ctx(), live.preset);
+  primeMilestones();
   return report;
 }
 
+/**
+ * Засеять «уже показанные» вехи тем, что есть в состоянии сейчас (9.4.2).
+ * Зовётся при каждой замене состояния целиком — смена чата, F5, загрузка,
+ * смена пресета: вехи, заработанные раньше, — не новость, и тост о них при
+ * открытии чата был бы шумом.
+ */
+function primeMilestones() {
+  live.shownMilestones = new Set(worldMilestones(live.state).map((m) => m.id));
+}
+
+/**
+ * Вехи «по миру» (9.4.3): итог, который ещё не объявлен, веху не даёт —
+ * иначе тост «Блестящая сдача» прозвучал бы в день сдачи, раньше ведомости.
+ * Панель («знает расширение») показывает полный список сама (`ui.js`).
+ */
+function worldMilestones(state) {
+  if (!state || !live.preset) return [];
+  try {
+    return milestones(publicView(state, live.preset), live.preset);
+  } catch (err) {
+    console.warn(`[${MODULE}] вехи не посчитаны:`, err);
+    return [];
+  }
+}
+
+/**
+ * Записать состояние — всегда вместе с историей ходов. Порознь их писать
+ * нельзя: состояние без своей истории после F5 откатило бы свайп к снимку,
+ * который к нему уже не относится.
+ */
 async function commit(state, { flush = false } = {}) {
   live.state = state;
-  if (flush) return storage.flushState(ctx(), state);
-  return storage.saveState(ctx(), state);
+  const c = ctx();
+  storage.saveTurns(c, live.turns);
+  if (flush) return storage.flushState(c, state);
+  return storage.saveState(c, state);
+}
+
+/** Забыть историю ходов: состояние заменено целиком, откатывать к старому нельзя. */
+function forgetTurns() {
+  live.turns = [];
+  live.oneShot = '';
+}
+
+// --- операции, переживающие смену чата (ремонт 9.1.4) ------------------------
+
+/**
+ * Генерация плана ждёт ответа 20–60 секунд, и за это время человек успевает
+ * уйти в другой чат. Всё, что пишет в состояние после долгого `await`, сперва
+ * спрашивает: «я ещё там, откуда уходил?»
+ *
+ * Сверяются две вещи, и обе нужны. `epoch` растёт на каждом `CHAT_CHANGED`, но
+ * таверна шлёт это событие ПОСЛЕ того, как переприсвоила `chat_metadata`
+ * (`script.js:7598` → `:7641`), а между ними у неё свои `await`: ответ,
+ * вернувшийся в этот зазор, по одному счётчику прошёл бы. Id чата меняется
+ * раньше события — его и сверяем вторым. (Образец — `captureOperation` у
+ * BB-Enhance-Gen; сравнение массива `chat` оттуда не взято: таверна чистит
+ * массив на месте, и ссылка на него не меняется.)
+ */
+function currentChatId() {
+  try {
+    const c = ctx();
+    return typeof c.getCurrentChatId === 'function' ? String(c.getCurrentChatId() ?? '') : '';
+  } catch {
+    return '';
+  }
+}
+
+function captureOperation() {
+  return { epoch: live.epoch, chatId: currentChatId() };
+}
+
+function isCurrent(op) {
+  return Boolean(op) && op.epoch === live.epoch && op.chatId === currentChatId();
+}
+
+/**
+ * Отказ «пока ждали — чат сменился». Текстом для панели и всплывашкой таверны:
+ * панель к этому времени уже перерисована под новый чат, и человек, который
+ * ушёл из вкладки анкеты, иначе не узнал бы, куда делся план.
+ */
+function chatChanged(what) {
+  const error = `Пока ${what}, открылся другой чат. Результат не записан ни туда, ни сюда:`
+    + ' вернитесь в тот чат и повторите.';
+  try {
+    if (globalThis.toastr && typeof globalThis.toastr.warning === 'function') {
+      globalThis.toastr.warning(error, 'Academy');
+    }
+  } catch { /* всплывашка — вежливость, не условие */ }
+  return { ok: false, code: 'chat-changed', error };
 }
 
 // --- инжекты ----------------------------------------------------------------
@@ -156,34 +496,142 @@ async function commit(state, { flush = false } = {}) {
  *   оставшийся семестр.
  */
 function setInjects({ oneShot = null } = {}) {
+  if (oneShot !== null) live.oneShot = String(oneShot || '');
+  // Во время фоновой генерации соседа инжекты погашены (9.1.3): новое значение
+  // запомнено выше и уйдёт в промпт, когда фоновая генерация кончится.
+  if (live.quiet) return;
+  writeInjects();
+}
+
+/**
+ * Записать инжекты в таверну. `blank` — погасить все три, ничего не забывая:
+ * взведённый одноразовый факт остаётся в `live.oneShot`.
+ */
+function writeInjects({ blank = false } = {}) {
   const c = ctx();
   const settings = storage.loadSettings(c);
   const types = c.extension_prompt_types || { IN_CHAT: 1 };
   const roles = c.extension_prompt_roles || { SYSTEM: 0 };
   const depth = Number.isFinite(settings.injectDepth) ? settings.injectDepth : 1;
 
-  const started = Boolean(live.state && live.state.started);
+  const started = !blank && Boolean(live.state && live.state.started);
   const withMarker = Boolean(settings.injectMarker) && settings.mode !== 'context';
   const built = started
     ? buildPrompt(live.state, live.preset, { injects: [], withMarker })
     : { status: '', instruction: '', oneShot: '' };
+  // Строку ставит сам человек макросом `{{academy}}` (9.3.1) — автоинжект
+  // молчит, иначе строка ушла бы в промпт дважды. Гаснет только строка:
+  // инструкции метки место важно (она просит ПЕРВУЮ строку ответа), а
+  // одноразовый факт повелителен и обязан стоять у самого хвоста.
+  const status = settings.statusViaMacro === true ? '' : built.status;
+  const oneShot = started ? [live.oneShot, live.skipWarning].filter(Boolean).join(' ') : '';
 
   // Порядок аргументов — (key, value, position, depth, scan, role, filter).
   // JSDoc над `setExtensionPrompt` (script.js:8866) переставляет scan и role
   // местами и врёт; сверено с телом функции.
-  c.setExtensionPrompt(INJECT.status, built.status, types.IN_CHAT, depth, false, roles.SYSTEM);
+  c.setExtensionPrompt(INJECT.status, status, types.IN_CHAT, depth, false, roles.SYSTEM);
   c.setExtensionPrompt(INJECT.marker, built.instruction, types.IN_CHAT, depth + 1, false, roles.SYSTEM);
-  if (oneShot !== null) {
-    c.setExtensionPrompt(INJECT.oneShot, oneShot, types.IN_CHAT, 0, false, roles.SYSTEM);
-  }
+  c.setExtensionPrompt(INJECT.oneShot, oneShot, types.IN_CHAT, 0, false, roles.SYSTEM);
 }
 
-/** Снять одноразовый инжект: он уже отработал свою генерацию. */
-function clearOneShot() {
-  const c = ctx();
-  const types = c.extension_prompt_types || { IN_CHAT: 1 };
-  const roles = c.extension_prompt_roles || { SYSTEM: 0 };
-  c.setExtensionPrompt(INJECT.oneShot, '', types.IN_CHAT, 0, false, roles.SYSTEM);
+// --- генерации (ремонт 9.1.2, 9.1.3) ------------------------------------------
+
+/**
+ * Какой одноразовый факт взведён для следующего ответа, по истории ходов.
+ *
+ * Факт, посчитанный на ходе N, нужен ответу N+1 — и всем его перегенерациям.
+ * Поэтому у хода два поля: `oneShot` — что он взвёл для следующего,
+ * `oneShotBefore` — что было взведено для него самого. Ход, откатанный под
+ * свайп и ещё не получивший нового текста (`stamp === null`), снова ждёт
+ * своего факта — значит, взведено то, что было до него.
+ *
+ * Это и есть правило плана «снимать по новому user-сообщению» в точной форме:
+ * после нового хода факт прошлого хода заменяется фактом нового (часто пустым)
+ * и в следующий ответ на реплику человека не попадает, а свайп, регенерация,
+ * продолжение и фоновые генерации его не тратят.
+ */
+function armedOneShot() {
+  const latest = live.turns[live.turns.length - 1];
+  if (!latest) return live.oneShot;
+  return latest.stamp === null ? latest.oneShotBefore : latest.oneShot;
+}
+
+/**
+ * `GENERATION_STARTED(type, params, dryRun)` — сигнатура с `script.js:4240`.
+ * Событие приходит до сборки промпта (и до того, как регенерация срежет
+ * последний ответ), поэтому здесь ещё можно поправить, что в него попадёт.
+ *
+ * - `dryRun` — таверна собирает промпт ради подсчёта токенов или просмотра.
+ *   Ничего не генерируется, и трогать нечего: ни гасить, ни взводить.
+ * - `quiet` — фоновая генерация соседа (телефон, суммаризатор, карта, комикс
+ *   через `generateQuietPrompt`). Строка состояния, просьба про метку и — хуже
+ *   всего — вердикт экзамена ей не нужны: вердикт бы в ней и сгорел. Инжекты
+ *   гасятся до `GENERATION_ENDED`/`GENERATION_STOPPED` (образец — chaos-events:
+ *   без этого событие прокалывалось в каждую СМС телефона).
+ * - `swipe`, `regenerate`, `continue` последнего посчитанного ответа — это
+ *   тот же ход заново: взводится факт, который был действителен ДЛЯ него.
+ * - всё остальное — обычный ход: взводится то, что взвёл последний ход.
+ */
+function handleGenerationStarted(type, _params, dryRun) {
+  if (!live.preset || dryRun === true) return;
+  if (type === 'quiet') {
+    live.quiet = true;
+    writeInjects({ blank: true });
+    return;
+  }
+  // Любая обычная генерация снимает «погашено», даже если конец фоновой так и
+  // не пришёл: `GENERATION_ENDED` таверна шлёт из `hideStopButton` и только
+  // когда кнопка «стоп» видна (script.js:3473), то есть не всегда. Лучше
+  // рано распечатать, чем навсегда оставить чат без инжектов.
+  live.quiet = false;
+  flushHooks();
+  live.oneShot = armedOneShot();
+  if (type === 'swipe' || type === 'regenerate' || type === 'continue') {
+    const chat = chatOf();
+    const latest = live.turns[live.turns.length - 1];
+    if (latest && sameTurn(latest, chat.length - 1, chat)) live.oneShot = latest.oneShotBefore;
+  }
+  live.generating = String(type || 'normal');
+  refreshSkipWarning();
+  writeInjects();
+}
+
+/**
+ * Предупреждение промотки для идущей генерации (9.2): если реплика человека,
+ * на которую сейчас отвечают, несёт cue Time Skip, а в пределах промотки
+ * впереди контрольное, — одноразовая строка «останови сцену накануне».
+ * Анализатор Enhance-Gen календаря Academy не видит и сам этого не скажет.
+ *
+ * Чья реплика: у обычной генерации — последняя в чате; у свайпа, регенерации и
+ * продолжения — та, что стоит перед перегенерируемым ответом (Enhance-Gen без
+ * текста в поле ввода дописывает cue в прошлую реплику и жмёт «свайп вправо»,
+ * `BB-Enhance-Gen/index.js`, `executeSkip`). `impersonate` пишет за человека —
+ * ему промотка не адресована.
+ */
+function refreshSkipWarning() {
+  live.skipWarning = '';
+  const type = live.generating;
+  if (!type || type === 'impersonate' || !live.state || !live.state.started) return;
+  const chat = chatOf();
+  const last = chat.length - 1;
+  const again = type === 'swipe' || type === 'regenerate' || type === 'continue';
+  const at = again && last >= 0 && eligible(chat[last]) ? last : chat.length;
+  const said = userTextBefore(chat, at);
+  if (readPhoneTurn(said)) return;
+  live.skipWarning = timeSkipWarning(live.state, live.preset, readTimeSkip(said));
+}
+
+/** Конец любой генерации: распечатать погашенное и взвести то, что положено. */
+function handleGenerationEnded() {
+  if (!live.preset) return;
+  live.quiet = false;
+  // События, придержанные на время фоновой генерации, — наружу сейчас.
+  flushHooks();
+  live.generating = null;
+  live.skipWarning = '';
+  // После `continue` без нового текста ход остался прежним — вернуть его факт.
+  live.oneShot = armedOneShot();
+  writeInjects();
 }
 
 // --- лорбук (3.7) -----------------------------------------------------------
@@ -231,13 +679,22 @@ async function syncLorebook({ force = false, immediately = false } = {}) {
   const signature = lorebook.planSignature(live.state, live.preset);
   if (!force && signature && signature === live.lorebook.signature) return live.lorebook.report;
 
+  const op = captureOperation();
   try {
     const report = await lorebook.syncLorebook(c, live.state, live.preset, {
       settings,
       npcs: live.lorebook.suggested.filter((x) => x.kind !== 'places'),
       places: live.lorebook.suggested.filter((x) => x.kind === 'places'),
       immediately,
+      // Та же дыра, что 9.1.4: между чтением лорбука и записью человек успевает
+      // уйти в другой чат. Сторож спрашивается внутри `lorebook.js` перед
+      // каждой записью — отбросить отчёт здесь, как раньше, мало: запись в World
+      // Info и привязка к чату к этому времени уже случились бы.
+      guard: () => isCurrent(op),
     });
+    // Отчёт про лорбук прошлого чата в панели нового был бы враньём, а его
+    // отпечаток запер бы синхронизацию нового чата (9.1.4).
+    if (!isCurrent(op)) return null;
     live.lorebook.report = report;
     live.lorebook.error = null;
     // Отпечаток запоминается только после удачного похода: иначе одна неудача
@@ -245,12 +702,242 @@ async function syncLorebook({ force = false, immediately = false } = {}) {
     if (report && report.ok) live.lorebook.signature = signature;
     return report;
   } catch (err) {
+    if (!isCurrent(op)) return null;
     // Лорбук — необязательная часть (3.7). Уронить им обработку ответа, то есть
     // зачётку и календарь, нельзя ни при каких условиях.
     console.error(`[${MODULE}] лорбук не обновлён:`, err);
     live.lorebook.error = String((err && err.message) || err);
     return null;
   }
+}
+
+// --- крючки для соседей: события `academy:*` (9.4.8, 9.7B) --------------------
+//
+// Academy — опора для соседей (музыка на звонок, соседка-наблюдатель,
+// «Подслушано», даты сессии в календарь телефона), и отдаёт им две вещи:
+// `window.AcademyAPI` (ниже, у запуска) и события. Три решения.
+//
+// 1. **Канала два, событие одно.** `document` — `CustomEvent` с `detail`: его
+//    ловит любой скрипт страницы без знания таверны. И `eventSource` таверны —
+//    так подписываются расширения (`eventSource.on('academy:day', …)`).
+//    Отправка в `eventSource` не ждётся: таверна ждёт каждого подписчика по
+//    очереди, и медленный сосед иначе задерживал бы подсчёт нашего ответа.
+// 2. **Мир, а не расширение.** События говорят то, что знает мир (9.4.3):
+//    `academy:exam` приходит, когда итог ОБЪЯВЛЕН, а не когда посчитан, вехи —
+//    по `publicView`. Сосед-«Подслушано» не должен разболтать оценку раньше
+//    ведомости.
+// 3. **Откат — отдельным событием, а не молчанием.** Свайп, правка последнего
+//    ответа и удаление откатывают состояние к снимку (9.1.1). Тогда приходит
+//    `academy:rollback` с днём, на который откатились, а пересчёт нового
+//    варианта даёт свои события заново — от снимка. Сосед, которому важна
+//    точность, на `rollback` перечитывает `AcademyAPI.today()`. Молчать было бы
+//    хуже: сосед, уже сыгравший звонок на пару, которой больше нет, не узнал бы,
+//    что её отменили.
+//
+// Во время фоновой генерации соседа (`quiet`, 9.1.3) наружу не уходит ничего:
+// события копятся в `live.hookQueue` и уходят после её конца.
+
+/** Имена событий — они же список в `AcademyAPI.events` и в README. */
+const HOOK_EVENTS = Object.freeze([
+  'academy:day', 'academy:period', 'academy:phase', 'academy:exam', 'academy:milestone', 'academy:rollback',
+]);
+
+/**
+ * Отправить событие. `detail` уходит копией через JSON — ни одной ссылки на
+ * живое состояние: сосед, поправивший `detail` у себя, не правит семестр.
+ */
+function emitHook(name, detail = {}) {
+  let payload;
+  try {
+    payload = JSON.parse(JSON.stringify({ ...detail, chatId: currentChatId() }));
+  } catch {
+    return;
+  }
+  if (live.quiet) {
+    live.hookQueue.push([name, payload]);
+    return;
+  }
+  fireHook(name, payload);
+}
+
+function fireHook(name, payload) {
+  try {
+    const doc = globalThis.document;
+    if (doc && typeof doc.dispatchEvent === 'function' && typeof globalThis.CustomEvent === 'function') {
+      doc.dispatchEvent(new globalThis.CustomEvent(name, { detail: payload }));
+    }
+  } catch (err) {
+    console.warn(`[${MODULE}] событие ${name} не ушло в document:`, err);
+  }
+  try {
+    const ev = ctx().eventSource;
+    if (ev && typeof ev.emit === 'function') {
+      Promise.resolve(ev.emit(name, payload)).catch((err) => console.warn(`[${MODULE}] подписчик ${name} упал:`, err));
+    }
+  } catch (err) {
+    console.warn(`[${MODULE}] событие ${name} не ушло в eventSource:`, err);
+  }
+}
+
+/** Отдать накопленное за фоновую генерацию — по порядку. */
+function flushHooks() {
+  if (live.quiet || !live.hookQueue.length) return;
+  const queue = live.hookQueue;
+  live.hookQueue = [];
+  for (const [name, payload] of queue) fireHook(name, payload);
+}
+
+/** Сегодняшний день «для соседа» — без исключений: крючки не роняют подсчёт. */
+function safeToday(state) {
+  try { return hookToday(state, live.preset); } catch { return null; }
+}
+
+/**
+ * Что изменилось между двумя состояниями — для тостов вех и событий соседям.
+ * Зовётся после каждого применённого ответа и после ручных действий, которые
+ * двигают календарь (`manualTime`, `resolveJump`).
+ *
+ * @param {Object} before состояние ДО (у ответа — снимок хода)
+ * @param {Object} after состояние ПОСЛЕ
+ * @param {Object} [meta] `{source, mesId}` — что сдвинуло
+ */
+function noticeChanges(before, after, meta = {}) {
+  if (!before || !after || !after.started || !live.preset) return;
+  noticeMilestones(before, after);
+
+  const a = safeToday(before);
+  const b = safeToday(after);
+  if (a && b) {
+    if (a.day !== b.day) {
+      emitHook('academy:day', { day: b.day, from: a.day, weekday: b.weekday, phase: b.phase, ...meta });
+    }
+    if (a.phase !== b.phase) {
+      emitHook('academy:phase', { phase: b.phase, from: a.phase, label: b.phaseLabel, day: b.day, ...meta });
+    }
+    // «Пара началась»: текущее занятие со статусом `now` сменилось на другое
+    // (другой номер или другой день). Перемена и «до первой пары» — не начало.
+    const key = (t) => (t.period && t.period.status === 'now' ? `${t.day}:${t.period.ordinal}` : '');
+    if (key(b) && key(b) !== key(a)) {
+      emitHook('academy:period', { day: b.day, ...b.period, ...meta });
+    }
+  }
+
+  // Итог, который узнал мир: новый исход с объявлением сразу — или объявление
+  // исхода, посчитанного раньше (9.4.3). Попытка входит в сравнение: пересдача
+  // с тем же значением — это новый итог.
+  const was = new Map(((before.exams && before.exams.items) || []).map((i) => [i.id, i]));
+  for (const item of (after.exams && after.exams.items) || []) {
+    if (item.outcome === null || item.outcome === undefined || awaitingAnnouncement(item)) continue;
+    const prev = was.get(item.id);
+    const known = prev && prev.outcome !== null && prev.outcome !== undefined && !awaitingAnnouncement(prev)
+      && String(prev.outcome) === String(item.outcome) && prev.attempts === item.attempts;
+    if (known) continue;
+    emitHook('academy:exam', examDetail(after, item, meta));
+  }
+}
+
+/** Что сосед узнаёт об итоге: предмет, вид, значение словом пресета и бросок. */
+function examDetail(state, item, meta) {
+  const subject = (state.subjects || []).find((s) => s.id === item.subjectId);
+  const kind = kindOf(live.preset, item.kind);
+  const info = gradeInfo(live.preset, item.outcome);
+  const rolls = Array.isArray(item.rolls) ? item.rolls : [];
+  const last = rolls[rolls.length - 1] || null;
+  return {
+    examId: item.id,
+    subjectId: item.subjectId,
+    subject: (subject && subject.name) || item.subjectId,
+    kind: item.kind,
+    kindName: (kind && kind.name) || String(item.kind || ''),
+    value: String(item.outcome),
+    label: (info && info.label) || String(item.outcome),
+    passed: isPassing(live.preset, item.outcome),
+    attempt: item.attempts || 1,
+    day: item.day || state.calendar.day,
+    ...(item.announceOn ? { announced: true, announceOn: item.announceOn } : {}),
+    ...(item.modelOverride ? { modelOverride: true } : {}),
+    ...(last && last.tier ? { tier: last.tier } : {}),
+    ...(last && Number.isFinite(last.roll) ? { roll: last.roll, dc: last.dc } : {}),
+    ...meta,
+  };
+}
+
+/**
+ * Тост о новой вехе (9.4.2): название словами пресета, заголовок «Веха»,
+ * звук — если человек включил его в настройках. Считается «по миру»
+ * (`worldMilestones`) и только для тех, о которых ещё не говорили.
+ */
+function noticeMilestones(before, after) {
+  const added = diffMilestones(worldMilestones(before), worldMilestones(after)).added
+    .filter((m) => !live.shownMilestones.has(m.id));
+  if (!added.length) return;
+  const X = extraLabels(live.preset);
+  for (const m of added) {
+    live.shownMilestones.add(m.id);
+    const name = milestoneName(m, after, live.preset);
+    toast('success', name, X.milestoneToastTitle);
+    emitHook('academy:milestone', {
+      id: m.id, kind: m.kind, name, when: m.when || null,
+      ...(m.subjectId ? { subjectId: m.subjectId } : {}),
+      ...(m.teacherId ? { teacherId: m.teacherId } : {}),
+    });
+  }
+  // Один звук на ответ, сколько бы вех ни пришло сразу: два «колокольчика»
+  // подряд звучат как ошибка, а не как праздник.
+  if (storage.loadSettings(ctx()).milestoneSound === true) {
+    try { live.chime(); } catch { /* звук — вежливость */ }
+  }
+}
+
+/**
+ * Один тост на прыжок через дни (9.4.4): «Прошло занятий: 12, из них
+ * пропущено: 4» — вместо молчания и вместо пачки по прогулу. `run.jump`
+ * приходит из ядра только у прыжков через дни (`engine.sweepAttendance`).
+ */
+function noticeJump(jump) {
+  if (!jump || !jump.periods) return;
+  toast('info', fill(extraLabels(live.preset).jumpToast, { periods: jump.periods, missed: jump.missed || 0 }));
+}
+
+/**
+ * Одноразовые факты, которые ручное действие положило в `state.pending`
+ * (объявление итогов после «принять прыжок», 9.4.3), — сразу во взведённый
+ * факт следующего ответа. Иначе они ждали бы следующего `applyResponse` и
+ * ушли бы в промпт на ход позже, чем случились.
+ *
+ * Взводится через историю ходов (`latest.oneShot`), а не только в
+ * `live.oneShot`: `GENERATION_STARTED` пересобирает взведённое из истории
+ * (`armedOneShot`), и запись мимо неё стёрлась бы до первой генерации. Если
+ * последний ход откачен и ждёт текста (`stamp === null`) — очередь остаётся в
+ * состоянии, как было: её заберёт ответ.
+ */
+function armPending(state) {
+  const pending = Array.isArray(state && state.pending) ? state.pending : [];
+  if (!pending.length) return state;
+  const latest = live.turns[live.turns.length - 1];
+  if (latest && latest.stamp === null) return state;
+  const joined = [armedOneShot(), ...pending.map((i) => i && i.text)].filter(Boolean).join(' ');
+  if (latest) latest.oneShot = joined;
+  live.oneShot = joined;
+  return { ...state, pending: [] };
+}
+
+/**
+ * Seed броска экзамена (9.3.9): id чата + начало семестра. Свайп ответа в день
+ * экзамена считается от того же снимка — событие, попытка и день совпадают
+ * (`exams.examSeed` добавляет их сам), и выпадает то же число; после F5 — тоже,
+ * id чата тот же.
+ *
+ * Зачем начало семестра, если полный день и так в seed: id события —
+ * «период·предмет·вид», без года, и новый семестр в том же чате с другим
+ * началом, но с экзаменом, выпавшим на ту же дату, повторил бы бросок
+ * прошлого. Перезапуск семестра с ТЕМ ЖЕ началом повторит броски — и это
+ * честно: тот же чат, тот же календарь, те же события. Чата нет (не сохранён)
+ * — остаётся начало семестра: бросок воспроизводим и так.
+ */
+function examSeedBase(state) {
+  const term = (state && state.calendar && state.calendar.termStart) || '';
+  return `${currentChatId()}|${term}`;
 }
 
 // --- обработка ответа модели ------------------------------------------------
@@ -260,6 +947,187 @@ function stamp(text) {
   let h = 0;
   for (let i = 0; i < text.length; i += 1) h = (Math.imul(31, h) + text.charCodeAt(i)) | 0;
   return `${text.length}:${h}`;
+}
+
+// --- ход и его сообщение (ремонт 9.1.1, 9.1.6) ---------------------------------
+//
+// Ход — это посчитанный ответ модели и снимок состояния до него. Раньше снимок
+// искался по голому индексу сообщения, и это ломалось двумя путями, которые
+// разбор соседей нашёл живьём: телефон дописывает журнал соцсетей в середину
+// `chat` без событий (индексы едут вверх) и удаляет его штатным
+// `deleteMessage` (индексы едут вниз, `MESSAGE_DELETED` приносит только новую
+// длину). Правило «снимки с id >= length — удалены» откатывало тогда последний
+// ход, которого никто не трогал.
+//
+// Теперь ход узнаёт своё сообщение по отпечатку текста (`stamp`), а индекс —
+// только подсказка, откуда начинать искать. Текст свайпнутого сообщения
+// меняется, но старый лежит в `swipes`, и по нему сообщение тоже узнаётся.
+//
+// И второе правило, общее для правки и удаления: **откатывается только
+// последний ход** (и хвост подряд удалённых). Правка ответа из середины его
+// не пересчитывает: откатить к снимку до него значило бы выбросить всё, что
+// посчитано после, а пересчитать всё заново нельзя — экзамены бросаются
+// случаем, и повторный прогон дал бы другие исходы. Удаление сообщения из
+// середины не откатывает ничего.
+
+/** Сообщение, которое вообще может быть ходом: ответ модели, не служебное, не чужое. */
+function eligible(message) {
+  if (!message || message.is_user || message.is_system) return false;
+  // Сообщения, вставленные расширениями, помечены `extra.from` (Comic Forge —
+  // `'BB-Comic-Forge'`). Сама таверна 1.18.0 это поле не пишет нигде — сверено
+  // поиском по `public/`. Реплики в пузырях комикса — не ответ модели, и метки
+  // или даты в них посчитаны быть не должны (9.1.6).
+  const from = message.extra && message.extra.from;
+  return !(typeof from === 'string' && from.trim() !== '');
+}
+
+/** Узнаёт ли ход это сообщение по тексту — текущему или одному из свайпов. */
+function matchesTurn(message, turn) {
+  if (!eligible(message) || !turn.stamp) return false;
+  if (stamp(String(message.mes ?? '')) === turn.stamp) return true;
+  return Array.isArray(message.swipes) && message.swipes.some((s) => stamp(String(s ?? '')) === turn.stamp);
+}
+
+/**
+ * Относится ли ход к сообщению `mesId`: индекс совпал (и там всё ещё ответ
+ * модели) либо сообщение узнаётся по тексту. Первое нужно правке — текст после
+ * неё другой, — второе ловит сдвиг индексов вставкой без событий.
+ */
+function sameTurn(turn, mesId, chat) {
+  const message = chat[mesId];
+  if (!eligible(message)) return false;
+  if (turn.mesId === mesId) return true;
+  // По тексту — только если на старом месте хода его сообщения больше нет.
+  // Иначе два одинаковых ответа подряд («...», «Она кивнула.») слились бы в
+  // один ход, и второй не был бы посчитан вовсе.
+  return matchesTurn(message, turn) && !matchesTurn(chat[turn.mesId], turn);
+}
+
+/**
+ * Где сейчас сообщение хода. Ищется правее `floor` (ходы идут по порядку, и
+ * два хода не могут указывать на одно сообщение), начиная с запомненного
+ * индекса и расходясь в обе стороны — ближайшее совпадение побеждает. Ход,
+ * ещё ждущий нового текста после отката (`stamp === null`), узнаётся только по
+ * индексу. `-1` — сообщения больше нет.
+ */
+function findTurn(chat, turn, floor = -1) {
+  const n = chat.length;
+  const at = turn.mesId;
+  if (turn.stamp === null) return at > floor && at < n && eligible(chat[at]) ? at : -1;
+  if (at > floor && at < n && matchesTurn(chat[at], turn)) return at;
+  for (let d = 1; d < n; d += 1) {
+    const lo = at - d;
+    const hi = at + d;
+    if (lo > floor && lo < n && matchesTurn(chat[lo], turn)) return lo;
+    if (hi > floor && hi < n && matchesTurn(chat[hi], turn)) return hi;
+    if (lo <= floor && hi >= n) break;
+  }
+  return -1;
+}
+
+/** Где сейчас каждый ход: индексы по порядку, `-1` — удалён. */
+function locateTurns(chat) {
+  let floor = -1;
+  return live.turns.map((turn) => {
+    const at = findTurn(chat, turn, floor);
+    if (at >= 0) floor = at;
+    return at;
+  });
+}
+
+const chatOf = () => {
+  const c = ctx();
+  return Array.isArray(c && c.chat) ? c.chat : [];
+};
+
+/**
+ * Реплика человека, на которую отвечает сообщение `at` (или ответ, который
+ * ещё только встанет на место `at`), — текстом; `''`, если её нет.
+ *
+ * Идём назад: служебные сообщения и вставленные соседями (`extra.from`)
+ * пропускаются, первая реплика человека — она. Если раньше неё встретился
+ * другой ответ модели, реплика адресована ему, а не этому: cue промотки
+ * разрешает один прыжок, а не все до следующей реплики (9.2).
+ */
+function userTextBefore(chat, at) {
+  for (let i = Math.min(at, chat.length) - 1; i >= 0; i -= 1) {
+    const m = chat[i];
+    if (!m || m.is_system) continue;
+    if (m.is_user) return String(m.mes || '');
+    if (eligible(m)) return '';
+  }
+  return '';
+}
+
+/**
+ * Имена сцены для стоп-листа (9.3.6): `name1` — героиня, `name2` — карточка.
+ * В групповом чате карточек несколько, и рассказчиком бывает любая: тогда
+ * `char` — имена всех участников (`groups[].members` — аватары, имена — из
+ * `characters`; `groupId` — `st-context.js:123`). Не вышло — остаётся
+ * `name2`: стоп-лист на одной карточке хуже полного, но лучше пустого.
+ */
+function sceneNames(c) {
+  const user = c && c.name1;
+  let char = c && c.name2;
+  try {
+    if (c && c.groupId !== undefined && c.groupId !== null && Array.isArray(c.groups)) {
+      const group = c.groups.find((g) => g && String(g.id) === String(c.groupId));
+      const chars = Array.isArray(c.characters) ? c.characters : [];
+      const names = (group && Array.isArray(group.members) ? group.members : [])
+        .map((avatar) => (chars.find((ch) => ch && ch.avatar === avatar) || {}).name)
+        .filter((n) => typeof n === 'string' && n.trim());
+      if (names.length) char = names;
+    }
+  } catch { /* имена — страховка, не условие разбора */ }
+  return { user, char };
+}
+
+/** Индекс последнего сообщения, которое может быть ходом, либо `-1`. */
+function lastEligible(chat) {
+  for (let i = chat.length - 1; i >= 0; i -= 1) if (eligible(chat[i])) return i;
+  return -1;
+}
+
+/**
+ * Последний ход, если событие пришло про его сообщение.
+ *
+ * Запасной случай — только для правки (`edited`): сообщение последнего хода
+ * поправлено (текст не узнаётся) И сдвинуто вставкой без событий (индекс не
+ * совпадает). Ход тогда не находится нигде, а правка пришла про последний
+ * ответ в чате — это он и есть. Для нового ответа так рассуждать нельзя: там
+ * «ход не нашёлся» значило бы «пересчитать новый ответ вместо старого» и
+ * молча выбросить старый.
+ */
+function latestFor(mesId, chat, { edited = false } = {}) {
+  const latest = live.turns[live.turns.length - 1];
+  if (!latest) return null;
+  if (sameTurn(latest, mesId, chat)) return latest;
+  if (edited && mesId > latest.mesId && mesId === lastEligible(chat) && findTurn(chat, latest) === -1) {
+    return latest;
+  }
+  return null;
+}
+
+/**
+ * Откатить последний ход к снимку «до него» и взвести факт, который был
+ * действителен для него самого (9.1.2). Ход остаётся в истории и ждёт нового
+ * текста: `stamp = null` — «ещё не посчитан».
+ */
+async function rollbackLatest(turn, mesId, reason = 'swipe') {
+  turn.mesId = mesId;
+  turn.stamp = null;
+  live.oneShot = turn.oneShotBefore;
+  await commit(turn.before);
+  announceRollback(reason, mesId);
+}
+
+/**
+ * `academy:rollback` (см. шапку раздела крючков, решение 3): состояние
+ * вернулось к снимку. `day` — день, на котором календарь стоит теперь.
+ */
+function announceRollback(reason, mesId) {
+  const day = live.state && live.state.calendar ? live.state.calendar.day : null;
+  emitHook('academy:rollback', { reason, day, ...(Number.isInteger(mesId) ? { mesId } : {}) });
 }
 
 /**
@@ -272,7 +1140,7 @@ function stamp(text) {
  * календарь в чужом году, а потом весь семестр спорит с текстом постов.
  *
  * Правило простое и в одну сторону: **если год уже написан в чате, идём за
- * ним.** Ищется он источником A (`parseContext`) по последним сообщениям, и
+ * ним.** Ищется он источниками A+ и A (`readTime`) по последним сообщениям, и
  * берётся только тот, что стоит в тексте буквально (`yearFromText`), — год,
  * который источник достроил бы сам, здесь ничего не доказывает. Не нашлось —
  * остаётся прежнее умолчание, но теперь оно показано человеку в поле, а не
@@ -291,7 +1159,12 @@ function startDayHint() {
   for (let i = chat.length - 1, seen = 0; i >= 0 && seen < START_HINT_SCAN; i -= 1, seen += 1) {
     const m = chat[i];
     if (!m || m.is_system) continue;
-    const hit = parseContext(String(m.mes || ''));
+    // Через общий вход чтения времени, а не голым `parseContext`: самые
+    // надёжные годы в чате — в машинных тегах соседей (`tel:time`, `RP_DATE`,
+    // источник A+), а они живут в HTML-комментариях, которые проза не видит
+    // (etap-time-a-plus.md). Режим `context` — чтобы метка B не участвовала:
+    // года в ней нет.
+    const hit = readTime(String(m.mes || ''), { mode: 'context' }).context;
     if (hit && hit.day && hit.yearFromText) {
       return { day: hit.day, from: 'chat', matched: hit.matched };
     }
@@ -308,27 +1181,71 @@ function startDayHint() {
  * MESSAGE_RECEIVED не приходит вовсе (script.js:10232). Поэтому состояние
  * откатывается к снимку «до этого сообщения» и считается заново — иначе прогулы
  * и оценки удваиваются на каждом свайпе.
+ *
+ * Снимок — это ход в `live.turns`, и он пишется в метаданные чата (9.1.1):
+ * после F5 свайп откатывает так же, как до него, а тот же ответ, досланный
+ * соседом ещё раз, отсекается сохранённым отпечатком.
  */
 async function handleMessage(mesId, { source = 'received' } = {}) {
   if (!live.preset || !live.state || !live.state.started) return;
   const c = ctx();
-  const message = c.chat && c.chat[mesId];
-  if (!message || message.is_user || message.is_system) return;
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return;
 
   const text = String(message.mes || '');
   const mark = stamp(text);
-  if (live.applied.mesId === mesId && live.applied.stamp === mark) return;
 
-  const before = live.snapshots.has(mesId) ? live.snapshots.get(mesId) : live.state;
-  live.snapshots.set(mesId, before);
+  let turn = latestFor(mesId, chat);
+  if (turn) {
+    // Тот же ход: свайп, продолжение, правка. Уже посчитан этим текстом —
+    // выход; иначе считается заново от снимка «до него».
+    if (turn.stamp === mark) return;
+  } else {
+    const latest = live.turns[live.turns.length - 1];
+    // Сообщение раньше последнего хода: либо уже посчитанный старый ход (его
+    // не пересчитываем, см. правило выше), либо сообщение, которое никогда не
+    // было ходом. Считать его сейчас — значит вклеить прошлое поверх
+    // настоящего не по порядку.
+    if (latest && mesId <= latest.mesId) return;
+    // Откаченный под свайп ход, так и не получивший нового текста (генерацию
+    // остановили, человек написал своё): вклада в состояние у него нет.
+    if (latest && latest.stamp === null) live.turns.pop();
+    turn = {
+      mesId,
+      stamp: null,
+      // Копия, а не ссылка: снимок уезжает в метаданные и обязан остаться тем,
+      // чем был, что бы ни случилось с живым состоянием.
+      before: cloneState(live.state),
+      oneShotBefore: armedOneShot(),
+      oneShot: '',
+    };
+    live.turns.push(turn);
+    if (live.turns.length > storage.TURN_HISTORY) live.turns.splice(0, live.turns.length - storage.TURN_HISTORY);
+  }
+  const before = turn.before;
 
   const settings = storage.loadSettings(c);
+  // Что человек сказал о времени репликой перед этим ответом (9.2): ход в
+  // телефоне ставит сцену на паузу, cue промотки Enhance-Gen разрешает прыжок
+  // без вопроса. Ищется на каждом пересчёте — свайп и правка того же ответа
+  // отвечают на ту же реплику и получают то же разрешение.
+  const said = userTextBefore(chat, mesId);
+  const phoneTurn = Boolean(readPhoneTurn(said));
+  // Кубик соседа (Enhance-Gen, 9.4.1/9.7B) в реплике перед ответом решает исход
+  // сегодняшнего контрольного через тот же `resolveConflict`. Телефонный ход —
+  // пауза сцены, экзамен в нём не сдают.
+  const dice = phoneTurn ? null : readDiceRoll(said);
   const run = applyResponse(before, text, live.preset, {
     mode: settings.mode,
     relativeWords: settings.relativeWords,
     // Обещание движку: за сегодняшнее контрольное сажает этот файл (ниже), и
     // оценку модели по нему он заберёт сам (8.1).
     sitsExam: true,
+    // Стоп-лист `rel=` (9.3.6): героиня, карточка (в группе — все карточки).
+    names: sceneNames(c),
+    phoneTurn,
+    timeSkip: phoneTurn ? null : readTimeSkip(said),
   });
 
   let state = run.state;
@@ -339,7 +1256,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   // день — иначе лента из четырёх контрольных сгорела бы за четыре ответа.
   // Оценка, которую модель выставила за сегодняшнее контрольное, придержана
   // движком и не ушла в зачётку второй записью (8.1): её забирает бросок.
-  const exam = maybeSitExam(state, run.modelSaid);
+  const exam = maybeSitExam(state, run.modelSaid, dice);
   if (exam) {
     state = exam.state;
     injects.push(...exam.injects);
@@ -348,12 +1265,21 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
     run.divergence = exam.divergence || run.divergence;
   }
 
-  live.applied = { mesId, stamp: mark };
+  const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join(' ');
+  turn.mesId = mesId;
+  turn.stamp = mark;
+  turn.oneShot = oneShot;
   live.lastRun = { ...run, injects, permission, source, mesId };
+  // Ответ пришёл — предупреждение промотки своё отработало.
+  live.skipWarning = '';
   await commit(state);
 
-  const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join(' ');
   setInjects({ oneShot });
+  // Вехи, события соседям и сводка прыжка — от снимка «до ответа»: свайп,
+  // пересчитанный от того же снимка, узнаёт те же перемены, а тост вехи
+  // второй раз не звучит (`live.shownMilestones`).
+  noticeChanges(before, state, { source, mesId });
+  noticeJump(run.jump);
   await syncLorebook();
   refreshPanel();
 }
@@ -367,7 +1293,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
  * запись на версию модели и кладёт расхождение в журнал. Спорить с написанным
  * текстом расширение не умеет — и не должно.
  */
-function maybeSitExam(state, modelSaid) {
+function maybeSitExam(state, modelSaid, dice = null) {
   // Ворота дня спрашиваются у ядра одной функцией (`exams.sittableExams`), а не
   // складываются здесь из фазы и флага сессии: контрольное бывает двух родов —
   // событие открытой сессии и событие вида со своим окном в календаре, которое
@@ -387,9 +1313,20 @@ function maybeSitExam(state, modelSaid) {
   // Событие называется явно, а не «ближайшее»: движок выбирал его тем же
   // правилом (`todaysExam`), но придержанная оценка относится именно к нему, и
   // подразумевать совпадение двух выборов не стоит.
-  const res = sitExam(state, live.preset, modelSaid
-    ? { examId: modelSaid.examId, modelSaid: modelSaid.value }
-    : {});
+  // Бросок воспроизводим (9.3.9): seed — чат и начало семестра, а событие,
+  // попытку и день ядро добавит само (`exams.examSeed`). Без seed ядро брало
+  // `Math.random`, и свайп ответа в день экзамена выбивал другой исход — при
+  // том что вердикт прошлого варианта модель уже видела.
+  //
+  // `dice` — кубик соседа; старшинство «модель > кубик > свой бросок» решает
+  // ядро (`engine.sitExam`), здесь только передаётся.
+  const res = sitExam(state, live.preset, {
+    ...(modelSaid ? { examId: modelSaid.examId, modelSaid: modelSaid.value } : {}),
+    ...(dice ? { dice } : {}),
+    seed: examSeedBase(state),
+    // Шов прогона (см. `live.examRng`): в таверне его нет, и решает seed.
+    ...(typeof live.examRng === 'function' ? { rng: live.examRng } : {}),
+  });
   if (!res.applied) return null;
   const injects = [...(res.state.pending || [])];
   const next = { ...res.state, pending: [] };
@@ -401,58 +1338,244 @@ function maybeSitExam(state, modelSaid) {
 /**
  * Свайп: откат к снимку.
  *
- * Работает на оба случая. Новая генерация — состояние откатывается здесь, а
- * MESSAGE_RECEIVED следом считает новый текст. Переключение на готовый свайп —
- * MESSAGE_RECEIVED не придёт, поэтому текст считается прямо отсюда.
+ * Два случая, и таверна различает их не событием, а слотом свайпа.
+ *
+ * - **Новая генерация.** `MESSAGE_SWIPED` приходит, пока в `mes` ещё СТАРЫЙ
+ *   текст, а `swipe_id` уже смотрит в пустой слот за концом `swipes`
+ *   (`script.js`, `swipe`: `newSwipeId = swipes.length`, событие — из
+ *   `animateSwipe`, :10255). Здесь только откат и взвод факта «для этого
+ *   хода» (9.1.2) — до сборки промпта; новый текст посчитает
+ *   `MESSAGE_RECEIVED`. Раньше отсюда же звался пересчёт, и он считал СТАРЫЙ
+ *   текст заново — со свежим броском экзамена — и взводил его факт вместо
+ *   нужного, а сразу следом `clearOneShot()` стирал и его: перегенерируемый
+ *   ответ оставался без вердикта.
+ * - **Переключение на готовый свайп.** `MESSAGE_RECEIVED` не придёт
+ *   (`script.js:10232`), поэтому текст считается прямо отсюда.
  */
 async function handleSwipe(mesId) {
   if (!live.preset || !live.state) return;
-  if (live.snapshots.has(mesId)) {
-    live.applied = { mesId: null, stamp: null };
-    await commit(live.snapshots.get(mesId));
-    clearOneShot();
+  const chat = chatOf();
+  const message = chat[mesId];
+  const turn = latestFor(mesId, chat);
+  if (turn) await rollbackLatest(turn, mesId);
+  const fresh = Boolean(message) && Array.isArray(message.swipes)
+    && Number.isInteger(message.swipe_id) && message.swipe_id >= message.swipes.length;
+  if (fresh) {
+    setInjects({});
+    refreshPanel();
+    return;
   }
   await handleMessage(mesId, { source: 'swipe' });
 }
 
-/** Правка сообщения руками: тот же откат и пересчёт. */
+/**
+ * Правка сообщения руками (и `MESSAGE_UPDATED` от соседей).
+ *
+ * Последний ход — откат и пересчёт. Но только если текст действительно другой:
+ * соседи шлют `MESSAGE_UPDATED`, дописав в `extra` картинку или перевод, и
+ * пересчёт того же текста бросил бы экзамен заново.
+ *
+ * Ход из середины не пересчитывается (правило — в шапке раздела «ход и его
+ * сообщение»), но его отпечаток
+ * обновляется: иначе после правки ход перестал бы узнавать своё сообщение, и
+ * следующее удаление посчитало бы его удалённым.
+ */
 async function handleEdited(mesId) {
-  if (!live.snapshots.has(mesId)) return;
-  live.applied = { mesId: null, stamp: null };
-  await commit(live.snapshots.get(mesId));
-  await handleMessage(mesId, { source: 'edited' });
+  if (!live.preset || !live.state) return;
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return;
+  const mark = stamp(String(message.mes || ''));
+
+  const turn = latestFor(mesId, chat, { edited: true });
+  if (turn) {
+    if (turn.stamp === mark) return;
+    await rollbackLatest(turn, mesId, 'edit');
+    await handleMessage(mesId, { source: 'edited' });
+    return;
+  }
+  const older = live.turns.find((t) => t.mesId === mesId);
+  if (older && older.stamp !== mark) {
+    older.stamp = mark;
+    storage.saveTurns(ctx(), live.turns);
+  }
 }
 
 /**
  * Удаление сообщения. Аргументом приходит длина чата, а не индекс
- * (script.js:1609 и соседи) — по ней и считается, какие снимки больше не нужны.
+ * (`MESSAGE_DELETED`, etap2-st-facts.md), — поэтому удалённое узнаётся не по
+ * длине, а поиском: каждый ход ищет своё сообщение (`locateTurns`).
+ *
+ * - Последний ход на месте — удалено что-то другое (реплика человека, журнал
+ *   телефона, старый ответ). Ничего не откатывается; ходы из середины, чьих
+ *   сообщений больше нет, просто забываются.
+ * - Последнего хода нет — откат к снимку до самого раннего из подряд
+ *   удалённых последних ходов. Это и регенерация: таверна срезает ответ и шлёт
+ *   это событие (`script.js`, `Generate`, ветка `regenerate`), и взводится
+ *   факт, который был действителен для срезанного ответа (9.1.2).
  */
-async function handleDeleted(length) {
-  const gone = [...live.snapshots.keys()].filter((id) => id >= length);
-  if (!gone.length) return;
-  const earliest = Math.min(...gone);
-  const before = live.snapshots.get(earliest);
-  for (const id of gone) live.snapshots.delete(id);
-  if (!before) return;
-  live.applied = { mesId: null, stamp: null };
-  await commit(before);
-  clearOneShot();
+async function handleDeleted() {
+  if (!live.preset || !live.state || !live.turns.length) return;
+  const chat = chatOf();
+  const at = locateTurns(chat);
+  const last = at.length - 1;
+
+  if (at[last] >= 0) {
+    const kept = [];
+    live.turns.forEach((turn, i) => {
+      if (at[i] < 0) return;
+      turn.mesId = at[i];
+      kept.push(turn);
+    });
+    live.turns = kept;
+    storage.saveTurns(ctx(), live.turns);
+    return;
+  }
+
+  let k = last;
+  while (k > 0 && at[k - 1] < 0) k -= 1;
+  const target = live.turns[k];
+  const kept = [];
+  for (let i = 0; i < k; i += 1) {
+    if (at[i] < 0) continue;
+    live.turns[i].mesId = at[i];
+    kept.push(live.turns[i]);
+  }
+  live.turns = kept;
+  live.oneShot = target.oneShotBefore;
+  await commit(target.before);
+  announceRollback('delete');
+  // Регенерация: старт пришёл раньше среза (ремонт, факт 2), и предупреждение
+  // промотки тогда считалось от дня ПОСЛЕ срезанного ответа. Теперь день верный.
+  if (live.generating) refreshSkipWarning();
+  setInjects({});
   refreshPanel();
 }
 
 async function handleChatChanged() {
-  live.snapshots.clear();
-  live.applied = { mesId: null, stamp: null };
+  // Первым делом: всё, что ждёт ответа из прошлого чата, должно это увидеть.
+  live.epoch += 1;
+  live.quiet = false;
+  // События прошлого чата, придержанные под фоновую генерацию, новому чату
+  // ни к чему: сосед получил бы «день сменился» про чужой семестр.
+  live.hookQueue = [];
+  live.generating = null;
+  live.skipWarning = '';
   live.lastRun = null;
   // Лорбук у каждого чата свой: и отпечаток, и предложения — из прошлого чата,
   // и переносить их в новый значило бы дописать чужому чату чужие записи.
   live.lorebook = { signature: null, report: null, error: null, suggested: [] };
+  live.oneShot = '';
   reloadState();
-  setInjects({ oneShot: '' });
+  // Чат мог быть заведён пресетом, который с тех пор удалили (9.3.2).
+  checkStatePreset();
+  // История ходов приехала из метаданных нового чата — и вместе с ней факт,
+  // взведённый последним ходом: вердикт экзамена переживает и смену чата
+  // туда-обратно, и F5 (9.1.2).
+  setInjects({ oneShot: armedOneShot() });
   // Первая синхронизация в чате нужна и без нового события: в лорбуке может не
   // быть ничего (галочку включили в прошлом чате), а отпечаток сброшен выше.
   await syncLorebook();
   refreshPanel();
+}
+
+// --- стоп-лист имён в плане (9.3.6) -----------------------------------------
+
+/** Чьё имя совпало — словами для человека. Слова механизма, не заведения. */
+const STOP_WHO = {
+  user: 'вашего персонажа',
+  institution: 'заведения',
+  preset: 'служебного слова пресета',
+};
+
+/**
+ * Предупреждения о преподавателях плана, чьё имя попало в стоп-лист. Пусто —
+ * всё чисто. Карточка — мягкий стоп (`core/stop-names.mjs`): чат «один на один
+ * с преподавательницей» бывает нарочно, поэтому про неё фраза другая.
+ */
+function stopWarnings(teachers, c, survey) {
+  const stop = stopList({
+    ...sceneNames(c),
+    preset: live.preset,
+    survey: { ...((live.state && live.state.survey) || {}), ...(survey && typeof survey === 'object' ? survey : {}) },
+  });
+  const { dropped } = filterPeople(teachers, stop);
+  const word = (live.preset && live.preset.vocab && live.preset.vocab.teacher) || 'преподаватель';
+  return dropped.map(({ item, hit }) => {
+    const name = String((item && (item.name || item.id)) || '');
+    if (hit.kind === 'char') {
+      return `«${name}» (${word}) совпадает с карточкой «${hit.name}». Если карточка и есть этот ${word} — оставьте; если это рассказчик — переименуйте в таблице.`;
+    }
+    return `«${name}» (${word}) совпадает с именем ${STOP_WHO[hit.kind] || hit.kind} «${hit.name}» — переименуйте в таблице.`;
+  });
+}
+
+// --- макрос {{academy}} (9.3.1) ----------------------------------------------
+
+/** Имя макроса. Без скобок: `registerMacro` скобки в ключе отвергает (macros.js). */
+const MACRO = 'academy';
+
+/**
+ * Что подставляет `{{academy}}`: строка состояния, та же, что уходит
+ * автоинжектом (`buildPrompt(...).status`), — и ничего больше. Инструкция
+ * метки и одноразовый факт остаются инжектами при любой галочке: инструкция
+ * просит ПЕРВУЮ строку ответа и обязана стоять у хвоста, а факт повелителен
+ * ровно одну генерацию, и прятать его в постоянное место промпта нельзя.
+ *
+ * **Макрос работает всегда, а не только при галочке.** Галочка гасит
+ * автоинжект, чтобы строка не ушла дважды; сам макрос — как `{{summary}}` у
+ * штатного суммаризатора: поставил — получил. Иначе человек, вписавший макрос
+ * и забывший галочку, видел бы пустоту и не понимал почему.
+ *
+ * **В фоновой генерации (`quiet`) — пусто.** Ремонт 9.1.3 гасит все три
+ * инжекта на время `generateQuietPrompt` соседа (телефон, суммаризатор,
+ * карта): строка состояния им не нужна и сбивает их. Макрос, поставленный в
+ * системный промпт, попадает и в их промпт тоже — и обязан гаснуть так же,
+ * иначе галочка «через макрос» молча отменяла бы ремонт. Таверна подставляет
+ * макросы при сборке промпта, то есть после `GENERATION_STARTED('quiet')`, так
+ * что `live.quiet` к этому времени уже поднят.
+ */
+function macroText() {
+  if (live.quiet) return '';
+  if (!live.preset || !live.state || !live.state.started) return '';
+  try {
+    return buildPrompt(live.state, live.preset, { injects: [], withMarker: false }).status || '';
+  } catch (err) {
+    console.error(`[${MODULE}] {{${MACRO}}} не собран:`, err);
+    return '';
+  }
+}
+
+/**
+ * Регистрация макроса — по образцу штатного суммаризатора таверны 1.18.0
+ * (`extensions/memory/index.js`, `summary`): при включённом новом движке
+ * макросов (`power_user.experimental_macro_engine`, в 1.18.0 по умолчанию
+ * включён, `power-user.js:302`) — `macros.register(name, {handler, ...})`
+ * (`st-context.js:244`, `macros/macro-system.js`); иначе — старый
+ * `registerMacro(key, fn, description)` (`st-context.js:179`, помечен
+ * `@deprecated`, но в старом движке другого пути нет). Сборка без обоих — не
+ * повод молчать целиком: строка тогда остаётся только автоинжектом.
+ *
+ * @returns {'engine'|'legacy'|null} куда зарегистрирован
+ */
+function registerMacro(c) {
+  const description = 'Academy: строка состояния учёбы — день, текущее занятие, долги, балл.';
+  const handler = () => macroText();
+  try {
+    const power = (c && c.powerUserSettings) || {};
+    if (power.experimental_macro_engine && c.macros && typeof c.macros.register === 'function') {
+      const category = (c.macros.category && c.macros.category.MISC) || 'misc';
+      c.macros.register(MACRO, { category, description, handler });
+      return 'engine';
+    }
+    if (c && typeof c.registerMacro === 'function') {
+      c.registerMacro(MACRO, handler, description);
+      return 'legacy';
+    }
+  } catch (err) {
+    console.error(`[${MODULE}] макрос {{${MACRO}}} не зарегистрирован:`, err);
+  }
+  return null;
 }
 
 // --- хост для панели --------------------------------------------------------
@@ -470,6 +1593,9 @@ const host = {
   getPresets: () => ({
     active: String((live.preset && live.preset.id) || ''),
     list: live.presets.map((p) => ({ ...p })),
+    // «Пресет удалён — включён встроенный» (9.3.2): панель показывает строкой.
+    notice: live.presetNotice,
+    max: USER_PRESETS_MAX,
   }),
   getSettings: () => storage.loadSettings(ctx()),
   /**
@@ -521,6 +1647,29 @@ const host = {
   },
   getDebug: () => live.lastRun,
   markerVisibleRisk,
+  /**
+   * Сырьё «Доктора промпта» (9.7A п.4) и его разбор. Инжекты берутся у
+   * таверны на каждый показ: `getContext()` отдаёт живую ссылку на
+   * `extension_prompts` (`script.js:625`, `st-context.js:151`), а `clearChat`
+   * переприсваивает этот объект при смене чата (`script.js:1588`) — ссылка,
+   * запомненная раньше, смотрела бы на мёртвый.
+   */
+  getPromptDoctor: () => {
+    const c = ctx();
+    const settings = storage.loadSettings(c);
+    const run = live.lastRun;
+    const chat = chatOf();
+    const last = lastEligible(chat);
+    return promptDoctorView({
+      prompts: c && c.extensionPrompts,
+      own: Object.values(INJECT),
+      markerKey: INJECT.marker,
+      markerWanted: Boolean(settings.injectMarker) && settings.mode !== 'context',
+      markerSeen: run ? Boolean(run.debug && run.debug.marker) : null,
+      lastText: last >= 0 ? String(chat[last].mes || '') : '',
+      encodeTags: markerVisibleRisk(),
+    });
+  },
 
   /**
    * Всё про лорбук одним куском (3.7). `suggest` здесь — предложения, которые
@@ -569,6 +1718,9 @@ const host = {
           : buildSchedule(subjects, live.preset),
       });
       state.started = true;
+      // Новый семестр — новая история: снимок «до последнего ответа» из
+      // времени до старта откатил бы свайп в семестр, которого не было.
+      forgetTurns();
       await commit(state, { flush: true });
       setInjects({ oneShot: '' });
       await syncLorebook();
@@ -578,16 +1730,52 @@ const host = {
 
     async generatePlan(survey) {
       const c = ctx();
+      // Ответ идёт 20–60 секунд (ремонт 9.1.4): план, пришедший после смены
+      // чата, в новый чат не ложится. Отказ — даже при неудаче запроса: текст
+      // ошибки про чужой чат человеку тоже ни к чему.
+      const op = captureOperation();
       const res = await api.generatePlan(survey, live.preset, storage.apiSettings(c), c);
+      if (!isCurrent(op)) return chatChanged('генерировался план');
       if (!res.ok) return { ok: false, error: res.message || res.error || 'запрос не удался', raw: res.raw };
       const put = await host.actions.setSubjects(res.plan);
-      return put.ok ? { ok: true } : put;
+      if (!put.ok) return put;
+      // Стоп-лист имён (9.3.6): генерация по анкете охотно называет
+      // преподавателя именем героини или карточки. Выбросить такого нельзя —
+      // предметы ссылаются на него по `teacherId`, и состояние перестало бы
+      // проходить `validateState`, — поэтому план ложится целиком, а человеку
+      // говорится, кого переименовать.
+      const warnings = stopWarnings((res.plan && res.plan.teachers) || [], c, survey);
+      if (!warnings.length) return { ok: true };
+      try {
+        if (globalThis.toastr && typeof globalThis.toastr.warning === 'function') {
+          globalThis.toastr.warning(warnings.join(' '), 'Academy');
+        }
+      } catch { /* всплывашка — вежливость, не условие */ }
+      return { ok: true, warnings };
     },
 
     /** Правка таблицы предметов руками — тот же путь, что у генерации (3.6). */
     async setSubjects(plan) {
-      const subjects = (plan.subjects || []).map(normalizeSubject);
-      const teachers = (plan.teachers || []).map((t) => normalizeTeacher(t, live.preset));
+      // Таблица приносит только свои поля: имя, преподаватель, корпус и
+      // аудитория у предмета; имя и черты у преподавателя. Всё прочее —
+      // оценки, хвост, вид контрольного, отношение, день рождения, портрет —
+      // живёт в состоянии и сохраняется по `id`. Раньше строки нормализовались
+      // с нуля, и «Сохранить таблицу» на идущем семестре молча стирало
+      // зачётку и сбрасывало отношения к стартовым (поймано тестом проводки).
+      // Поля таблицы авторитетны и пустыми: таблица шлёт `building: ''`, и
+      // стёртый корпус — это «корпуса нет» (`ui.validateSubjectRows`). План из
+      // генерации этих ключей не несёт — и корпус, вписанный руками, переживает
+      // перегенерацию предмета с тем же `id`.
+      const prevSubjects = new Map(((live.state && live.state.subjects) || []).map((s) => [s.id, s]));
+      const prevTeachers = new Map(((live.state && live.state.teachers) || []).map((t) => [t.id, t]));
+      const subjects = (plan.subjects || []).map((raw) => {
+        const old = prevSubjects.get(String((raw && raw.id) || '').trim());
+        return normalizeSubject(old ? { ...old, ...raw } : raw);
+      });
+      const teachers = (plan.teachers || []).map((raw) => {
+        const old = prevTeachers.get(String((raw && raw.id) || '').trim());
+        return normalizeTeacher(old ? { ...old, ...raw } : raw, live.preset);
+      });
       // Расписание пересобирается здесь: панель шлёт только списки, а состояние
       // со ссылками на удалённый предмет не пройдёт `validateState` и уведёт её
       // в ветку «состояние повреждено».
@@ -604,6 +1792,47 @@ const host = {
       await syncLorebook();
       refreshPanel();
       return { ok: true };
+    },
+
+    /**
+     * Портрет и день рождения наставника (9.7A п.15, п.9) — с вкладки «Люди».
+     * Отдельным действием, а не через `setSubjects`: ни то, ни другое не
+     * меняет расписания, и пересобирать его ради картинки незачем.
+     *
+     * Ключ, которого в `patch` нет, не трогается; пустая строка — убрать.
+     * Негодное значение — отказ словами, состояние не пишется вовсе: половина
+     * правки (портрет лёг, день рождения нет) хуже, чем ни одной.
+     */
+    async setTeacherDetails(teacherId, patch = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const teacher = (next.teachers || []).find((t) => t.id === teacherId);
+      if (!teacher) return { ok: false, error: `наставника «${teacherId}» нет в списке` };
+      const X = extraLabels(live.preset);
+      if (patch && 'portrait' in patch) {
+        const raw = String(patch.portrait == null ? '' : patch.portrait).trim();
+        if (!raw) delete teacher.portrait;
+        else {
+          const portrait = normalizePortrait(raw);
+          if (!portrait) return { ok: false, code: 'bad-portrait', error: X.portraitBad };
+          teacher.portrait = portrait;
+        }
+      }
+      if (patch && 'birthday' in patch) {
+        const raw = String(patch.birthday == null ? '' : patch.birthday).trim();
+        if (!raw) delete teacher.birthday;
+        else {
+          const birthday = normalizeBirthday(raw);
+          if (!birthday) return { ok: false, code: 'bad-birthday', error: X.birthdayBad };
+          teacher.birthday = birthday;
+        }
+      }
+      await commit(next);
+      // День рождения входит в ближние события строки состояния (9.4.4).
+      setInjects({});
+      await syncLorebook();
+      refreshPanel();
+      return { ok: true, portrait: teacher.portrait || '', birthday: teacher.birthday || '' };
     },
 
     /**
@@ -627,8 +1856,12 @@ const host = {
         live.preset,
       );
       if (!res.applied) return { ok: false, error: res.reason || 'календарь не сдвинулся' };
-      await commit(res.state);
+      const before = live.state;
+      // Объявление итогов, до которого дошёл сдвиг, — сразу в факт следующего
+      // ответа (9.4.3), а не ходом позже.
+      await commit(armPending(res.state));
       setInjects({});
+      noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();
       const now = (res.state.reputation && res.state.reputation.value) || 0;
       return {
@@ -644,14 +1877,20 @@ const host = {
      * кнопкой, ядро решает, что с ним делать (`engine.resolveHeldJump`).
      */
     async resolveJump(accept = true) {
+      const before = live.state;
       const res = resolveHeldJump(live.state, live.preset, accept !== false);
       // Отклонение календарь не двигает, но состояние меняет: прыжка в нём
       // больше нет, и сохранить это надо так же, как принятие.
-      await commit(res.state);
+      //
+      // Принятый прыжок может дойти до дня объявления итогов (9.4.3): факт
+      // «итоги объявлены» ложится в `state.pending` и без `armPending` ушёл бы
+      // в промпт только со следующим подсчитанным ответом — на ход позже.
+      await commit(armPending(res.state));
       if (accept !== false && !res.applied) {
         return { ok: false, error: res.reason || 'прыжок не применился' };
       }
       setInjects({});
+      noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();
       return { ok: true, missed: res.missed.length };
     },
@@ -667,7 +1906,12 @@ const host = {
       const res = await api.listModels(storage.apiSettings(ctx()));
       // `code` доезжает до панели: у «списка нет и быть не может» и у «сервер
       // не ответил» одинаковый `ok: false`, а показывать их надо по-разному.
-      return res.ok ? { ok: true, models: res.models } : { ok: false, models: [], error: res.message, code: res.code };
+      // `via: 'tavern-backend'` — список спросил сервер таверны, потому что
+      // адрес не пускает запросы из браузера (9.1.7). Панель говорит об этом
+      // строкой: ключ в этом случае прошёл через сервер таверны.
+      return res.ok
+        ? { ok: true, models: res.models, via: res.via || 'browser' }
+        : { ok: false, models: [], error: res.message, code: res.code };
     },
 
     /** Кнопка «обновить лорбук»: та же синхронизация, но мимо сторожа отпечатка. */
@@ -703,7 +1947,12 @@ const host = {
       const report = live.lorebook.report;
       const entry = ((report && report.plan && report.plan.suggest) || []).find((e) => e.uid === uid);
       if (!entry) return { ok: false, error: 'такого предложения нет' };
-      const res = await lorebook.acceptSuggestion(ctx(), entry, { settings: storage.loadSettings(ctx()) });
+      const op = captureOperation();
+      const res = await lorebook.acceptSuggestion(ctx(), entry, {
+        settings: storage.loadSettings(ctx()),
+        guard: () => isCurrent(op),
+      });
+      if (res.reason === lorebook.CHAT_CHANGED) return chatChanged('принималась запись лорбука');
       if (!res.ok) return { ok: false, error: res.reason };
       live.lorebook.suggested = live.lorebook.suggested.filter((x) => !uid.endsWith(`:${x.id}`));
       await syncLorebook({ force: true });
@@ -715,7 +1964,12 @@ const host = {
     async pruneLorebook() {
       const orphans = (live.lorebook.report && live.lorebook.report.orphans) || [];
       if (!orphans.length) return { ok: true, removed: 0 };
-      const res = await lorebook.pruneOrphans(ctx(), orphans, { settings: storage.loadSettings(ctx()) });
+      const op = captureOperation();
+      const res = await lorebook.pruneOrphans(ctx(), orphans, {
+        settings: storage.loadSettings(ctx()),
+        guard: () => isCurrent(op),
+      });
+      if (res.reason === lorebook.CHAT_CHANGED) return chatChanged('чистился лорбук');
       if (!res.ok) return { ok: false, error: res.reason };
       await syncLorebook({ force: true });
       refreshPanel();
@@ -733,7 +1987,10 @@ const host = {
      */
     async guessSurvey() {
       const c = ctx();
+      // Карточка — прошлого чата: её поля в анкете нового были бы чужими (9.1.4).
+      const op = captureOperation();
       const res = await api.guessSurvey(live.preset, storage.apiSettings(c), c);
+      if (!isCurrent(op)) return chatChanged('анкета заполнялась по карточке');
       if (!res.ok) return { ok: false, error: res.error || res.message || 'запрос не удался', code: res.code, raw: res.raw };
       return {
         ok: true,
@@ -782,9 +2039,10 @@ const host = {
           warnings: res.warnings || [],
         };
       }
+      // История ходов снята в `storage.importState`; здесь забывается взведённый
+      // факт заменённого семестра.
+      forgetTurns();
       reloadState();
-      live.snapshots.clear();
-      live.applied = { mesId: null, stamp: null };
       live.lastRun = null;
       // Приехало чужое состояние — прежний отпечаток лорбука про него ничего не
       // знает, и без сброса лорбук остался бы от заменённого семестра.
@@ -850,31 +2108,136 @@ const host = {
         };
       }
 
+      const op = captureOperation();
       let next;
       try {
         next = await loadPreset(wanted);
       } catch (err) {
         return { ok: false, error: `пресет ${wanted} не загрузился: ${(err && err.message) || err}` };
       }
+      // Подтверждение давалось про состояние прошлого чата (9.1.4).
+      if (!isCurrent(op)) return chatChanged('загружался пресет');
 
-      storage.saveSettings({ preset: wanted }, ctx());
-      live.preset = next;
-      if (live.state && live.state.presetId !== wanted) {
-        // Часы привязываются к сетке звонков нового пресета. Состояние смену
-        // переживает, а сетка берётся из активного пресета — и без этой правки
-        // панель показывала две соседние строки с разным временем: в шапке
-        // старые 15:00, а в «Сейчас» 14:05, начало той пары, в которую они
-        // попадают по новой сетке. Поймано на живой таверне.
-        const aligned = alignToGrid({ ...live.state, presetId: wanted }, next);
-        await commit(aligned.state, { flush: true });
-      }
-      reloadState();
-      setInjects({ oneShot: '' });
-      // Лорбук говорит словами пресета: тексты записей после смены другие.
-      live.lorebook.signature = null;
-      await syncLorebook();
-      refreshPanel();
+      live.presetNotice = '';
+      await switchPreset(wanted, next);
       return { ok: true, changed: true, preset: wanted };
+    },
+
+    /**
+     * Выгрузить пресет файлом (9.3.2) — свой или встроенный. Встроенный — как
+     * основу для своего: конверт помнит его `basedOn`, и копия, которую
+     * человек правит и загружает обратно, недостающее возьмёт из него же.
+     * Файла, как и у выгрузки состояния, здесь не появляется: Blob — в `ui.js`.
+     */
+    async exportPreset(id) {
+      const wanted = String(id || (live.preset && live.preset.id) || '');
+      let preset;
+      try {
+        preset = await loadPreset(wanted);
+      } catch (err) {
+        return { ok: false, error: `пресет ${wanted} не выгрузился: ${(err && err.message) || err}` };
+      }
+      const envelope = presetEnvelope(preset, { extensionVersion: live.version || undefined });
+      return { ok: true, json: JSON.stringify(envelope, null, 2), filename: presetFilename(preset) };
+    },
+
+    /**
+     * Превью перед загрузкой (9.3.2): что это за заведение и под каким `id` оно
+     * ляжет. Ничего не пишет. Проверка — та же, что при загрузке, целиком,
+     * включая пробный прогон: превью, которое обещает то, от чего загрузка
+     * потом откажется, хуже отсутствия превью.
+     */
+    async previewPreset(source) {
+      const res = await readAndNormalize(source);
+      if (!res.ok) return res;
+      return {
+        ok: true,
+        summary: { ...presetSummary(res.preset), id: res.id, name: res.name },
+        renamed: res.renamed,
+        warnings: res.warnings,
+        full: storage.listUserPresets(ctx()).length >= USER_PRESETS_MAX,
+        max: USER_PRESETS_MAX,
+      };
+    },
+
+    /**
+     * Загрузить пресет (9.3.2). `opts.apply` — «добавить и применить»: сразу
+     * после добавления идёт обычная смена пресета со всеми её вопросами
+     * (идущий семестр — `needs-confirm`). Пресет к этому моменту уже добавлен,
+     * и отказ от смены его не отменяет — об этом говорит `added` в ответе.
+     */
+    async importPreset(source, opts = {}) {
+      const res = await readAndNormalize(source);
+      if (!res.ok) return res;
+      const c = ctx();
+      if (storage.listUserPresets(c).length >= USER_PRESETS_MAX) {
+        return { ok: false, code: 'full', error: fill(PRESET_TEXT.full, { max: USER_PRESETS_MAX }) };
+      }
+      // Хранится уже нормализованный пресет: полный, с ключами основы. Так
+      // файл, выгруженный из настроек, самодостаточен и у того, у кого основа
+      // другой версии.
+      storage.putUserPreset(c, { ...res.preset, id: res.id, displayName: res.name });
+      live.presets = await loadPresetList(live.preset);
+      if (opts.apply !== true) {
+        refreshPanel();
+        return { ok: true, added: res.id, name: res.name, warnings: res.warnings };
+      }
+      const applied = await host.actions.setPreset(res.id, { confirm: opts.confirm === true });
+      return { ...applied, added: res.id, name: res.name, warnings: res.warnings };
+    },
+
+    /**
+     * Удалить свой пресет. Встроенные не удаляются: это файлы расширения.
+     *
+     * Удаляемый пресет может быть активным — тогда откат на встроенный
+     * (9.3.2): на ту основу, поверх которой он лежал, иначе на русский вуз, с
+     * сообщением. На идущем семестре это та же смена пресета, что и руками, и
+     * спрашивается так же (`needs-confirm`). Чаты, заведённые этим пресетом,
+     * не переписываются: их проверяет `checkStatePreset` при открытии.
+     */
+    async deletePreset(id, opts = {}) {
+      const wanted = String(id || '').trim();
+      if (!wanted) return { ok: false, error: 'не сказано, какой пресет удалять' };
+      if (PRESET_IDS.includes(wanted)) return { ok: false, code: 'builtin', error: PRESET_TEXT.deleteBuiltin };
+      const c = ctx();
+      const raw = storage.getUserPreset(c, wanted);
+      if (!raw) return { ok: false, code: 'missing', error: fill(PRESET_TEXT.deleteMissing, { id: wanted }) };
+
+      const active = String((live.preset && live.preset.id) || '');
+      const fallback = PRESET_IDS.includes(raw.basedOn) ? raw.basedOn : DEFAULT_BASE;
+      const started = Boolean(live.state && live.state.started);
+      if (wanted === active && started && opts.confirm !== true) {
+        const text = fill(PRESET_TEXT.deleteActive, { name: presetName(wanted), fallback: presetName(fallback) });
+        return {
+          ok: false,
+          code: 'needs-confirm',
+          needsConfirm: true,
+          error: text,
+          reasons: [text],
+          current: storage.stateSummary(live.state),
+          incoming: null,
+        };
+      }
+
+      const name = presetName(wanted);
+      storage.removeUserPreset(c, wanted);
+      live.presets = await loadPresetList(wanted === active ? null : live.preset);
+      if (wanted !== active) {
+        refreshPanel();
+        return { ok: true, removed: wanted };
+      }
+      const op = captureOperation();
+      let next;
+      try {
+        next = await loadPreset(fallback);
+      } catch (err) {
+        return { ok: false, error: `пресет удалён, но ${fallback} не загрузился: ${(err && err.message) || err}` };
+      }
+      if (!isCurrent(op)) return chatChanged('загружался пресет');
+      await switchPreset(fallback, next);
+      announce(fill(PRESET_TEXT.deletedFallback, { name, fallback: presetName(fallback) }));
+      refreshPanel();
+      return { ok: true, removed: wanted, fallback };
     },
 
     async refresh() { reloadState(); refreshPanel(); },
@@ -906,30 +2269,40 @@ async function init() {
   // русский вуз, чтобы следом заменить его магической академией, значило бы
   // показать человеку чужую панель на полсекунды при каждой загрузке страницы.
   const settings = storage.loadSettings(c);
-  const wanted = String(settings.preset || 'ru-university');
+  const wanted = String(settings.preset || DEFAULT_BASE);
 
   try {
     live.preset = await loadPreset(wanted);
   } catch (err) {
     console.error(`[${MODULE}] пресет ${wanted} не загружен:`, err);
-    if (wanted === 'ru-university') {
+    if (wanted === DEFAULT_BASE) {
       console.error(`[${MODULE}] расширение молчит целиком`);
       return;
     }
-    // Выбранный пресет исчез (папку почистили, файл переименовали) — это не
-    // повод оставить человека без панели вовсе: возврат к тому, что точно есть.
+    // Выбранный пресет исчез (папку почистили, свой пресет удалили на другом
+    // устройстве, файл перестал проходить проверку) — это не повод оставить
+    // человека без панели вовсе: возврат к тому, что точно есть, и сообщение
+    // (9.3.2). Основа своего пресета, если он ещё лежит в настройках, лучше
+    // русского вуза: слова у неё ближе к тем, к которым человек привык.
+    const raw = safeUserPreset(c, wanted);
+    const fallback = raw && PRESET_IDS.includes(raw.basedOn) ? raw.basedOn : DEFAULT_BASE;
     try {
-      live.preset = await loadPreset('ru-university');
-      storage.saveSettings({ preset: 'ru-university' }, c);
+      live.preset = await loadPreset(fallback);
+      storage.saveSettings({ preset: fallback }, c);
     } catch (err2) {
       console.error(`[${MODULE}] пресет не загружен, расширение молчит:`, err2);
       return;
     }
+    const why = err && err.code === 'missing' ? PRESET_TEXT.whyMissing : fill(PRESET_TEXT.whyBroken, { error: (err && err.message) || err });
+    announce(fill(PRESET_TEXT.startFallback, { id: wanted, why, fallback: presetName(fallback) }));
   }
 
   live.version = await loadVersion();
   live.presets = await loadPresetList(live.preset);
   reloadState();
+  // Откат выше уже сказал про пропавший пресет — вторая всплывашка о нём же
+  // была бы шумом.
+  if (!live.presetNotice) checkStatePreset();
 
   try {
     const ui = await import('./ui.js');
@@ -957,12 +2330,83 @@ async function init() {
   ev.on(t.MESSAGE_SWIPED, (mesId) => handleSwipe(mesId));
   ev.on(t.MESSAGE_EDITED, (mesId) => handleEdited(mesId));
   ev.on(t.MESSAGE_UPDATED, (mesId) => handleEdited(mesId));
-  ev.on(t.MESSAGE_DELETED, (length) => handleDeleted(length));
+  ev.on(t.MESSAGE_DELETED, () => handleDeleted());
   ev.on(t.CHAT_CHANGED, () => handleChatChanged());
+  // Генерации (ремонт 9.1.2, 9.1.3). Сборка без этих событий — не повод молчать
+  // целиком: тогда просто нет гашения под фоновые генерации.
+  if (t.GENERATION_STARTED) ev.on(t.GENERATION_STARTED, (type, params, dryRun) => handleGenerationStarted(type, params, dryRun));
+  if (t.GENERATION_ENDED) ev.on(t.GENERATION_ENDED, () => handleGenerationEnded());
+  if (t.GENERATION_STOPPED) ev.on(t.GENERATION_STOPPED, () => handleGenerationEnded());
 
-  setInjects({ oneShot: '' });
+  // Макрос `{{academy}}` (9.3.1). Регистрируется всегда: галочка «через макрос»
+  // гасит только автоинжект, а сам макрос работает при любой галочке.
+  live.macro = registerMacro(c);
+
+  // Факт, взведённый последним ходом до F5, доходит до следующего ответа (9.1.2).
+  setInjects({ oneShot: armedOneShot() });
   refreshPanel();
   console.log(`[${MODULE}] готово, папка ${EXT_NAME}`);
+}
+
+// --- window.AcademyAPI (9.4.8, 9.7B) ------------------------------------------
+
+/**
+ * Версия формы API — отдельно от версии расширения: соседу важно, какие
+ * методы есть, а не какой сейчас релиз. Растёт, только если что-то убрано
+ * или поменяло смысл; новые методы и поля её не двигают.
+ */
+const API_VERSION = 1;
+
+/** Ответ API без исключений: сосед, позвавший нас в неудачный момент, получает `null`. */
+function apiSafe(fn, fallback = null) {
+  try {
+    if (!live.preset) return fallback;
+    const out = fn();
+    return out === undefined ? fallback : out;
+  } catch (err) {
+    console.warn(`[${MODULE}] AcademyAPI:`, err);
+    return fallback;
+  }
+}
+
+/**
+ * Публичный вход для соседей. Всё только на чтение, всё возвращает новые
+ * объекты (копии): правка ответа у соседа состояние семестра не трогает.
+ * Слова — пресета, числа отношений и репутации наружу не идут (3.3), итог,
+ * который мир ещё не знает, — тоже (9.4.3).
+ *
+ * - `now()` — `{started, day, time, precision, weekday}` или `null`;
+ * - `today()` — день, неделя, фаза, текущее и следующее занятие;
+ * - `summary()` — «второй триместр, среда, 3-й урок, красные баллы: 1»;
+ * - `journal(n)` — последние `n` событий (до 50) полями, без технического
+ *   текста внутреннего журнала;
+ * - `milestones()` — вехи по миру: `[{id, kind, name, when}]`;
+ * - `version` — версия расширения из манифеста, `apiVersion` — форма API;
+ * - `events` — имена событий `academy:*`.
+ *
+ * Вешается на `window` при загрузке модуля, до чтения пресета: сосед,
+ * загрузившийся следом, находит объект сразу, а методы до готовности
+ * отвечают `null`.
+ */
+const AcademyAPI = Object.freeze({
+  apiVersion: API_VERSION,
+  events: HOOK_EVENTS,
+  get version() { return live.version || ''; },
+  now: () => apiSafe(() => hookNow(live.state)),
+  today: () => apiSafe(() => hookToday(live.state, live.preset)),
+  summary: () => apiSafe(() => hookSummary(live.state, live.preset), ''),
+  journal: (n = 10) => apiSafe(() => hookJournal(live.state, live.preset, n), []),
+  milestones: () => apiSafe(() => (live.state && live.state.started
+    ? worldMilestones(live.state).map((m) => ({
+      id: m.id, kind: m.kind, name: milestoneName(m, live.state, live.preset), when: m.when || null,
+    }))
+    : []), []),
+});
+
+try {
+  globalThis.AcademyAPI = AcademyAPI;
+} catch (err) {
+  console.warn(`[${MODULE}] AcademyAPI не повешен на window:`, err);
 }
 
 /**
@@ -981,4 +2425,4 @@ const ready = init();
  * чтением. Браузера в прогоне нет, панель не монтируется — значит действия надо
  * звать напрямую. Ничего, кроме тестов, сюда ходить не должно.
  */
-export const __seam = { host, live, ready };
+export const __seam = { host, live, ready, api: AcademyAPI, examSeedBase };

@@ -11,6 +11,7 @@ import {
   TOKEN_BUDGETS, finishReason, isTruncatedReason, looksTruncated, truncatedMessage,
   DEFAULT_SURVEY_PROMPT, SURVEY_KEYS, readCharacterCard, firstCharacterMessage, cardToText,
   buildSurveyPrompt, parseSurveyResponse, validateSurveyGuess, guessSurvey,
+  sanitizeApiKey, keyProblem, escapeMacros, setSleep, RETRY, isRetryableStatus, TAVERN_STATUS_URL,
 } from '../api.js';
 import { emptySurvey } from '../core/state.mjs';
 
@@ -33,7 +34,7 @@ const planJson = JSON.stringify({
 
 const chatReply = (text) => reply(200, { choices: [{ message: { role: 'assistant', content: text } }] });
 
-test.afterEach(() => { setFetch(null); setContextProvider(null); });
+test.afterEach(() => { setFetch(null); setContextProvider(null); setSleep(null); });
 
 // --- нормализация адреса -----------------------------------------------------
 
@@ -273,12 +274,16 @@ test('ошибка настроек повтора не заслуживает',
   assert.equal(calls, 1, 'повтор с тем же неверным ключом бессмыслен');
 });
 
-test('сетевой сбой повторяется один раз и возвращает понятную ошибку', async () => {
+test('сетевой сбой не повторяется (9.1.7) и возвращает понятную ошибку', async () => {
+  // Было: один повтор на всё, кроме ошибок настроек. Стало: сеть/CORS не
+  // повторяется ни транспортом, ни планом — запрещённое браузером останется
+  // запрещённым и через секунду.
   let calls = 0;
   setFetch(async () => { calls += 1; throw new TypeError('Failed to fetch'); });
   const res = await generatePlan(survey, preset, api, null);
   assert.equal(res.ok, false);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
+  assert.equal(res.attempts, 1);
   assert.equal(res.code, 'network');
 });
 
@@ -507,7 +512,7 @@ test('автоанкета при отказе API: код и текст те ж
   setFetch(async () => { throw new TypeError('Failed to fetch'); });
   const net = await guessSurvey(preset, api, fakeTavern());
   assert.equal(net.code, 'network');
-  assert.equal(net.attempts, 2);
+  assert.equal(net.attempts, 1, 'сеть не повторяется (9.1.7)');
 });
 
 test('автоанкета ничего не пишет: контекст даёт только чтение', async () => {
@@ -852,4 +857,345 @@ test('плашка про обрыв плана называет его слов
   assert.equal(mg.code, 'truncated');
   assert.match(mg.error, /Список дисциплин/, `у Академии это «список дисциплин»: ${mg.error}`);
   assert.equal(/[Уу]чебный план/.test(mg.error), false, mg.error);
+});
+
+// --- мелочи API (9.1.7) --------------------------------------------------------
+//
+// Паузы между повторами — через `setSleep`: тест записывает длительности и не
+// ждёт ни миллисекунды. Реальная пауза здесь была бы и медленной, и ложной
+// уверенностью: проверять надо, СКОЛЬКО просили ждать, а не что таймер тикает.
+
+/** Подменённая пауза: запоминает длительности, не ждёт. */
+function fakeSleep() {
+  const pauses = [];
+  setSleep(async (ms) => { pauses.push(ms); });
+  return pauses;
+}
+
+/** Все ли символы годятся в заголовок fetch (ISO-8859-1) — ровно то, на чём падал браузер. */
+const headerSafe = (v) => /^[\x00-\xFF]*$/.test(v);
+
+// ключ
+
+test('ключ: невидимки убираются везде, пробелы и NBSP — по краям', () => {
+  const dirty = '  ​sk-‌ab‍c⁠﻿-123  \n';
+  assert.deepEqual(sanitizeApiKey(dirty), { ok: true, key: 'sk-abc-123' });
+  assert.deepEqual(sanitizeApiKey(null), { ok: true, key: '' }, 'пустой ключ — не ошибка: локалке он не нужен');
+  assert.deepEqual(sanitizeApiKey('  '), { ok: true, key: '' });
+});
+
+test('ключ: оставшийся чужой символ назван по имени и месту, а ключ целиком не показан', () => {
+  const cyr = sanitizeApiKey('sk-аbc123secret'); // кириллическая «а»
+  assert.equal(cyr.ok, false);
+  assert.equal(cyr.position, 4);
+  assert.ok(/кириллическая буква «а»/.test(cyr.message), cyr.message);
+  assert.ok(/4-й/.test(cyr.message), cyr.message);
+  assert.equal(cyr.message.includes('secret'), false, 'ключ в тексте ошибки не светится');
+
+  assert.ok(/неразрывный пробел/.test(sanitizeApiKey('sk-ab cd').message));
+  assert.ok(/пробел/.test(sanitizeApiKey('sk-ab cd').message), 'пробел внутри ключа — тоже ошибка');
+  assert.ok(/перенос строки/.test(sanitizeApiKey('sk-ab\ncd').message), 'ключ, разорванный переносом');
+  assert.ok(/U\+00E9/.test(sanitizeApiKey('sk-é').message), 'прочее называется кодом');
+});
+
+test('ключ: в заголовок уходит очищенный, испорченный не уходит вовсе', () => {
+  assert.equal(headersFor({ key: '​sk-1 ' }).Authorization, 'Bearer sk-1');
+  assert.equal(headersFor({ key: 'sk-а' }).Authorization, undefined,
+    'лучше честный 401, чем падение fetch на заголовке');
+  assert.equal(keyProblem({ key: '﻿sk-1' }), null);
+  assert.equal(keyProblem({ key: 'sk-а' }).code, 'bad-key');
+});
+
+test('ключ из Telegram доезжает до провайдера чистым', async () => {
+  let seen = null;
+  setFetch(async (url, init) => { seen = init.headers.Authorization; return chatReply('ok'); });
+  const res = await complete({ ...api, key: '​sk-1​ ' }, { user: 'U' });
+  assert.equal(res.ok, true);
+  assert.equal(seen, 'Bearer sk-1');
+  assert.ok(headerSafe(seen));
+});
+
+test('испорченный ключ — понятный отказ до сети во всех трёх вызовах', async () => {
+  let calls = 0;
+  setFetch(async () => { calls += 1; return chatReply('ok'); });
+  const bad = { ...api, key: 'sk-сек' };
+  for (const res of [await complete(bad, { user: 'U' }), await listModels(bad), await testConnection(bad)]) {
+    assert.equal(res.ok, false);
+    assert.equal(res.code, 'bad-key');
+    assert.ok(/ключе API/.test(res.message), res.message);
+  }
+  assert.equal(calls, 0, 'с таким ключом fetch упал бы невнятно — не зовём его');
+
+  const plan = await generatePlan(survey, preset, bad, null);
+  assert.equal(plan.code, 'bad-key');
+  assert.equal(plan.attempts, 1, 'испорченный ключ повтором не чинится');
+});
+
+test('подключению таверны чужой испорченный ключ не мешает: он там не используется', async () => {
+  const ctx = { generateRaw: async () => 'из таверны' };
+  const res = await complete({ ...api, key: 'sk-а', source: 'tavern' }, { user: 'U', ctx });
+  assert.equal(res.ok, true);
+  assert.equal(res.via, 'tavern');
+});
+
+// повтор на 429/5xx
+
+test('повторяются только 429 и 5xx', () => {
+  for (const s of [429, 500, 502, 503, 504, 529]) assert.equal(isRetryableStatus(s), true, String(s));
+  for (const s of [200, 400, 401, 403, 404, 408, 413, 422, null, undefined]) {
+    assert.equal(isRetryableStatus(s), false, String(s));
+  }
+  assert.deepEqual(RETRY.pauses, [800, 1600]);
+});
+
+test('503 дважды, потом ответ: два повтора с паузами 800 и 1600 мс', async () => {
+  const pauses = fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return calls < 3 ? reply(503, { error: 'overloaded' }) : chatReply('ok'); });
+  const res = await complete(api, { user: 'U' });
+  assert.equal(res.ok, true);
+  assert.equal(calls, 3);
+  assert.deepEqual(pauses, [800, 1600]);
+});
+
+test('429 не проходит и после повторов: третьей паузы нет, человеку сказано, что повтор уже был', async () => {
+  const pauses = fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return reply(429, { error: { message: 'rate limit' } }); });
+  const res = await complete(api, { user: 'U' });
+  assert.equal(res.ok, false);
+  assert.equal(res.code, 'rate');
+  assert.equal(calls, 3, 'одна попытка и два повтора');
+  assert.deepEqual(pauses, [800, 1600]);
+  assert.equal(res.tries, 3);
+  assert.ok(/повторило запрос 2 раза/.test(res.message), res.message);
+});
+
+test('4xx кроме 429 не повторяется: чинить надо настройки', async () => {
+  const pauses = fakeSleep();
+  for (const status of [400, 401, 403, 404, 422]) {
+    let calls = 0;
+    setFetch(async () => { calls += 1; return reply(status, { error: { message: 'no' } }); });
+    const res = await complete(api, { user: 'U' });
+    assert.equal(res.ok, false);
+    assert.equal(calls, 1, `статус ${status}`);
+  }
+  assert.deepEqual(pauses, []);
+});
+
+test('сеть, таймаут и обрыв по токенам транспортом не повторяются', async () => {
+  const pauses = fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; throw new TypeError('Failed to fetch'); });
+  assert.equal((await complete(api, { user: 'U' })).code, 'network');
+  assert.equal(calls, 1);
+
+  calls = 0;
+  setFetch((url, init) => new Promise((_, reject) => {
+    calls += 1;
+    init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+  }));
+  assert.equal((await complete(api, { user: 'U', timeout: 10 })).code, 'timeout');
+  assert.equal(calls, 1, 'второе ожидание по таймауту — ещё полторы минуты впустую');
+
+  calls = 0;
+  setFetch(async () => {
+    calls += 1;
+    return reply(200, { choices: [{ message: { content: '{"subjects": [' }, finish_reason: 'length' }] });
+  });
+  const cut = await generatePlan(survey, preset, api, null);
+  assert.equal(cut.code, 'truncated');
+  assert.equal(calls, 1, 'повтор тем же бюджетом оборвётся там же (etap-tokens)');
+  assert.deepEqual(pauses, []);
+});
+
+test('отмена во время паузы — это отмена, а не повод для следующей попытки', async () => {
+  const ctl = new AbortController();
+  setSleep(async () => { ctl.abort(); });
+  let calls = 0;
+  setFetch(async () => { calls += 1; return reply(503, {}); });
+  const res = await complete(api, { user: 'U', signal: ctl.signal });
+  assert.equal(res.code, 'aborted');
+  assert.equal(calls, 1);
+});
+
+test('штатная пауза прерывается отменой, а не досыпает своё', async () => {
+  // Единственный тест со штатной паузой: RETRY подменён на час, и если бы
+  // отмена его не прерывала, прогон бы завис.
+  const saved = RETRY.pauses;
+  RETRY.pauses = [3600000];
+  try {
+    const ctl = new AbortController();
+    let calls = 0;
+    setFetch(async () => { calls += 1; setTimeout(() => ctl.abort(), 5); return reply(503, {}); });
+    const res = await complete(api, { user: 'U', signal: ctl.signal });
+    assert.equal(res.code, 'aborted');
+    assert.equal(calls, 1);
+  } finally {
+    RETRY.pauses = saved;
+  }
+});
+
+test('проверка связи не повторяет: «сейчас 503» и есть ответ на вопрос', async () => {
+  const pauses = fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return reply(503, {}); });
+  const res = await testConnection(api);
+  assert.equal(res.code, 'server');
+  assert.equal(calls, 1);
+  assert.deepEqual(pauses, []);
+});
+
+test('список моделей повторяется на 502 так же, как генерация', async () => {
+  const pauses = fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return calls === 1 ? reply(502, {}) : reply(200, { data: [{ id: 'm1' }] }); });
+  assert.deepEqual(await listModels(api), { ok: true, models: ['m1'] });
+  assert.deepEqual(pauses, [800]);
+});
+
+test('повторы не удваиваются: упорный 503 на плане — три запроса, а не шесть', async () => {
+  fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return reply(503, {}); });
+  const res = await generatePlan(survey, preset, api, null);
+  assert.equal(res.ok, false);
+  assert.equal(res.code, 'server');
+  assert.equal(calls, 3, 'транспорт повторил дважды, план поверх не повторяет');
+  assert.equal(res.attempts, 1);
+
+  calls = 0;
+  const guess = await guessSurvey(preset, api, fakeTavern());
+  assert.equal(guess.code, 'server');
+  assert.equal(calls, 3);
+});
+
+test('503, потом план: план прошёл с первой смысловой попытки', async () => {
+  fakeSleep();
+  let calls = 0;
+  setFetch(async () => { calls += 1; return calls === 1 ? reply(503, {}) : chatReply(planJson); });
+  const res = await generatePlan(survey, preset, api, null);
+  assert.equal(res.ok, true);
+  assert.equal(calls, 2);
+  assert.equal(res.attempts, 1, 'транспортный повтор не считается попыткой плана');
+});
+
+test('пустой ответ модели план больше не повторяет', async () => {
+  let calls = 0;
+  setFetch(async () => { calls += 1; return chatReply(''); });
+  const res = await generatePlan(survey, preset, api, null);
+  assert.equal(res.code, 'empty');
+  assert.equal(calls, 1, 'у думающей модели пустой ответ — тот же обрыв по бюджету');
+});
+
+// экранирование макросов
+
+test('escapeMacros разрывает каждую двойную скобку и не трогает одиночные', () => {
+  assert.equal(escapeMacros('{{random::a,b}}'), '{​{random::a,b}}');
+  assert.equal(escapeMacros('{{{'), '{​{​{', 'три скобки подряд — ни одной целой пары');
+  assert.equal(escapeMacros('{"era":"","lang":"ru"}'), '{"era":"","lang":"ru"}', 'JSON-образец промпта цел');
+  assert.equal(escapeMacros(null), '');
+  assert.equal(/\{\{/.test(escapeMacros('a {{char}} b {{{{x}}}}')), false);
+});
+
+test('в generateRaw макросы из текста уходят обезвреженными — и в prompt, и в systemPrompt', async () => {
+  let seen = null;
+  const ctx = { generateRaw: async (arg) => { seen = arg; return 'ok'; } };
+  await complete({}, { system: 'S {{setvar::x::1}}', user: 'U {{roll:1d20}}', ctx });
+  assert.equal(seen.prompt, 'U {​{roll:1d20}}');
+  assert.equal(seen.systemPrompt, 'S {​{setvar::x::1}}');
+});
+
+test('автоанкета: макрос из карточки не доезжает до generateRaw живым', async () => {
+  let seen = null;
+  const ctx = {
+    ...fakeTavern({ character: { description: 'Учится в {{random::МГУ,СПбГУ}}.' } }),
+    generateRaw: async (arg) => { seen = arg; return guessJson; },
+  };
+  const res = await guessSurvey(preset, { endpoint: '' }, ctx);
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.ok(seen.prompt.includes('{​{random::МГУ,СПбГУ}}'), seen.prompt);
+  assert.equal(/\{\{/.test(seen.prompt + seen.systemPrompt), false);
+});
+
+test('профиль и свой адрес получают текст как есть: там макросы никто не исполняет', async () => {
+  let messages = null;
+  const ctx = {
+    extensionSettings: { connectionManager: { profiles: [{ id: 'p1', name: 'Дешёвая' }] } },
+    ConnectionManagerRequestService: { sendRequest: async (id, msgs) => { messages = msgs; return { content: 'ok' }; } },
+    generateRaw: async () => { throw new Error('не сюда'); },
+  };
+  await complete({ source: 'tavern', profile: 'p1' }, { system: 'S {{x}}', user: 'U {{y}}', ctx });
+  assert.deepEqual(messages, [{ role: 'system', content: 'S {{x}}' }, { role: 'user', content: 'U {{y}}' }]);
+
+  let body = null;
+  setFetch(async (url, init) => { body = JSON.parse(init.body); return chatReply('ok'); });
+  await complete(api, { user: 'U {{y}}' });
+  assert.equal(body.messages[0].content, 'U {{y}}');
+});
+
+// список моделей через сервер таверны при CORS
+
+/** Таверна с заголовками CSRF, как `getContext().getRequestHeaders()` в 1.18.0. */
+const csrfTavern = () => ({
+  getRequestHeaders: () => ({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' }),
+});
+
+test('CORS на списке моделей: список приходит через сервер таверны тем же адресом и ключом', async () => {
+  setContextProvider(csrfTavern); // index.js зовёт listModels без ctx — берётся ленивый контекст
+  const seen = [];
+  setFetch(async (url, init) => {
+    seen.push({ url, init });
+    if (url === 'https://x.y/v1/models') throw new TypeError('Failed to fetch');
+    return reply(200, { object: 'list', data: [{ id: 'm1' }, { id: 'm2' }] });
+  });
+  const res = await listModels({ ...api, key: '​sk-1 ' });
+  assert.deepEqual(res, { ok: true, models: ['m1', 'm2'], via: 'tavern-backend' });
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].url, TAVERN_STATUS_URL);
+  assert.equal(seen[1].init.method, 'POST');
+  assert.equal(seen[1].init.headers['X-CSRF-Token'], 'tok', 'без токена CSRF сервер ответит 403');
+  assert.deepEqual(JSON.parse(seen[1].init.body), {
+    chat_completion_source: 'openai',
+    reverse_proxy: 'https://x.y/v1',
+    proxy_password: 'sk-1',
+  });
+});
+
+test('сервер таверны тоже не достал список: отказ сетевой, но с обоими объяснениями', async () => {
+  setContextProvider(csrfTavern);
+  setFetch(async (url) => {
+    if (url !== TAVERN_STATUS_URL) throw new TypeError('Failed to fetch');
+    // Так сервер отвечает на провал у провайдера: статус 200, ошибка в теле.
+    return reply(200, { error: true, data: { data: [] } });
+  });
+  const res = await listModels(api);
+  assert.equal(res.ok, false);
+  assert.equal(res.code, 'network');
+  assert.ok(/CORS/.test(res.message) && /сервер таверны/.test(res.message), res.message);
+});
+
+test('403 от таверны — это токен CSRF, а не ключ провайдера', async () => {
+  setContextProvider(csrfTavern);
+  setFetch(async (url) => {
+    if (url !== TAVERN_STATUS_URL) throw new TypeError('Failed to fetch');
+    return reply(403, 'Invalid CSRF token');
+  });
+  const res = await listModels(api);
+  assert.ok(/обновите страницу таверны/.test(res.message), res.message);
+  assert.equal(/Ключ не принят/.test(res.message), false, res.message);
+});
+
+test('запасной путь только на сетевой отказ и только если таверна есть', async () => {
+  let calls = 0;
+  setFetch(async () => { calls += 1; throw new TypeError('Failed to fetch'); });
+  const noTavern = await listModels(api);
+  assert.equal(noTavern.code, 'network');
+  assert.equal(calls, 1, 'без getRequestHeaders идти некуда');
+
+  setContextProvider(csrfTavern);
+  calls = 0;
+  setFetch(async () => { calls += 1; return reply(401, { error: { message: 'bad key' } }); });
+  assert.equal((await listModels(api)).code, 'auth');
+  assert.equal(calls, 1, 'сервер ответил 401 — CORS тут ни при чём, таверну не беспокоим');
 });

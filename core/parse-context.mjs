@@ -33,6 +33,17 @@ const ENTITY = /&(?:nbsp|amp|lt|gt|quot|#\d{1,5}|[a-zA-Z]{2,8});/g;
 /** HTML-комментарий: в нём живёт наша собственная метка, источник A её не читает. */
 const COMMENT = /<!--[\s\S]*?-->/g;
 
+/**
+ * Только блоки размышления, без остального снятия. Нужно машинным тегам
+ * соседей (`core/time-source.mjs`, источник A+): они живут в HTML-комментариях,
+ * которые `cleanForScan` выбрасывает, поэтому читаются ДО него — но размышление
+ * модели и там не в счёт: в `<think>` она охотно цитирует прошлый тег.
+ */
+export function dropThinking(mes) {
+  if (typeof mes !== 'string' || !mes) return '';
+  return mes.replace(THINK, ' ');
+}
+
 /** Снятие HTML перед разбором. Текст внутри тегов остаётся, атрибуты уходят. */
 export function cleanForScan(mes) {
   if (typeof mes !== 'string' || !mes) return '';
@@ -165,6 +176,14 @@ const CLOCK_RE = new RegExp(`(?<![\\d${L}.:])([01]?\\d|2[0-3]):([0-5]\\d)(?!\\d|
 /** `8:42 AM`, `5 PM`. 11% сообщений; в шапках вида `⏰ 8:42 AM | 🗓️ Sat 15 Jun 2024`. */
 const AMPM_RE = /(?<![\d:.])(\d{1,2})(?::([0-5]\d))?\s?([ap])\.?\s?m\.?(?![a-z])/i;
 
+/**
+ * `2024/10/19`, `2024-10-19` — год впереди. Так пишет Horae (`time: 2024/10/19
+ * 20:45`, замер A, «Вывод по этапу 0»), и до этой правки из его строки
+ * бралось только время: `DATE_NUM_RE` ждёт день первым, дата молча терялась и
+ * календарь двигался по часам внутри одного и того же дня. Разделитель обязан
+ * повторяться (`\2`): `2024/10-19` — это уже не дата, а что-то чужое.
+ */
+const DATE_YMD_RE = /(?<![\d.,:/-])(\d{4})([./-])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01])(?![\d./-])/;
 /** `20.01.2025` — единственный случай даты цифрами с годом на 355 сообщений. */
 const DATE_NUM_RE = /(?<![\d.,:/])(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](\d{4}|\d{2})(?![\d.])/;
 /** `12.09` без года — ненадёжно (1.7%), поэтому только в шапке или у метки. */
@@ -242,6 +261,42 @@ function relCount(word) {
   return NUMWORDS.get(word.toLowerCase()) ?? 1;
 }
 
+// --- двузначный год (9.1.5) ------------------------------------------------
+// До этой правки `14.09.87` превращалось в 2087: разбор делал `2000 + YY`. Scene
+// State из BB-UI-Regex-Pack пишет `DD.MM.YY` в КАЖДОМ ответе, в том числе в
+// отыгрышах про 1980-е и в фэнтези, и охрана прыжка (`time.setAbsolute`)
+// спрашивала «принять прыжок на сто лет?» на каждом посте.
+//
+// Век не выдумывается, а выбирается: из трёх кандидатов (прошлый, этот и
+// следующий век опорного года) берётся ближайший к опорному. Опорный год даёт
+// вызывающий — год календаря, а если его нет, эпоха анкеты (`time-source`).
+// Правило «ближайший» симметрично и не знает про «наши дни»: для календаря в
+// 1986 году `87` — это 1987; для 2024 тоже 1987 (37 лет против 63 у 2087), а
+// `25` при 2024 — 2025. Для фэнтези-календаря в 1247 году `48` — 1248, а не
+// 2048. Граница — полвека в обе стороны от опорного года.
+
+/**
+ * Полный год по двум цифрам и опорному году.
+ *
+ * @param {number} yy  0..99
+ * @param {number} [ref] опорный год; без него — прежнее `2000 + YY`
+ * @returns {{year: number, guessed: boolean}} `guessed` — век достроен вслепую,
+ *   без опоры. Такой год нельзя выдавать за написанный в тексте: «2087» из
+ *   `14.09.87` доказывает только то, что опоры не было.
+ */
+export function resolveTwoDigitYear(yy, ref) {
+  if (!Number.isFinite(ref)) return { year: 2000 + yy, guessed: true };
+  const base = Math.floor(ref / 100) * 100;
+  let best = null;
+  for (const c of [base - 100 + yy, base + yy, base + 100 + yy]) {
+    if (c < 0) continue;
+    // При равенстве остаётся первый, то есть более ранний век: запись без века
+    // скорее про уже прожитое, чем про то, что будет через полвека.
+    if (best === null || Math.abs(c - ref) < Math.abs(best - ref)) best = c;
+  }
+  return { year: best, guessed: false };
+}
+
 // --- разбор ----------------------------------------------------------------
 
 /**
@@ -259,6 +314,9 @@ function relCount(word) {
  * @param {Object} [opts]
  * @param {boolean} [opts.relative=false] включить относительные сдвиги словами
  * @param {number}  [opts.year] год для дат без года
+ * @param {number}  [opts.refYear] опорный год для двузначного года (`14.09.87`):
+ *   век выбирается ближайший к нему (9.1.5). Без него берётся `opts.year` —
+ *   это тот же год календаря, который вызывающий и так передаёт.
  * @param {boolean} [opts.clean=true] снимать HTML (false — текст уже чистый)
  * @returns {?{day: ?string, time: ?string, daypart: ?string, weekday: ?number,
  *             confidence: number, source: string, matched: string,
@@ -269,6 +327,10 @@ function relCount(word) {
 export function parseContext(text, opts = {}) {
   if (typeof text !== 'string' || !text.trim()) return null;
   const clean = opts.clean === false ? text : cleanForScan(text);
+  // Опорный год для двузначного — один на весь пост, поэтому он кладётся в
+  // `ref` и едет в `scanLine` параметром, а не читается из `opts` по дороге.
+  const refRaw = opts.refYear !== undefined ? opts.refYear : opts.year;
+  const ref = typeof refRaw === 'number' && Number.isFinite(refRaw) ? refRaw : undefined;
   const lines = clean.split('\n').map((s) => s.trim()).filter(Boolean);
   if (!lines.length) return null;
 
@@ -278,13 +340,13 @@ export function parseContext(text, opts = {}) {
   // включая дату цифрами без года и счётчик «День N»: контекст явный.
   for (let i = 0; i < Math.min(3, lines.length); i++) {
     if (!isHeader(lines[i])) continue;
-    const r = scanLine(lines[i], true);
+    const r = scanLine(lines[i], true, ref);
     if (r) return build(r, 'header', 0.9, lines[i], opts);
   }
 
   // (2) дата и часы рядом в одной строке — где угодно в посте.
   for (const line of lines) {
-    const r = scanLine(line, false);
+    const r = scanLine(line, false, ref);
     if (r && r.date && r.time) return build(r, 'line', 0.8, line, opts);
   }
 
@@ -292,7 +354,7 @@ export function parseContext(text, opts = {}) {
   // Формально это всё ещё «явный отправитель», просто стоит ниже.
   for (let i = 3; i < lines.length; i++) {
     if (!isHeader(lines[i])) continue;
-    const r = scanLine(lines[i], true);
+    const r = scanLine(lines[i], true, ref);
     if (r && (r.date || r.time || r.dayIndex !== null)) return build(r, 'label', 0.7, lines[i], opts);
   }
 
@@ -301,7 +363,7 @@ export function parseContext(text, opts = {}) {
   // середина поста — самая ненадёжная часть корпуса.
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].length > 80 || !isEdge(i)) continue;
-    const r = scanLine(lines[i], false);
+    const r = scanLine(lines[i], false, ref);
     if (r && (r.time || r.date)) return build(r, 'edge', 0.5, lines[i], opts);
   }
 
@@ -344,9 +406,9 @@ function isHeader(line) {
  * Всё, что нашлось в одной строке. `loose` включает формы, которые в свободном
  * тексте брать нельзя: дату цифрами без года и счётчик «День N».
  */
-function scanLine(line, loose) {
+function scanLine(line, loose, ref) {
   const time = scanTime(line);
-  const date = scanDate(line, loose);
+  const date = scanDate(line, loose, ref);
   const dp = line.match(DAYPART_RE);
   const dayIndex = loose ? scanDayIndex(line) : null;
   // сокращение дня недели ищется только там, где дата действительно нашлась:
@@ -390,12 +452,21 @@ function hhmm(h, m) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-/** Дата: цифрами с годом, словами в обоих порядках, и — только в шапке — `12.09`. */
-function scanDate(line, loose) {
-  let m = line.match(DATE_NUM_RE);
+/**
+ * Дата: цифрами с годом (в обоих порядках), словами в обоих порядках, и —
+ * только в шапке — `12.09`. Двузначный год достраивается по `ref` (9.1.5);
+ * `guessed` уезжает в `build` и снимает с года звание «написан в тексте».
+ */
+function scanDate(line, loose, ref) {
+  let m = line.match(DATE_YMD_RE);
+  if (m) return { year: Number(m[1]), month: Number(m[3]), day: Number(m[4]) };
+  m = line.match(DATE_NUM_RE);
   if (m) {
-    const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-    return { year: y, month: Number(m[2]), day: Number(m[1]) };
+    if (m[3].length === 2) {
+      const y = resolveTwoDigitYear(Number(m[3]), ref);
+      return { year: y.year, month: Number(m[2]), day: Number(m[1]), guessed: y.guessed };
+    }
+    return { year: Number(m[3]), month: Number(m[2]), day: Number(m[1]) };
   }
   m = line.match(DATE_DMY_RE);
   if (m) {
@@ -465,7 +536,11 @@ function build(r, source, confidence, matched, opts) {
     // Год написан в самом тексте или подставлен вызывающим из `opts.year`.
     // Различать обязательно: подставленный год вызывающий вправе поправить на
     // переходе через Новый год, написанный руками — не вправе никогда.
-    yearFromText: Boolean(r.date && r.date.year !== null && r.date.year !== undefined),
+    //
+    // Двузначный год без опоры (`guessed`) написанным не считается: век в нём
+    // додуман, и `index.js:startDayHint`, который заводит семестр только по
+    // году «из текста», не должен начинать отыгрыш про 1987-й в 2087-м.
+    yearFromText: Boolean(r.date && r.date.year !== null && r.date.year !== undefined && !r.date.guessed),
   };
   if (r.dayIndex !== null && r.dayIndex !== undefined) out.dayIndex = r.dayIndex;
   return out;

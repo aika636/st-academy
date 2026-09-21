@@ -62,9 +62,12 @@ export function countsAttendance(state, day) {
  * @param {Object} state
  * @param {{subjectId: string, status: string, day?: string, periodIndex?: ?number}} ev
  * @param {Object} preset
- * @returns {{state: Object, effects: {relation: Array<{teacherId: string, delta: number}>, reputation: number, debt: string[]}}}
+ * @param {{journal?: boolean}} [opts] `journal: false` — строку в журнал не писать:
+ *   так отмечает развёртка прыжка (`engine.sweepAttendance`), которая пишет одну
+ *   сводную строку на весь прыжок вместо строки на каждую пару (9.4.4)
+ * @returns {{state: Object, effects: {relation: Array<{teacherId: string, delta: number, reason?: Object}>, reputation: number, debt: string[]}}}
  */
-export function mark(state, ev, preset) {
+export function mark(state, ev, preset, opts = {}) {
   const next = cloneState(state);
   const subjectId = ev && ev.subjectId;
   const status = ev && ev.status;
@@ -89,20 +92,22 @@ export function mark(state, ev, preset) {
   if (at >= 0) next.attendance.records[at] = record;
   else next.attendance.records.push(record);
 
-  pushJournal(next, {
-    kind: 'attendance',
-    text: `attendance ${subjectId}=${status}`,
-    data: record,
-  }, preset);
+  if (opts.journal !== false) {
+    pushJournal(next, {
+      kind: 'attendance',
+      text: `attendance ${subjectId}=${status}`,
+      data: record,
+    }, preset);
+  }
 
-  return { state: next, effects: effectsFor(next, subjectId, status, preset) };
+  return { state: next, effects: effectsFor(next, subjectId, status, preset, day) };
 }
 
 /**
  * Что должно случиться после отметки. Считается по накопленной статистике, а не по
  * одному событию: хвост даёт не прогул сам по себе, а третий подряд.
  */
-function effectsFor(state, subjectId, status, preset) {
+function effectsFor(state, subjectId, status, preset, day) {
   const out = noEffects();
   const att = (preset && preset.attendance) || {};
   const rep = (preset && preset.reputation && preset.reputation.delta) || {};
@@ -110,7 +115,9 @@ function effectsFor(state, subjectId, status, preset) {
   const relDelta = (att.relationDelta || {})[status];
   const teacher = teacherOfSubject(state, subjectId);
   if (teacher && typeof relDelta === 'number' && relDelta !== 0) {
-    out.relation.push({ teacherId: teacher.id, delta: relDelta });
+    // Повод сдвига едет вместе с дельтой (9.7B): «прогул химии 12.10», а не
+    // безымянное «−1» в журнале. Форма повода — `relations.reasonText`.
+    out.relation.push({ teacherId: teacher.id, delta: relDelta, reason: { kind: status, subjectId, day } });
   }
 
   if (typeof rep[status] === 'number') out.reputation += rep[status];
@@ -186,10 +193,11 @@ export function shouldInfer(fromDay, toDay, preset) {
  * @param {Object} state
  * @param {{day: string, expected: Array<{subjectId: string, periodIndex: ?number}>}} arg
  * @param {Object} preset
+ * @param {{journal?: boolean}} [opts] передаётся в `mark` (см. там)
  * @returns {{state: Object, missed: string[], effects: Object}} `effects` — суммарные
  *   последствия всех выведенных прогулов, в той же форме, что у `mark()`.
  */
-export function inferMissed(state, arg, preset) {
+export function inferMissed(state, arg, preset, opts = {}) {
   const day = String((arg && arg.day) || '');
   const expected = (arg && arg.expected) || [];
   let acc = state;
@@ -231,7 +239,7 @@ export function inferMissed(state, arg, preset) {
     if (known) continue;
 
     // Именно `skip`, и никогда `excused`: расширение не умеет знать причину.
-    const res = mark(acc, { subjectId, status: 'skip', day, periodIndex }, preset);
+    const res = mark(acc, { subjectId, status: 'skip', day, periodIndex }, preset, opts);
     acc = res.state;
     missed.push(subjectId);
     effects.relation.push(...res.effects.relation);

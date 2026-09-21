@@ -9,6 +9,7 @@ import {
   apiSettings, stripSecrets, setContextProvider,
   EXPORT_FORMAT, EXPORT_FORMAT_VERSION, buildExport, exportFilename, exportState,
   readExport, importState, stateSummary,
+  TURNS_KEY, TURNS_FORMAT, TURN_HISTORY, readTurns, loadTurns, saveTurns,
 } from '../storage.js';
 import { SCHEMA_VERSION, createState } from '../core/state.mjs';
 
@@ -471,3 +472,65 @@ for (const p of ALL_PRESETS) {
       `в ${p.id} протекло слово чужого заведения: ${stop.message}`);
   });
 }
+
+// --- история ходов (ремонт 9.1.1) --------------------------------------------
+
+const turn = (mesId, over = {}) => ({
+  mesId, stamp: `s${mesId}`, before: good(), oneShotBefore: '', oneShot: '', ...over,
+});
+
+test('история ходов: пишется рядом с состоянием, режется по длине, без ключа API', () => {
+  const ctx = fakeContext();
+  saveState(ctx, good());
+  const list = [];
+  for (let i = 0; i < TURN_HISTORY + 3; i += 1) list.push(turn(i));
+  list[list.length - 1].before = { ...good(), api: { key: 'sk-снимок' } };
+  saveTurns(ctx, list);
+
+  const raw = ctx.chatMetadata[TURNS_KEY];
+  assert.equal(raw.v, TURNS_FORMAT);
+  assert.equal(raw.list.length, TURN_HISTORY, 'история не растёт без края');
+  assert.deepEqual(raw.list.map((t) => t.mesId), list.slice(-TURN_HISTORY).map((t) => t.mesId), 'помнятся последние');
+  assert.equal(JSON.stringify(ctx.chatMetadata).includes('sk-снимок'), false, 'снимок — такое же состояние: без ключа');
+  assert.equal(ctx.chatMetadata[KEY].schemaVersion, SCHEMA_VERSION, 'состояние лежит отдельно и не тронуто');
+
+  const back = loadTurns(ctx, preset);
+  assert.equal(back.length, TURN_HISTORY);
+  assert.equal(back[0].before.presetId, preset.id);
+});
+
+test('история ходов: мусор и чужой формат не читаются, старый снимок поднимается миграцией', () => {
+  assert.deepEqual(readTurns(undefined, preset), []);
+  assert.deepEqual(readTurns({ v: TURNS_FORMAT + 1, list: [turn(1)] }, preset), [], 'история из будущей версии — начать новую');
+  assert.deepEqual(readTurns({ v: TURNS_FORMAT, list: 'не список' }, preset), []);
+
+  const old = good();
+  delete old.schemaVersion;
+  const read = readTurns({
+    v: TURNS_FORMAT,
+    list: [
+      turn(1, { before: old }),
+      turn(2, { before: 'не состояние' }),
+      turn(-1),
+      null,
+      turn(4, { stamp: null }),
+    ],
+  }, preset);
+  assert.deepEqual(read.map((t) => t.mesId), [1, 4], 'битый снимок — ход без снимка, он просто забыт');
+  assert.equal(read[0].before.schemaVersion, SCHEMA_VERSION, 'снимок старой схемы поднят тем же migrate');
+  assert.equal(read[1].stamp, null, 'откаченный ход остаётся откаченным');
+});
+
+test('clearState и загрузка забывают историю ходов', async () => {
+  const ctx = fakeContext();
+  saveState(ctx, good());
+  saveTurns(ctx, [turn(3)]);
+  clearState(ctx);
+  assert.equal(ctx.chatMetadata[TURNS_KEY], undefined);
+
+  saveState(ctx, good());
+  saveTurns(ctx, [turn(3)]);
+  const res = await importState(ctx, buildExport(good(), preset), preset, { confirm: true });
+  assert.equal(res.ok, true);
+  assert.equal(ctx.chatMetadata[TURNS_KEY], undefined, 'снимок до загрузки откатил бы свайп в заменённый семестр');
+});

@@ -570,3 +570,28 @@ test('чужая лексика не просачивается в текст п
     }
   }
 });
+
+// --- отношения из метки: сила, повторы, стоп-слова (9.3.4–9.3.6) ------------
+
+test('у каждого пресета есть веса слов силы, лимит повторов и стоп-слова', () => {
+  for (const preset of PRESETS) {
+    const r = preset.relations;
+    for (const level of ['minor', 'major']) {
+      assert.ok(Number.isFinite(r.impact && r.impact[level]) && r.impact[level] > 0,
+        `${preset.id}: relations.impact.${level}`);
+    }
+    assert.ok(Number.isInteger(r.repeatLimit) && r.repeatLimit >= 1, `${preset.id}: relations.repeatLimit`);
+    assert.ok(Array.isArray(preset.stopNames) && preset.stopNames.every((x) => typeof x === 'string' && x.trim()),
+      `${preset.id}: stopNames`);
+  }
+});
+
+test('слово силы в метке двигает отношение на вес пресета — через настоящий движок', () => {
+  for (const preset of PRESETS) {
+    const s = makeState(preset, secondStudyDay(preset));
+    const out = applyResponse(s, '<!-- [ACADEMY t=+0 rel=first:major-] -->', preset);
+    const t = out.state.teachers.find((x) => x.id === 'first');
+    assert.equal(t.relation, Math.max(preset.relations.min, preset.relations.start - preset.relations.impact.major),
+      `${preset.id}: major- не дал веса пресета`);
+  }
+});

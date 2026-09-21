@@ -558,6 +558,16 @@
   color: var(--warning, rgba(255, 0, 0, 0.9));
 }
 
+/* Атрибут `hidden` прячет узел правилом браузера `[hidden] { display: none }`,
+ * а оно из таблицы браузера и проигрывает любому нашему `display`. Пока класс
+ * задавал `display: flex`, спрятанный вопрос оставался на экране пустой красной
+ * рамкой под кнопкой. Правило одно на обе оболочки панели, а не на каждый класс:
+ * следующий блок с собственным `display` наступит на те же грабли молча. */
+.academy-panel [hidden],
+.academy-ext-block [hidden] {
+  display: none;
+}
+
 /* Вопрос «заменить то, что есть?» — рамкой, чтобы его нельзя было пролистать. */
 .academy-confirm {
   display: flex;
@@ -576,6 +586,37 @@
   font-size: 0.85em;
   /* Сводки — две длинные строки; на узком экране они переносятся, а не режутся. */
   overflow-wrap: anywhere;
+}
+
+/*
+ * Переносимые пресеты (9.3.2). Превью — та же рамка вопроса, что у загрузки
+ * состояния: пока человек не нажал «добавить», ничего не легло. Имя и строка
+ * «семестр · пары в день: 4 · 2–5 · …» — две строки, которые на 360px
+ * переносятся, а не режутся: имя своего заведения бывает длинным.
+ */
+.academy-preset-import {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.academy-preset-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.academy-preset-line {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.academy-preset-warnings {
+  font-size: 0.85em;
+}
+
+/* Удаление — не главное действие блока: цвет предупреждения, а не заливка. */
+.academy-btn-danger {
+  color: var(--warning, #d33);
 }
 
 .academy-sub-title {
@@ -676,6 +717,20 @@
   cursor: pointer;
 }
 
+/* Таверна даёт `.menu_button { width: min-content }` (её style.css:3825) —
+ * ширина считается по самому длинному слову, и двухсловная подпись ложится в
+ * две строки: «Сменить / пресет». Ширину берём по содержимому, но не шире
+ * колонки — иначе длинная подпись вылезет за край панели на телефоне.
+ *
+ * Селектор нарочно с оболочкой: у `.menu_button` и `.academy-btn` вес
+ * одинаковый, и кто победит — решал бы порядок подключения таблиц, то есть
+ * таверна. Оболочка делает исход независимым от порядка. */
+.academy-panel .academy-btn,
+.academy-ext-block .academy-btn {
+  width: auto;
+  max-width: 100%;
+}
+
 .academy-btn-main {
   border-color: var(--academy-accent);
   color: var(--academy-accent);
@@ -699,7 +754,7 @@
 }
 
 .academy-mode,
-.academy-check {
+.academy-result {
   display: flex;
   gap: 6px;
   align-items: baseline;
@@ -787,9 +842,191 @@
   gap: 6px;
 }
 
+/* --- проводка шага 4 и крючки 9.7 ----------------------------------------- */
+
+/* Место занятия (корпус · аудитория) — приглушённой строкой, как имя
+   преподавателя: подпись, а не заголовок. */
+.academy-where,
+.academy-plan-where {
+  color: var(--academy-dim);
+  font-size: 0.85em;
+}
+
+/* Исход проверки на «Сегодня» (9.4.1). Цвет — полоской слева, а не заливкой:
+   своих палитр нет, а акцент таверны и её «предупреждение» есть в любой теме. */
+.academy-verdict {
+  border-left: 3px solid var(--academy-accent);
+}
+
+.academy-verdict-fail {
+  border-left-color: var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+.academy-verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.academy-verdict-head .academy-subject {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Число d20 в рамке-«грани». Моноширинные цифры: 9 и 19 одной ширины. */
+.academy-roll {
+  flex: 0 0 auto;
+  min-width: 2em;
+  padding: 2px 6px;
+  border: 1px solid var(--academy-line);
+  border-radius: 6px;
+  text-align: center;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Единственная анимация проводки: кубик «выпадает» один раз, 0,4 с. Нет
+   рулетки чисел — исход уже посчитан, и изображать случай было бы враньём. */
+.academy-roll-fresh {
+  animation: academy-roll-in 0.4s ease-out;
+}
+
+@keyframes academy-roll-in {
+  from { transform: scale(0.4) rotate(-25deg); opacity: 0; }
+  70% { transform: scale(1.15) rotate(4deg); opacity: 1; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academy-roll-fresh {
+    animation: none;
+  }
+}
+
+/* Вехи (9.4.2) в зачётке: название и дата, дата — приглушённо. */
+.academy-milestones {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.academy-milestone-list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-milestone {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+
+.academy-milestone-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Портрет наставника (9.7A п.15): маленький квадрат в карточке, полный — окном. */
+.academy-portrait {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.academy-portrait-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--academy-line);
+  cursor: zoom-in;
+}
+
+/* Окно поверх всего, но в пределах экрана: на телефоне — по ширине с отступами,
+   картинка вписывается, не растягивается. Фон — затемнение таверны. */
+.academy-portrait-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: var(--black70a, rgba(0, 0, 0, 0.7));
+}
+
+.academy-portrait-frame {
+  margin: 0;
+  max-width: min(480px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: var(--academy-ink);
+  background-color: var(--academy-bg);
+  border: 1px solid var(--academy-line);
+  border-radius: var(--academy-radius);
+}
+
+.academy-portrait-full {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.academy-portrait-edit {
+  flex-basis: 100%;
+}
+
+/* Доктор промпта (9.7A п.4): свой инжект — акцентом, сосед, просящий начало
+   ответа, — предупреждением. Ключ — моноширинно и переносимо: ключи длинные. */
+.academy-doctor-ours {
+  border-left: 2px solid var(--academy-accent);
+}
+
+.academy-doctor-start {
+  border-left: 2px solid var(--warning, rgba(255, 0, 0, 0.9));
+}
+
+/* Флаги доктора — фразы, а не короткие ярлыки: общий `.academy-tag` держит их
+   в одну строку (`nowrap`), и на 360px фраза «на той же глубине…» уезжала за
+   край на 220px. Поймано стендом tools/preview. */
+.academy-doctor .academy-tag {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+}
+
+.academy-doctor-key {
+  font-size: 0.8em;
+  color: var(--academy-dim);
+  overflow-wrap: anywhere;
+}
+
+.academy-doctor-hint {
+  font-size: 0.85em;
+  color: var(--academy-dim);
+  overflow-wrap: anywhere;
+}
+
 /* --- узкий экран ---------------------------------------------------------- */
 
 @media (max-width: 600px) {
+  /* Корпус и аудитория в таблице плана: два коротких поля — одной строкой. */
+  .academy-td-place {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
   /* Панель анкерится сверху и ограничена по высоте: поле ввода внизу остаётся
      видимым и нажимаемым. Закрывается свайпом вверх или тапом мимо. */
   .academy-panel {
