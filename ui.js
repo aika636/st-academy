@@ -4454,16 +4454,11 @@ export function mountSettings(host) {
   holder.append(block);
   mounted.settings = block;
 
-  // Раскрытие блока: штатный обработчик таверны навешивается на существующие
-  // узлы при загрузке, наш появляется позже — поэтому свой, тот же по смыслу.
-  block.querySelector('.inline-drawer-toggle').addEventListener('click', () => {
-    const content = block.querySelector('.inline-drawer-content');
-    const icon = block.querySelector('.inline-drawer-icon');
-    const open = content.style.display !== 'none' && content.classList.contains('academy-open');
-    content.classList.toggle('academy-open', !open);
-    content.style.display = open ? 'none' : 'block';
-    if (icon) { icon.classList.toggle('down', open); icon.classList.toggle('up', !open); }
-  });
+  // Раскрытие блока — штатное: таверна ловит клики по .inline-drawer-toggle
+  // делегированно на document, так что наш узел подхватывается и без своего
+  // обработчика. Свой второй обработчик отменял бы штатный: блок раскрывался
+  // и тут же сворачивался обратно. Закрытым блок стартует, как штатные:
+  // через style="display:none" на содержимом.
   block.querySelector('.inline-drawer-content').style.display = 'none';
 
   renderSettingsBlock(host);
