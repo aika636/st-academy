@@ -3238,17 +3238,57 @@ function field(label, value, onInput, placeholder, onCommit) {
 let uid = 0;
 const nextId = (prefix) => `${prefix}_${(uid += 1)}`;
 
+/** Списки моделей по адресу — на сессию страницы, в настройки не пишутся. */
+const modelCache = new Map();
+
+/**
+ * Поиск в выпадашке через select2 — тот же, что у списка моделей таверны.
+ * Только если таверна его загрузила; иначе остаётся обычный `<select>`.
+ * Выбор select2 сообщает jQuery-событием, а не нативным, поэтому слушатель
+ * вешается ещё и через jQuery. Инициализация ждёт, пока узел окажется в
+ * документе: выпадающему окну нужен родитель внутри блока, а не `body`, где
+ * его перекрыла бы панель.
+ */
+function enhanceSelect(select, onPick, tries = 20) {
+  const $ = globalThis.jQuery;
+  if (typeof $ !== 'function' || !$.fn || typeof $.fn.select2 !== 'function') return;
+  if (!select.isConnected) {
+    if (tries > 0) setTimeout(() => enhanceSelect(select, onPick, tries - 1), 50);
+    return;
+  }
+  try {
+    const $s = $(select);
+    if ($s.data('select2')) $s.select2('destroy');
+    $s.off('select2:select.academy');
+    $s.select2({
+      width: '100%',
+      placeholder: 'выбрать из списка',
+      dropdownParent: $(select.parentElement),
+    });
+    $s.on('select2:select.academy', () => onPick(select.value));
+  } catch { /* без поиска — обычная выпадашка, тоже рабочая */ }
+}
+
+/** Снять select2, если он был: пустой список не должен оставлять видимую рамку. */
+function dropEnhance(select) {
+  const $ = globalThis.jQuery;
+  try { if (typeof $ === 'function' && $(select).data('select2')) $(select).select2('destroy'); } catch { /* нечего снимать */ }
+}
+
 function renderApiBlock(host, view) {
   const a = view.api;
   const status = el('div', { class: 'academy-status' });
-  const listId = nextId('academy_models');
   const group = nextId('academy_api_source');
   const own = a.routed === 'endpoint';
 
   const endpoint = el('input', { type: 'text', class: 'text_pole academy-input', value: a.endpoint, placeholder: 'https://api.example.com' });
   const key = el('input', { type: 'password', class: 'text_pole academy-input', value: a.key, placeholder: 'ключ' });
-  const model = el('input', { type: 'text', class: 'text_pole academy-input', value: a.model, placeholder: 'имя модели', list: listId });
-  const models = el('datalist', { id: listId });
+  const model = el('input', { type: 'text', class: 'text_pole academy-input', value: a.model, placeholder: 'имя модели' });
+  // Выпадашка списка — настоящий `<select>`, как у таверны во вкладке API.
+  // Раньше тут был `<datalist>` при поле: он фильтрует подсказки по уже
+  // вписанному тексту, и при выбранной модели список не раскрывался вовсе.
+  // Поле рядом остаётся — модель, которой нет в списке, вписывают руками.
+  const models = el('select', { class: 'text_pole academy-input academy-model-pick', hidden: true });
 
   // `quiet` — не украшение, а условие работоспособности кнопок ниже. Обычный
   // `setSettings` заканчивается перерисовкой всей вкладки; она отцепляет от
@@ -3259,6 +3299,28 @@ function renderApiBlock(host, view) {
     api: { endpoint: endpoint.value.trim(), key: key.value, model: model.value.trim() },
   }, { quiet: true }), null);
   for (const input of [endpoint, key, model]) input.addEventListener('change', push);
+
+  const pickModel = (id) => {
+    if (!id) return;
+    model.value = id;
+    push();
+    setStatus(status, 'ok', `Модель: ${id}.`);
+  };
+  const fillModels = (list) => {
+    clear(models);
+    models.append(el('option', { value: '', text: `— выбрать из списка (${list.length}) —` }));
+    const current = model.value.trim();
+    for (const m of list) models.append(el('option', { value: m, text: m, selected: m === current }));
+    models.value = list.includes(current) ? current : '';
+    models.hidden = !list.length;
+    if (list.length) enhanceSelect(models, pickModel);
+    else dropEnhance(models);
+  };
+  models.addEventListener('change', () => pickModel(models.value));
+  // Список, полученный раньше для этого же адреса, переживает перерисовку:
+  // иначе он пропадал бы при каждом переключении вкладки.
+  const cached = modelCache.get(String(a.endpoint || '').trim());
+  if (own && cached && cached.length) fillModels(cached);
 
   // Источник — единственная настройка блока, которая меняет сам блок: при
   // «актуальном API» полям адреса и ключа делать нечего. Поэтому она — и только
@@ -3321,15 +3383,15 @@ function renderApiBlock(host, view) {
     onclick: async (e) => {
       push();
       const res = await runAction(e.currentTarget, status, () => call(host, 'listModels'), 'Список получен.');
-      const list = (res && res.models) || [];
-      clear(models);
-      for (const m of list) models.append(el('option', { value: String(m) }));
+      const list = ((res && res.models) || []).map(String);
+      if (list.length) modelCache.set(endpoint.value.trim(), list);
+      fillModels(list);
       // Список пришёл через сервер таверны (9.1.7, `api.js: listModels`) —
       // сказать об этом одной строкой: ключ в этот раз прошёл через сервер
       // самой таверны, и человек, у которого браузер «не видит» адрес, должен
       // понимать, почему список всё-таки есть.
       const via = res && res.via === 'tavern-backend' ? ' Адрес не пускает запросы из браузера, поэтому список спросил сервер таверны — тем же адресом и ключом.' : '';
-      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Список раскрывается в поле «Модель».${via}`);
+      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Выберите модель в выпадашке под полем «Модель».${via}`);
     },
   }) : null;
 
@@ -3354,7 +3416,8 @@ function renderApiBlock(host, view) {
     profileRow,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Адрес' }), endpoint]) : null,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Ключ' }), key]) : null,
-    own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Модель' }), model, models]) : null,
+    own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Модель' }), model]) : null,
+    own ? el('div', { class: 'academy-field' }, [models]) : null,
     // Списка моделей у подключения таверны нет и быть не может: модель там
     // выбирает сама таверна. Кнопку в этом случае не рисуем вовсе — нажатие,
     // которое всегда отвечает «списка нет», хуже честной строки.

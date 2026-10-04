@@ -530,6 +530,31 @@ test('выбор API: свой адрес спрашивает ключ и ум�
   api.destroy();
 });
 
+test('список моделей раскрывается настоящей выпадашкой, даже когда модель уже вписана', async () => {
+  // `<datalist>` фильтровал подсказки по вписанному имени и при выбранной
+  // модели не раскрывался — человеку приходилось печатать имя руками.
+  const saved = [];
+  const host = fakeHost(started, { api: { source: 'own', endpoint: 'https://x.y', key: 'sk', model: 'm' } }, LOREBOOK_FULL, {
+    listModels: () => ({ ok: true, models: ['gpt-mini', 'gpt-big'] }),
+  });
+  host.setSettings = (patch) => { saved.push(patch); return { ok: true }; };
+  const { api, block } = apiBlock(host);
+  let button = null;
+  walk(block, (n) => { if (n.textContent === 'Список моделей' && n.listeners && n.listeners.click) button = n; });
+  for (const fn of button.listeners.click) await fn({ currentTarget: button });
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  let pick = null;
+  walk(block, (n) => { if (n.tagName === 'SELECT' && n.children.some((o) => o.attrs.value === 'gpt-big')) pick = n; });
+  assert.ok(pick, 'выпадашки со списком нет');
+  assert.ok(!pick.attrs.hidden && !pick.hidden, 'выпадашка спрятана');
+  pick.value = 'gpt-big';
+  for (const fn of pick.listeners.change || []) fn();
+  assert.ok(saved.some((p) => p.api && p.api.model === 'gpt-big'),
+    `выбор из списка не сохранился: ${JSON.stringify(saved)}`);
+  api.destroy();
+});
+
 test('выбор API: старые настройки без графы показывают тот путь, по которому пойдёт запрос', () => {
   // Ничего не выбирали, адрес вписан — значит свой адрес, ровно как раньше.
   const own = apiBlock(fakeHost(started, { api: { endpoint: 'https://x.y', key: 'sk', model: 'm' } }, LOREBOOK_FULL));
