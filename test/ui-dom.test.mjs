@@ -555,6 +555,37 @@ test('список моделей раскрывается настоящей в
   api.destroy();
 });
 
+test('на сенсорном экране список моделей — обычная выпадашка, без select2', async () => {
+  // Поиск select2 на телефоне фокусирует поле, вылезает клавиатура, окно
+  // меняет высоту, выпадашка пересчитывается — экран дёргается вверх. Таверна
+  // по той же причине не ставит select2 на телефоне (`openai.js`, `isMobile`).
+  const calls = [];
+  const jq = () => ({ data: () => null, select2: (...a) => calls.push(a), off() {}, on() {} });
+  jq.fn = { select2() {} };
+  const prev = { jQuery: globalThis.jQuery, matchMedia: globalThis.matchMedia };
+  globalThis.jQuery = jq;
+  globalThis.matchMedia = (q) => ({ matches: q.includes('pointer: coarse') });
+  try {
+    const host = fakeHost(started, { api: { source: 'own', endpoint: 'https://x.y', key: 'sk', model: 'm' } }, LOREBOOK_FULL, {
+      listModels: () => ({ ok: true, models: ['gpt-mini', 'gpt-big'] }),
+    });
+    const { api, block } = apiBlock(host);
+    let button = null;
+    walk(block, (n) => { if (n.textContent === 'Список моделей' && n.listeners && n.listeners.click) button = n; });
+    for (const fn of button.listeners.click) await fn({ currentTarget: button });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+    let pick = null;
+    walk(block, (n) => { if (n.tagName === 'SELECT' && n.children.some((o) => o.attrs.value === 'gpt-big')) pick = n; });
+    assert.ok(pick && !pick.hidden, 'выпадашки со списком нет');
+    assert.equal(calls.length, 0, 'select2 поставлен на сенсорном экране');
+    api.destroy();
+  } finally {
+    globalThis.jQuery = prev.jQuery;
+    globalThis.matchMedia = prev.matchMedia;
+  }
+});
+
 test('выбор API: старые настройки без графы показывают тот путь, по которому пойдёт запрос', () => {
   // Ничего не выбирали, адрес вписан — значит свой адрес, ровно как раньше.
   const own = apiBlock(fakeHost(started, { api: { endpoint: 'https://x.y', key: 'sk', model: 'm' } }, LOREBOOK_FULL));

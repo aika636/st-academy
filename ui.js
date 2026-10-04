@@ -3248,8 +3248,15 @@ const modelCache = new Map();
  * вешается ещё и через jQuery. Инициализация ждёт, пока узел окажется в
  * документе: выпадающему окну нужен родитель внутри блока, а не `body`, где
  * его перекрыла бы панель.
+ *
+ * На сенсорном экране select2 не ставится вовсе — так же поступает сама
+ * таверна (`openai.js`, `if (!isMobile())` перед каждым `.select2`). Его поле
+ * поиска получает фокус, вылезает клавиатура, окно меняет высоту, select2
+ * пересчитывает позицию выпадашки, панель прокручивается — и так по кругу:
+ * экран дёргается вверх. Обычный `<select>` открывает системный список.
  */
 function enhanceSelect(select, onPick, tries = 20) {
+  if (isTouchScreen()) return;
   const $ = globalThis.jQuery;
   if (typeof $ !== 'function' || !$.fn || typeof $.fn.select2 !== 'function') return;
   if (!select.isConnected) {
@@ -3267,6 +3274,19 @@ function enhanceSelect(select, onPick, tries = 20) {
     });
     $s.on('select2:select.academy', () => onPick(select.value));
   } catch { /* без поиска — обычная выпадашка, тоже рабочая */ }
+}
+
+/**
+ * Палец вместо мыши: телефон или планшет. Медиазапрос, а не user agent —
+ * в тестах и на стенде его можно подменить через `matchMedia`.
+ */
+export function isTouchScreen() {
+  try {
+    return typeof globalThis.matchMedia === 'function'
+      && globalThis.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
 }
 
 /** Снять select2, если он был: пустой список не должен оставлять видимую рамку. */
