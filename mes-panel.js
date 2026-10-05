@@ -1,9 +1,10 @@
 // mes-panel.js — плашка Академии под ответом модели.
 //
-// По образцу плашки Horae: одна строка-сводка под текстом сообщения, по нажатию
-// раскрываются подробности, справа кнопка «разобрать» — секретарь
+// По образцу плашки Horae: одна строка-сводка под текстом каждого ответа, по
+// нажатию раскрываются подробности, справа кнопка «разобрать» — секретарь
 // (`core/analysis`) читает ответ отдельным запросом и записывает, что в нём
-// случилось.
+// случилось. Только по кнопке: разбор после каждого свайпа стоил бы запроса на
+// каждый вариант.
 //
 // Три правила раскладки — чтобы плашки соседей не наслаивались.
 //
@@ -14,30 +15,43 @@
 //    Horae вставляет свою прямо за `.mes_text` с задержкой, поэтому, придя
 //    позже нас, она встанет между текстом и нашей — порядок тот же. Каждая
 //    перерисовка проверяет место и переставляет плашку, если сосед вклинился.
-// 3. **`order` больше, чем у Horae** (у неё 9999): если тема сделает
-//    `.mes_block` флексом, порядок сохранится.
+// 3. **Поля по бокам** (style.css): стрелки свайпа таверны висят у краёв
+//    последнего сообщения, и плашка во всю ширину залезала под них.
 //
 // Модуль не знает ни состояния, ни таверны: виды плашек отдаёт хост
 // (`index.js`), он же выполняет действия.
 
 /** Слова плашки — механизма, не заведения (как `DEBUG_TEXT` в ui.js). */
 export const PANEL_TEXT = {
-  analyze: 'Разобрать ответ',
+  analyze: 'Разобрать',
   reanalyze: 'Разобрать заново',
   analyzing: 'Секретарь читает ответ…',
-  undoAll: 'Вернуть метку рассказчика',
+  undoAll: 'Отменить разбор',
+  undoAllHint: 'Снять всё, что записал секретарь. У последнего ответа снова будет действовать скрытая метка, которую рассказчик сам ставит в начале ответа (если она там есть).',
   drop: 'Вычеркнуть',
   nothing: 'без перемен',
+  notAnalyzed: 'не разобрано',
   analyzed: 'разобрано',
-  noMarker: 'метки рассказчика не было',
-  byAnalysis: 'Записал секретарь',
-  byAnalysisEmpty: 'Секретарь ничего не нашёл.',
-  events: 'Что изменилось',
-  onlyLast: 'Разбирать можно только последний ответ: более ранние уже легли в основу следующих.',
+  correction: 'поправка',
+  summary: 'Кратко',
+  lookingFor: 'Что ищет секретарь',
+  lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает только то, что случилось с героиней. Время не трогает.',
+  events: 'Изменилось в Академии',
+  empty: '—',
+  correctionNote: 'Это не последний ответ: выводы лягут поправкой — датой этого ответа, поверх нынешнего состояния.',
+  liveNote: 'Последний ответ: выводы лягут пересчётом, как будто рассказчик сам их отметил.',
   notCounted: 'ответ ещё не посчитан',
   uncounted: 'Академия этот ответ ещё не считала. Разбор сначала посчитает его, потом позовёт секретаря.',
+  onlyLast: 'Этот ответ сейчас не разобрать.',
   more: 'ещё {n}',
 };
+
+/** Что ищет секретарь — разделы плашки, по виду вывода (`tokenEvent().kind`). */
+export const SECTIONS = [
+  { kind: 'grade', icon: 'fa-star', label: 'Оценки, зачёты, экзамены', tone: 'gold' },
+  { kind: 'attendance', icon: 'fa-person-walking', label: 'Прогулы и опоздания', tone: 'red' },
+  { kind: 'rel', icon: 'fa-heart', label: 'Отношение преподавателей', tone: 'pink' },
+];
 
 const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная' };
 
@@ -77,14 +91,17 @@ export function rowText(row) {
 
 /**
  * Сводка одной строкой: когда и что. «вторник, 3 сентября · 10:15 | химия: 5 ·
- * Петрова: теплее · ещё 2».
+ * Петрова: теплее · ещё 2». Ответ, о котором Академия ничего не знает, — «не
+ * разобрано».
  */
 export function summaryText(view) {
   if (view.uncounted) return PANEL_TEXT.notCounted;
   const when = [view.date, view.time].filter(Boolean).join(' · ');
-  const lines = (view.rows || []).filter(Boolean);
+  const lines = [...(view.rows || []), ...(view.analyzed && view.correction ? (view.tokens || []).map((t) => t.text || t) : [])]
+    .filter(Boolean);
   const head = lines.slice(0, 2);
   const rest = lines.length - head.length;
+  if (!when && !lines.length) return view.analyzed ? PANEL_TEXT.nothing : PANEL_TEXT.notAnalyzed;
   const what = lines.length
     ? `${head.join(' · ')}${rest > 0 ? ` · ${PANEL_TEXT.more.replace('{n}', rest)}` : ''}`
     : PANEL_TEXT.nothing;
@@ -171,27 +188,20 @@ function place(mes, panel) {
 
 function buildPanel(host, mesId, view) {
   const isOpen = open.has(mesId);
+  const busy = Boolean(view.busy);
   const content = el('div', { class: 'academy-mes-content' });
   if (!isOpen) content.hidden = true;
 
-  const busy = Boolean(view.busy);
-  const analyzeBtn = view.canAnalyze
-    ? el('button', {
-      type: 'button',
-      class: 'academy-mes-action',
-      title: view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
-      'aria-label': view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
-      disabled: busy,
-      onclick: (e) => {
-        e.stopPropagation();
-        run(host.analyze(mesId));
-      },
-    }, [icon(busy ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles')])
-    : null;
+  const analyze = (e) => {
+    if (e) e.stopPropagation();
+    run(host.analyze(mesId));
+  };
 
-  const badges = [
-    view.analyzed ? el('span', { class: 'academy-mes-badge', text: PANEL_TEXT.analyzed }) : null,
-  ];
+  const state = view.analyzed
+    ? el('span', { class: `academy-mes-badge${view.correction ? ' academy-mes-badge-late' : ''}`, title: view.correction ? PANEL_TEXT.correction : PANEL_TEXT.analyzed }, [
+      icon(view.correction ? 'fa-pen-to-square' : 'fa-check'),
+    ])
+    : null;
 
   const toggle = el('div', {
     class: 'academy-mes-toggle',
@@ -202,72 +212,92 @@ function buildPanel(host, mesId, view) {
       if (open.has(mesId)) open.delete(mesId);
       else open.add(mesId);
       content.hidden = !open.has(mesId);
+      panelNode.classList.toggle('academy-mes-open', open.has(mesId));
       toggle.setAttribute('aria-expanded', open.has(mesId) ? 'true' : 'false');
     },
   }, [
     el('span', { class: 'academy-mes-icon' }, [icon('fa-graduation-cap')]),
     el('span', { class: 'academy-mes-summary', text: busy ? PANEL_TEXT.analyzing : summaryText(view) }),
-    ...badges,
-    analyzeBtn,
+    state,
+    el('button', {
+      type: 'button',
+      class: 'academy-mes-action',
+      title: view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
+      'aria-label': view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
+      disabled: busy,
+      onclick: analyze,
+    }, [icon(busy ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles')]),
   ]);
 
   // --- подробности ---
-  const rows = (view.rows || []).filter(Boolean);
-  content.append(
-    el('div', { class: 'academy-mes-title', text: PANEL_TEXT.events }),
-    rows.length
-      ? el('ul', { class: 'academy-mes-list' }, rows.map((r) => el('li', { text: r })))
-      : el('div', { class: 'academy-mes-note', text: PANEL_TEXT.nothing }),
-  );
+  if (view.summary) {
+    content.append(el('div', { class: 'academy-mes-quote' }, [
+      icon('fa-feather-pointed'),
+      el('span', { text: view.summary }),
+    ]));
+  }
 
-  if (view.analyzed) {
-    const tokens = view.tokens || [];
-    content.append(el('div', { class: 'academy-mes-title', text: PANEL_TEXT.byAnalysis }));
-    content.append(tokens.length
-      ? el('ul', { class: 'academy-mes-list academy-mes-tokens' }, tokens.map((t, i) => el('li', {}, [
-        el('span', { text: t }),
-        view.canAnalyze
-          ? el('button', {
+  content.append(el('div', { class: 'academy-mes-title' }, [icon('fa-magnifying-glass'), el('span', { text: PANEL_TEXT.lookingFor })]));
+  if (!view.analyzed) content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.lookingForHint }));
+
+  const tokens = (view.tokens || []).map((t, index) => ({ ...(typeof t === 'string' ? { text: t, kind: 'other' } : t), index }));
+  for (const s of SECTIONS) {
+    const mine = tokens.filter((t) => t.kind === s.kind);
+    content.append(el('div', { class: `academy-mes-section academy-tone-${s.tone}` }, [
+      el('div', { class: 'academy-mes-section-head' }, [icon(s.icon), el('span', { text: s.label })]),
+      mine.length
+        ? el('ul', { class: 'academy-mes-tokens' }, mine.map((t) => el('li', {}, [
+          el('span', { text: t.text }),
+          el('button', {
             type: 'button',
             class: 'academy-mes-drop',
             title: PANEL_TEXT.drop,
             'aria-label': PANEL_TEXT.drop,
             disabled: busy,
-            onclick: () => run(host.dropToken(mesId, i)),
-          }, [icon('fa-xmark')])
-          : null,
-      ])))
-      : el('div', { class: 'academy-mes-note', text: PANEL_TEXT.byAnalysisEmpty }));
-  } else if (view.uncounted) {
-    content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.uncounted }));
-  } else if (view.marker === false) {
-    content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.noMarker }));
+            onclick: () => run(host.dropToken(mesId, t.index)),
+          }, [icon('fa-xmark')]),
+        ])))
+        : el('div', { class: 'academy-mes-none', text: view.analyzed ? PANEL_TEXT.empty : '' }),
+    ]));
   }
+
+  const rows = (view.rows || []).filter(Boolean);
+  if (rows.length) {
+    content.append(
+      el('div', { class: 'academy-mes-title' }, [icon('fa-scroll'), el('span', { text: PANEL_TEXT.events })]),
+      el('ul', { class: 'academy-mes-list' }, rows.map((r) => el('li', { text: r }))),
+    );
+  }
+
+  if (view.uncounted) content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.uncounted }));
+  else content.append(el('div', { class: 'academy-mes-note', text: view.live ? PANEL_TEXT.liveNote : PANEL_TEXT.correctionNote }));
 
   if (view.error) content.append(el('div', { class: 'academy-mes-error', text: view.error }));
 
-  if (view.canAnalyze) {
-    content.append(el('div', { class: 'academy-mes-buttons' }, [
-      el('button', {
+  content.append(el('div', { class: 'academy-mes-buttons' }, [
+    el('button', {
+      type: 'button',
+      class: 'menu_button academy-mes-btn academy-mes-btn-main',
+      disabled: busy,
+      onclick: analyze,
+    }, [icon('fa-wand-magic-sparkles'), el('span', { text: view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze })]),
+    view.analyzed
+      ? el('button', {
         type: 'button',
         class: 'menu_button academy-mes-btn',
+        title: PANEL_TEXT.undoAllHint,
         disabled: busy,
-        onclick: () => run(host.analyze(mesId)),
-      }, [icon('fa-wand-magic-sparkles'), el('span', { text: view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze })]),
-      view.analyzed
-        ? el('button', {
-          type: 'button',
-          class: 'menu_button academy-mes-btn',
-          disabled: busy,
-          onclick: () => run(host.clearAnalysis(mesId)),
-        }, [icon('fa-rotate-left'), el('span', { text: PANEL_TEXT.undoAll })])
-        : null,
-    ]));
-  } else {
-    content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.onlyLast }));
-  }
+        onclick: () => run(host.clearAnalysis(mesId)),
+      }, [icon('fa-rotate-left'), el('span', { text: PANEL_TEXT.undoAll })])
+      : null,
+  ]));
+  if (view.analyzed) content.append(el('div', { class: 'academy-mes-note academy-mes-small', text: PANEL_TEXT.undoAllHint }));
 
-  return el('div', { class: PANEL_CLASS, 'data-mesid': String(mesId) }, [toggle, content]);
+  const panelNode = el('div', {
+    class: `${PANEL_CLASS}${isOpen ? ' academy-mes-open' : ''}${view.analyzed ? ' academy-mes-done' : ''}`,
+    'data-mesid': String(mesId),
+  }, [toggle, content]);
+  return panelNode;
 }
 
 /** Действие с кнопки: отказ хоста не должен ронять обработчик клика. */

@@ -102,7 +102,9 @@ test('короткое имя узнаётся, только если оно о�
 
 test('секретарь: пустая метка — «ничего не случилось», без метки — сбой', () => {
   const s = semester();
-  assert.deepEqual(parseAnalysis('<!-- [ACADEMY] -->', lexicon(s)), { found: true, tokens: [], rejected: [] });
+  assert.deepEqual(parseAnalysis('<!-- [ACADEMY] -->', lexicon(s)), { found: true, tokens: [], summary: '', rejected: [] });
+  assert.equal(parseAnalysis('<!-- [ACADEMY grade=chemistry:5] -->\nКратко: Аня получила пятёрку по химии.', lexicon(s)).summary,
+    'Аня получила пятёрку по химии.');
   assert.equal(parseAnalysis('Ничего не произошло.', lexicon(s)).found, false);
 });
 
@@ -211,6 +213,7 @@ test('плашка: строки событий словами, отметка �
 
 test('плашка: сводка — когда и что, лишнее «ещё N»', () => {
   assert.equal(summaryText({ date: 'вторник, 3 сентября', time: '10:15', rows: [] }), 'вторник, 3 сентября · 10:15 | без перемен');
+  assert.equal(summaryText({ rows: [] }), 'не разобрано', 'о старом ответе Академия ничего не знает');
   assert.equal(summaryText({ rows: ['a', 'b', 'c', 'd'] }), 'a · b · ещё 2');
 });
 
@@ -362,14 +365,55 @@ async function panelClear(tavern, id) {
   return tavern.seam.panel.clearAnalysis(id);
 }
 
-test('сквозной: разбирается только последний ответ', async () => {
-  const tavern = await boot();
+test('сквозной: старый ответ получает поправку — датой того ответа, с вычёркиванием и переживает свайп', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5 rel=petrova:minor+] -->\nКратко: пятёрка у доски.' });
+  const first = await reply(tavern, 'Первая сцена. <!-- [ACADEMY t=+1 day] -->');
+  const day1 = tavern.chatMetadata.academy_ledger.list.at(-1).day;
+  const last = await reply(tavern, 'Вторая сцена. <!-- [ACADEMY t=+1 day] -->');
+  const rel0 = stateOf(tavern).teachers.find((t) => t.id === 'petrova').relation;
+
+  const view0 = tavern.seam.panel.panelFor(first);
+  assert.equal(view0.live, false, 'не последний — поправка');
+  const res = await actions(tavern).analyzeMessage(first);
+  assert.equal(res.ok, true, res.error);
+  assert.ok(tavern.asked[0].prompt.includes('Первая сцена.'));
+  assert.ok(!/Сегодня по расписанию/.test(tavern.asked[0].prompt), 'сегодняшнее контрольное к старому ответу не относится');
+  const chem = () => stateOf(tavern).subjects.find((x) => x.id === 'chemistry').grades;
+  assert.deepEqual(chem().map((g) => [g.value, g.day]), [['5', day1]], 'датой того ответа');
+  assert.equal(stateOf(tavern).teachers.find((t) => t.id === 'petrova').relation, rel0 + 1);
+  const view = tavern.seam.panel.panelFor(first);
+  assert.equal(view.correction, true);
+  assert.equal(view.summary, 'пятёрка у доски.');
+  assert.deepEqual(view.tokens.map((t) => t.kind), ['grade', 'rel']);
+
+  // Свайп последнего ответа откатывает к снимку «до него» — поправка там тоже есть.
+  const m = tavern.chat[last];
+  m.swipe_id = 1;
+  await tavern.eventSource.emit('message_swiped', last);
+  m.swipes.push('Другой вариант. <!-- [ACADEMY t=+1 day] -->');
+  m.mes = m.swipes[1];
+  await tavern.eventSource.emit('message_received', last, 'swipe');
+  assert.deepEqual(chem().map((g) => g.value), ['5'], 'поправка пережила свайп');
+
+  // Вычеркнуть оценку: снимается только она.
+  await tavern.seam.panel.dropToken(first, 0);
+  assert.deepEqual(chem(), []);
+  assert.equal(stateOf(tavern).teachers.find((t) => t.id === 'petrova').relation, rel0 + 1, 'отношение осталось');
+
+  // Отменить разбор целиком.
+  await tavern.seam.panel.clearAnalysis(first);
+  assert.equal(stateOf(tavern).teachers.find((t) => t.id === 'petrova').relation, rel0);
+  assert.equal(tavern.seam.panel.panelFor(first).analyzed, false);
+});
+
+test('сквозной: повторный разбор старого ответа снимает прежнюю поправку', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
   const first = await reply(tavern, 'Первая сцена.');
   await reply(tavern, 'Вторая сцена.');
-  const res = await actions(tavern).analyzeMessage(first);
-  assert.equal(res.ok, false);
-  assert.match(res.error, /только последний/);
-  assert.equal(tavern.asked.length, 0, 'запроса не было');
+  await actions(tavern).analyzeMessage(first);
+  tavern.answer = '<!-- [ACADEMY grade=chemistry:4] -->';
+  await actions(tavern).analyzeMessage(first);
+  assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
 });
 
 test('сквозной: ответ без метки → сбой словами, состояние не тронуто', async () => {
@@ -401,15 +445,12 @@ test('сквозной: свайп забывает разбор, возврат
   assert.deepEqual(grades(tavern, 'chemistry'), ['5'], 'вернулись — разбор снова в силе');
 });
 
-test('сквозной: «если нет метки» — секретарь сам, но только там, где метки нет', async () => {
-  const tavern = await boot({ settings: { academy: { analysis: 'missing' } }, answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
-  await reply(tavern, 'Сцена с меткой. <!-- [ACADEMY t=+0] -->');
-  assert.equal(tavern.asked.length, 0);
+test('сквозной: сам секретарь не зовётся никогда — даже со старой настройкой «всегда»', async () => {
+  const tavern = await boot({ settings: { academy: { analysis: 'auto' } }, answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
   await reply(tavern, 'Сцена без метки.');
   await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-  assert.equal(tavern.asked.length, 1);
-  assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
+  assert.equal(tavern.asked.length, 0);
+  assert.deepEqual(grades(tavern, 'chemistry'), []);
 });
 
 test('сквозной: «сюжет» — зачёт сдан в сцене, кубик не бросается; не сыграли — ждёт', async () => {
@@ -446,7 +487,7 @@ test('сквозной: сосед молча дописал текст отве
   tavern.chat[id].mes += '\n<horae>time:10:15</horae>';
   const view = tavern.seam.panel.panelFor(id);
   assert.ok(view, 'плашка есть');
-  assert.equal(view.canAnalyze, true);
+  assert.equal(view.live, true, 'всё ещё последний ход — пересчёт');
   assert.ok(view.date, 'запись протокола нашлась по ходу');
 
   const res = await actions(tavern).analyzeMessage(id);
@@ -467,8 +508,8 @@ test('сквозной: последний ответ, которого Акад
   const view = tavern.seam.panel.panelFor(id);
   assert.ok(view, 'плашка есть');
   assert.equal(view.uncounted, true);
-  assert.equal(view.canAnalyze, true);
-  assert.equal(tavern.seam.panel.panelFor(1).canAnalyze, true, 'плашка прежнего хода никуда не делась');
+  assert.equal(view.live, true);
+  assert.ok(tavern.seam.panel.panelFor(1), 'плашка прежнего хода никуда не делась');
 
   const res = await actions(tavern).analyzeMessage(id);
   assert.equal(res.ok, true, res.error);

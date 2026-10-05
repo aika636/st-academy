@@ -1118,23 +1118,32 @@
 /* --- плашка под ответом модели (mes-panel.js) ------------------------------
  *
  * Обычный блок в потоке сообщения: без position и z-index, поэтому с плашкой
- * Horae и других соседей она не наслаивается, а встаёт ниже. `order` — на
- * случай темы, где .mes_block — флекс: Horae ставит себе 9999, мы ниже неё.
+ * Horae и других соседей она не наслаивается, а встаёт ниже. Поля по бокам —
+ * под стрелки свайпа таверны: на последнем сообщении они висят у краёв, и
+ * плашка во всю ширину залезала под них. `order` — на случай темы, где
+ * .mes_block — флекс: Horae ставит себе 9999, мы ниже неё.
  */
 
 .academy-mes-panel {
+  --academy-mes-gold: #e9c46a;
+  --academy-mes-red: #e0888f;
+  --academy-mes-pink: #d99ad6;
+  --academy-mes-green: #68c89a;
   box-sizing: border-box;
   order: 10000;
-  margin-top: 6px;
-  max-width: 100%;
-  border: 1px solid var(--academy-line);
-  border-left: 3px solid var(--academy-accent);
-  border-radius: 8px;
-  background: var(--academy-bg);
+  margin: 8px 30px 0;
+  max-width: calc(100% - 60px);
+  border: 1px solid color-mix(in srgb, var(--academy-accent) 35%, var(--academy-line));
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--academy-accent) 12%, transparent), transparent 60%),
+    var(--academy-bg);
   color: var(--academy-ink);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
+  text-align: left;
   overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .academy-mes-panel * {
@@ -1145,19 +1154,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 32px;
-  padding: 4px 6px 4px 10px;
+  min-height: 34px;
+  padding: 4px 4px 4px 6px;
   cursor: pointer;
   user-select: none;
 }
 
 .academy-mes-toggle:hover {
-  background: var(--academy-soft);
+  background: color-mix(in srgb, var(--academy-ink) 5%, transparent);
 }
 
 .academy-mes-icon {
-  color: var(--academy-accent);
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--academy-accent) 18%, transparent);
+  color: var(--academy-accent);
+  font-size: 11px;
 }
 
 .academy-mes-summary {
@@ -1169,13 +1186,26 @@
   color: var(--academy-dim);
 }
 
+.academy-mes-done .academy-mes-summary {
+  color: var(--academy-ink);
+}
+
 .academy-mes-badge {
   flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: 6px;
-  border: 1px solid var(--academy-line);
-  color: var(--academy-accent);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 10px;
+  color: var(--academy-mes-green);
+  background: color-mix(in srgb, var(--academy-mes-green) 16%, transparent);
+}
+
+.academy-mes-badge-late {
+  color: var(--academy-mes-gold);
+  background: color-mix(in srgb, var(--academy-mes-gold) 16%, transparent);
 }
 
 .academy-mes-action,
@@ -1184,29 +1214,36 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
+  min-width: 30px;
   min-height: 28px;
   padding: 0 6px;
   border: none;
-  border-radius: 6px;
+  border-radius: 9px;
   background: transparent;
-  color: var(--academy-ink);
+  color: var(--academy-accent);
   cursor: pointer;
+}
+
+.academy-mes-drop {
+  min-width: 26px;
+  min-height: 24px;
+  color: var(--academy-dim);
 }
 
 .academy-mes-action:hover,
 .academy-mes-drop:hover {
-  background: var(--academy-soft);
+  background: color-mix(in srgb, var(--academy-ink) 8%, transparent);
 }
 
 .academy-mes-action:disabled,
-.academy-mes-drop:disabled {
-  opacity: 0.6;
+.academy-mes-drop:disabled,
+.academy-mes-btn:disabled {
+  opacity: 0.55;
   cursor: wait;
 }
 
 .academy-mes-content {
-  padding: 6px 10px 8px;
+  padding: 8px 10px 10px;
   border-top: 1px solid var(--academy-line);
 }
 
@@ -1214,20 +1251,73 @@
   display: none;
 }
 
-.academy-mes-title {
-  margin: 4px 0 2px;
+.academy-mes-quote {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border-left: 3px solid var(--academy-accent);
+  background: color-mix(in srgb, var(--academy-accent) 8%, transparent);
+  font-style: italic;
+}
+
+.academy-mes-quote i {
+  margin-top: 2px;
   color: var(--academy-accent);
+}
+
+.academy-mes-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--academy-dim);
+}
+
+.academy-mes-section {
+  --tone: var(--academy-accent);
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border-left: 3px solid var(--tone);
+  background: color-mix(in srgb, var(--tone) 7%, transparent);
+}
+
+.academy-tone-gold { --tone: var(--academy-mes-gold); }
+.academy-tone-red { --tone: var(--academy-mes-red); }
+.academy-tone-pink { --tone: var(--academy-mes-pink); }
+
+.academy-mes-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
-.academy-mes-list {
-  margin: 0;
-  padding-left: 18px;
+.academy-mes-section-head i {
+  width: 14px;
+  text-align: center;
+  color: var(--tone);
+}
+
+.academy-mes-none {
+  padding-left: 20px;
+  color: var(--academy-dim);
+}
+
+.academy-mes-none:empty {
+  display: none;
 }
 
 .academy-mes-tokens {
   list-style: none;
-  padding-left: 0;
+  margin: 2px 0 0;
+  padding: 0 0 0 20px;
 }
 
 .academy-mes-tokens li {
@@ -1237,42 +1327,464 @@
   gap: 6px;
 }
 
+.academy-mes-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .academy-mes-note {
+  margin-top: 6px;
   color: var(--academy-dim);
-  font-style: italic;
+  font-size: 11px;
+}
+
+.academy-mes-small {
+  font-size: 10.5px;
+  opacity: 0.85;
 }
 
 .academy-mes-error {
-  margin-top: 4px;
-  color: var(--warning, #e5a100);
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--academy-mes-red);
+  background: color-mix(in srgb, var(--academy-mes-red) 12%, transparent);
 }
 
 .academy-mes-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .academy-mes-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   margin: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
   font-size: 12px;
+  width: auto;
+}
+
+.academy-mes-btn-main {
+  color: var(--academy-accent);
+  border-color: color-mix(in srgb, var(--academy-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--academy-accent) 14%, transparent);
 }
 
 @media (max-width: 768px) {
   .academy-mes-panel {
-    font-size: 11px;
+    margin: 8px 26px 0;
+    max-width: calc(100% - 52px);
+    font-size: 11.5px;
   }
 
   .academy-mes-content {
-    max-height: 50vh;
+    max-height: 55vh;
     overflow-y: auto;
   }
+}
 
-  .academy-mes-buttons {
-    flex-direction: column;
+/* --- оформление панели: слой поверх базовых правил ----------------------------
+ *
+ * По образцу соседей, которые выглядят «красиво, но не вычурно» (Телефон,
+ * NOVA): цвета по-прежнему из темы таверны (правило 1 в шапке файла), сверху —
+ * мягкие поверхности на `color-mix`, сегменты вкладок с иконками, карточки со
+ * скруглением 14px, подписи разделов капителью. Свои цвета — только у смыслов:
+ * успех, внимание, провал. На телефоне панель — на весь экран.
+ *
+ * Слой идёт последним и перекрывает базовые правила выше селекторами с
+ * оболочкой `.academy-panel`: базовые не трогаются, чтобы откатить оформление
+ * можно было, удалив один блок.
+ */
+
+.academy-panel {
+  --ac-surface: color-mix(in srgb, var(--academy-ink) 6%, transparent);
+  --ac-surface-2: color-mix(in srgb, var(--academy-ink) 10%, transparent);
+  --ac-tint: color-mix(in srgb, var(--academy-accent) 14%, transparent);
+  --ac-ok: #68c89a;
+  --ac-warn: #f0c675;
+  --ac-bad: #e0888f;
+  width: min(560px, calc(100vw - 24px));
+  max-height: 86vh;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 70% at 10% -10%, color-mix(in srgb, var(--academy-accent) 13%, transparent), transparent 55%),
+    var(--academy-bg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+/* шапка */
+.academy-panel .academy-bar {
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--academy-bg) 70%, transparent);
+}
+
+.academy-panel .academy-grab {
+  font-size: 13px;
+}
+
+.academy-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--ac-tint);
+  color: var(--academy-accent);
+  font-size: 15px;
+}
+
+.academy-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.academy-panel .academy-title {
+  flex: none;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+}
+
+.academy-subtitle {
+  font-size: 11px;
+  color: var(--academy-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.academy-subtitle:empty {
+  display: none;
+}
+
+.academy-panel .academy-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--academy-line);
+  background: var(--ac-surface);
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+/* вкладки — сегменты с иконкой */
+.academy-panel .academy-tabs {
+  gap: 6px;
+  padding: 8px 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.academy-panel .academy-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--academy-line);
+  border-radius: 12px;
+  background: var(--ac-surface);
+  color: var(--academy-dim);
+  opacity: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.academy-tab-icon {
+  font-size: 13px;
+}
+
+.academy-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.academy-panel .academy-tab-on {
+  color: var(--academy-ink);
+  background: var(--ac-tint);
+  border-color: color-mix(in srgb, var(--academy-accent) 55%, transparent);
+}
+
+.academy-panel .academy-tab-on .academy-tab-icon {
+  color: var(--academy-accent);
+}
+
+.academy-panel .academy-body {
+  padding: 12px;
+}
+
+/* карточки */
+.academy-panel .academy-card {
+  border-radius: 14px;
+  padding: 11px 12px;
+  background: var(--ac-surface);
+  border: 1px solid var(--academy-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.academy-panel .academy-now {
+  border-color: color-mix(in srgb, var(--academy-accent) 60%, transparent);
+  background:
+    linear-gradient(160deg, var(--ac-tint), transparent 70%),
+    var(--ac-surface);
+}
+
+.academy-panel .academy-card-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--academy-accent);
+  opacity: 0.9;
+}
+
+.academy-panel .academy-subject {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.academy-panel .academy-date {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.academy-panel .academy-silent {
+  border-radius: 14px;
+  border-style: dashed;
+  background: var(--ac-surface);
+}
+
+/* чипы */
+.academy-panel .academy-phase,
+.academy-panel .academy-clock,
+.academy-panel .academy-tag,
+.academy-panel .academy-relation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  border: none;
+  border-radius: 999px;
+  background: var(--ac-surface-2);
+  color: var(--academy-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.academy-panel .academy-clock {
+  color: var(--academy-accent);
+  background: var(--ac-tint);
+  font-variant-numeric: tabular-nums;
+}
+
+.academy-panel .academy-tag-debt,
+.academy-panel .academy-alarm {
+  color: var(--ac-bad);
+  background: color-mix(in srgb, var(--ac-bad) 15%, transparent);
+  border: none;
+}
+
+/* таблицы (зачётка, люди) */
+.academy-panel .academy-table {
+  gap: 6px;
+}
+
+.academy-panel .academy-tr {
+  padding: 9px 12px;
+  border-radius: 14px;
+  background: var(--ac-surface);
+  border: 1px solid var(--academy-line);
+}
+
+.academy-panel .academy-tr-debt {
+  border-color: color-mix(in srgb, var(--ac-bad) 55%, transparent);
+  box-shadow: inset 3px 0 0 var(--ac-bad);
+}
+
+.academy-panel .academy-avg {
+  display: inline-flex;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--ac-tint);
+}
+
+/* сворачиваемые блоки */
+.academy-panel .academy-section,
+.academy-ext-block .academy-section {
+  margin-top: 8px;
+  padding: 0;
+  border: 1px solid var(--academy-line);
+  border-radius: 12px;
+  background: var(--ac-surface, transparent);
+  overflow: hidden;
+}
+
+.academy-panel .academy-section > :not(summary),
+.academy-ext-block .academy-section > :not(summary) {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+.academy-panel .academy-section[open] > :last-child,
+.academy-ext-block .academy-section[open] > :last-child {
+  margin-bottom: 12px;
+}
+
+.academy-panel .academy-section-title,
+.academy-ext-block .academy-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.academy-section-title::-webkit-details-marker {
+  display: none;
+}
+
+.academy-section-icon {
+  order: -1;
+  width: 18px;
+  text-align: center;
+  color: var(--academy-accent);
+}
+
+.academy-section-chevron {
+  order: 1;
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.55;
+  transition: transform 0.15s;
+}
+
+.academy-section[open] > .academy-section-title .academy-section-chevron {
+  transform: rotate(90deg);
+}
+
+/* кнопки и поля */
+.academy-panel .academy-btn,
+.academy-ext-block .academy-btn {
+  border-radius: 10px;
+}
+
+.academy-panel .academy-btn-main,
+.academy-ext-block .academy-btn-main {
+  background: var(--ac-tint, transparent);
+  border-color: color-mix(in srgb, var(--academy-accent) 55%, transparent);
+  font-weight: 600;
+}
+
+.academy-panel .academy-input {
+  border-radius: 8px;
+}
+
+.academy-panel .academy-input:focus {
+  border-color: var(--academy-accent);
+  outline: none;
+}
+
+/* пустые экраны */
+.academy-panel .academy-empty {
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--ac-surface);
+  border: 1px solid var(--academy-line);
+}
+
+/* телефон: на весь экран */
+@media (max-width: 600px) {
+  .academy-panel,
+  .academy-panel.academy-open {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    z-index: 9000;
+    backdrop-filter: none;
   }
+
+  .academy-panel .academy-bar {
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+  }
+
+  .academy-panel .academy-grab {
+    display: none;
+  }
+
+  .academy-panel .academy-body {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .academy-panel .academy-tab {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 48px;
+    font-size: 11px;
+  }
+
+  .academy-tab-icon {
+    font-size: 15px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academy-panel .academy-tab,
+  .academy-section-chevron {
+    transition: none;
+  }
+}
+
+/* «День целиком»: время слева, справа название, под ним преподаватель и место.
+   Гибким рядом название сжималось до ширины буквы: соседи не уступали места. */
+.academy-panel .academy-plan-item {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr);
+  gap: 1px 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.academy-panel .academy-plan-item > :not(.academy-plan-time) {
+  grid-column: 2;
+}
+
+.academy-panel .academy-plan-name {
+  font-weight: 600;
+  overflow-wrap: normal;
+}
+
+.academy-panel .academy-plan-current {
+  background: var(--ac-tint);
+  border-left: 3px solid var(--academy-accent);
 }

@@ -16,7 +16,8 @@ import { buildPrompt, statusLine } from './prompt.mjs';
 import {
   awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams, EXAM_RULES, examRule,
 } from './core/exams.mjs';
-import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, ANALYSIS_MODES } from './core/analysis.mjs';
+import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent } from './core/analysis.mjs';
+import { applyCorrection, revertCorrection, receiptOf } from './core/corrections.mjs';
 import { MARKER_RE, stripMarker } from './core/parse-marker.mjs';
 import {
   cloneState, createState, defaultStartDay, isDay, joinSentences, normalizePortrait,
@@ -1311,11 +1312,6 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
   await syncLorebook();
   refreshPanel();
-  // Новый ответ без разбора — секретарь по настройке (`analysis`). Не ждём:
-  // разбор — отдельный запрос, а этот ответ уже посчитан и в силе.
-  if (source === 'received' && !tokens && wantsAutoAnalysis(settings, text)) {
-    analyzeMessage(mesId).catch((err) => console.warn(`[${MODULE}] автоматический разбор не удался:`, err));
-  }
   return 'посчитан';
 }
 
@@ -1341,14 +1337,20 @@ async function traced(event, mesId, run) {
 // --- секретарь и плашка под ответом -----------------------------------------
 //
 // Секретарь (`core/analysis`) — отдельный запрос, который читает ответ модели
-// и записывает оценки, прогулы и отношения. Его выводы лежат в протоколе по
-// отпечатку текста и подмешиваются к ответу при каждом его пересчёте
-// (`handleMessage`), поэтому свайп и правка обходятся с ними так же, как с
-// меткой: откат к снимку и пересчёт, без удвоений.
+// и записывает оценки, прогулы и отношения. Зовётся только кнопкой на плашке:
+// разбор после каждого свайпа стоил бы запроса на каждый вариант ответа.
 //
-// Разбирать можно только последний ответ: у него есть снимок «до», от
-// которого он пересчитывается. Ответ из середины уже лёг в основу следующих, и
-// пересчитать его, не выбросив их, нельзя — то же правило, что у правки.
+// Разобрать можно любой ответ, но ложатся выводы по-разному.
+//
+// - **Последний ответ** — пересчётом: его выводы лежат в протоколе по
+//   отпечатку текста и подмешиваются к ответу при каждом его пересчёте
+//   (`handleMessage`), поэтому свайп и правка обходятся с ними так же, как с
+//   меткой: откат к снимку и пересчёт, без удвоений.
+// - **Старый ответ** — поправкой (`core/corrections`): снимка «до него» нет,
+//   после него прошли другие ходы. Найденное дописывается в нынешнее состояние
+//   датой того ответа, с квитанцией на каждый вывод, чтобы его можно было снять.
+//   Та же поправка вносится в снимки истории ходов новее этого ответа — иначе
+//   свайп последнего ответа откатил бы состояние к снимку без неё.
 
 /** Запись протокола по отпечатку текста, свежие — с конца. */
 function ledgerEntry(mark) {
@@ -1369,13 +1371,6 @@ function putLedger(entry) {
 /** Есть ли в тексте метка самого рассказчика. */
 function hasOwnMarker(text) {
   return new RegExp(MARKER_RE.source, 'i').test(String(text || ''));
-}
-
-/** Нужен ли разбор нового ответа без кнопки. */
-function wantsAutoAnalysis(settings, text) {
-  if (live.quiet) return false;
-  if (settings.analysis === 'auto') return true;
-  return settings.analysis === 'missing' && !hasOwnMarker(text);
 }
 
 /**
@@ -1408,11 +1403,14 @@ function turnRows(before, after, exam) {
 function recordLedger(mark, before, after, { marker = false, exam = null } = {}) {
   const prev = ledgerEntry(mark);
   putLedger({
+    ...(prev || {}),
     stamp: mark,
     rows: turnRows(before, after, exam),
     day: (after.calendar && after.calendar.day) || '',
     time: (after.calendar && after.calendar.time) || '',
     tokens: prev && Array.isArray(prev.tokens) ? prev.tokens : null,
+    mode: 'live',
+    receipts: null,
     marker,
     at: Date.now(),
   });
@@ -1430,25 +1428,32 @@ function lexiconOf(state, c) {
 }
 
 /**
- * Вид плашки для сообщения `mesId` или `null`. Плашка есть у ответа, который
- * записан в протокол, и у последнего хода — его можно разобрать.
+ * Ход, которым ответ `mesId` посчитан, если это последний ход: его можно
+ * пересчитать. Узнаётся и по номеру сообщения — соседи (трекеры, Horae)
+ * бывает дописывают текст ответа молча, без события, и отпечаток расходится.
  */
+function liveTurnOf(mesId, chat) {
+  const turn = latestFor(mesId, chat);
+  return turn && turn.before ? turn : null;
+}
+
+/** Запись протокола ответа: по нынешнему тексту или по тексту, с которым считался ход. */
+function entryOf(mark, turn) {
+  return ledgerEntry(mark) || (turn && turn.stamp ? ledgerEntry(turn.stamp) : null);
+}
+
+/** Вид плашки для ответа `mesId`; `null` — не ответ модели или семестра нет. */
 function panelView(mesId) {
   if (!live.preset || !live.state || !live.state.started) return null;
   const chat = chatOf();
   const message = chat[mesId];
   if (!eligible(message)) return null;
   const mark = stamp(String(message.mes || ''));
-  const turn = latestFor(mesId, chat);
-  // Последний ход узнаётся и по номеру сообщения: соседи (трекеры, Horae)
-  // бывает дописывают текст ответа молча, без события, и отпечаток расходится.
-  // Запись протокола тогда лежит под отпечатком, с которым ход был посчитан.
-  const isLast = Boolean(turn && turn.before);
-  const entry = ledgerEntry(mark) || (isLast && turn.stamp ? ledgerEntry(turn.stamp) : null);
+  const turn = liveTurnOf(mesId, chat);
+  const entry = entryOf(mark, turn);
   // Последний ответ чата, которого Академия не считала вовсе (событие не
-  // пришло или обработчик упал): плашка всё равно есть, разбор его досчитает.
-  const uncounted = !entry && !isLast && countable(mesId, chat);
-  if (!entry && !isLast && !uncounted) return null;
+  // пришло или обработчик упал): разбор его сперва досчитает.
+  const uncounted = !entry && !turn && countable(mesId, chat);
   const lexicon = lexiconOf(live.state, ctx());
   const tokens = entry && Array.isArray(entry.tokens) ? entry.tokens : null;
   return {
@@ -1456,9 +1461,16 @@ function panelView(mesId) {
     time: entry ? entry.time : '',
     rows: entry ? entry.rows : [],
     analyzed: Boolean(tokens),
-    tokens: (tokens || []).map((t) => tokenText(t, lexicon)),
+    summary: (entry && entry.summary) || '',
+    tokens: (tokens || []).map((t) => {
+      const ev = tokenEvent(t, lexicon);
+      return { text: tokenText(t, lexicon), kind: ev ? ev.kind : 'other' };
+    }),
     marker: entry ? entry.marker : null,
-    canAnalyze: isLast || uncounted,
+    // Как лягут выводы: пересчётом последнего ответа или поправкой к старому.
+    live: Boolean(turn) || uncounted,
+    correction: Boolean(entry && entry.mode === 'late'),
+    known: Boolean(entry),
     uncounted,
     busy: live.analyzing.has(mark),
     error: live.analysisErrors.get(mark) || '',
@@ -1466,7 +1478,8 @@ function panelView(mesId) {
 }
 
 /**
- * Разобрать ответ `mesId` секретарём и пересчитать его с выводами.
+ * Разобрать ответ `mesId` секретарём. Последний ответ пересчитывается с
+ * выводами, старый получает поправку (см. шапку раздела).
  * @returns {Promise<{ok: boolean, error?: string, tokens?: string[], rejected?: Array}>}
  */
 async function analyzeMessage(mesId) {
@@ -1478,8 +1491,7 @@ async function analyzeMessage(mesId) {
   const mark = stamp(text);
   // Непосчитанный последний ответ сперва считается — как если бы событие пришло.
   if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
-  const turn = latestFor(mesId, chat);
-  if (!turn || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
+  const turn = liveTurnOf(mesId, chat);
   if (live.analyzing.has(mark)) return { ok: false, error: PANEL_TEXT.analyzing };
 
   const epoch = live.epoch;
@@ -1491,12 +1503,18 @@ async function analyzeMessage(mesId) {
   live.analysisErrors.delete(mark);
   renderPanels();
   try {
-    const before = turn.before;
-    const prompt = buildAnalysisPrompt(before, live.preset, {
+    const entry = entryOf(mark, turn);
+    // Последний ответ читается против состояния «до него» — тем, что видел
+    // рассказчик; старый — против нынешнего списка предметов и людей.
+    const base = turn ? turn.before : live.state;
+    const prompt = buildAnalysisPrompt(base, live.preset, {
       reply: stripMarker(text),
       userText: userTextBefore(chat, mesId),
-      statusLine: statusLine(before, live.preset),
+      statusLine: turn
+        ? statusLine(base, live.preset)
+        : [entry ? formatDate(entry.day) : '', entry ? entry.time : ''].filter(Boolean).join(', '),
       heroine: c.name1,
+      exams: Boolean(turn),
     });
     const res = await api.complete(storage.apiSettings(c), {
       system: prompt.system,
@@ -1507,7 +1525,7 @@ async function analyzeMessage(mesId) {
     });
     if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
     if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
-    const parsed = parseAnalysis(res.text, lexiconOf(before, c));
+    const parsed = parseAnalysis(res.text, lexiconOf(base, c));
     if (!parsed.found) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       return fail('Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
@@ -1516,9 +1534,8 @@ async function analyzeMessage(mesId) {
     // прежний текст, и к новому их не приложить.
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
-    setTokens(mark, parsed.tokens);
-    await handleMessage(mesId, { source: 'analysis' });
     if (parsed.rejected.length) console.info(`[${MODULE}] секретарь: отвергнуто`, parsed.rejected);
+    await writeAnalysis(mesId, parsed.tokens, parsed.summary);
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
   } catch (err) {
     console.error(`[${MODULE}] разбор ответа упал:`, err);
@@ -1529,26 +1546,119 @@ async function analyzeMessage(mesId) {
   }
 }
 
-/** Выводы секретаря к ответу: `null` — разбора нет, метка рассказчика снова в силе. */
-function setTokens(mark, tokens) {
-  const prev = ledgerEntry(mark) || { stamp: mark, rows: [], day: '', time: '', marker: false };
-  putLedger({ ...prev, tokens: Array.isArray(tokens) ? [...tokens] : null, at: Date.now() });
+/**
+ * Записать выводы ответа `mesId` (`null` — снять разбор). Последний ответ —
+ * пересчётом, старый — поправкой: прежние выводы снимаются, новые ложатся.
+ */
+async function writeAnalysis(mesId, tokens, summary) {
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return { ok: false };
+  const mark = stamp(String(message.mes || ''));
+  const turn = liveTurnOf(mesId, chat);
+  const prev = entryOf(mark, turn);
+  const list = Array.isArray(tokens) ? [...tokens] : null;
+  const words = summary === undefined ? (prev && prev.summary) || '' : summary;
+
+  if (turn) {
+    // Выводы, которые когда-то легли поправкой (ответ был старым, потом новые
+    // ответы удалили), сперва снимаются: дальше их несёт пересчёт.
+    if (prev && prev.mode === 'late') await commitCorrections(mesId, undoCorrections(prev));
+    putLedger({
+      ...(prev || { rows: [], day: '', time: '', marker: false }),
+      stamp: mark, tokens: list, mode: 'live', receipts: null, summary: list ? words : '', at: Date.now(),
+    });
+    await handleMessage(mesId, { source: 'analysis' });
+    renderPanels();
+    return { ok: true };
+  }
+
+  const day = (prev && prev.day) || (live.state.calendar && live.state.calendar.day) || '';
+  const steps = prev ? undoCorrections(prev) : [];
+  const lexicon = lexiconOf(live.state, ctx());
+  const receipts = [];
+  for (const t of list || []) {
+    const ev = tokenEvent(t, lexicon);
+    const step = (s) => applyCorrection(s, ev, live.preset, { day });
+    steps.push(step);
+    receipts.push(null);
+  }
+  // Квитанции снимаются с нынешнего состояния; снимки истории правятся теми же
+  // шагами, а их квитанции не нужны — снимать будем по квитанциям нынешнего.
+  let state = live.state;
+  let k = 0;
+  const undoCount = steps.length - (list || []).length;
+  steps.forEach((fn, i) => {
+    const out = fn(state);
+    if (i < undoCount) state = out;
+    else {
+      state = out.state;
+      receipts[k] = out.receipt;
+      k += 1;
+    }
+  });
+  historyApply(mesId, steps, undoCount);
+  await commit(state);
+  putLedger({
+    ...(prev || { rows: [], time: '', marker: false }),
+    stamp: mark, day, tokens: list, mode: 'late', receipts: list ? receipts : null,
+    summary: list ? words : '', at: Date.now(),
+  });
+  setInjects({});
+  await syncLorebook();
+  refreshPanel();
+  return { ok: true };
 }
 
-/** Правка выводов последнего ответа с плашки: пересчёт от снимка. */
+/** Шаги снятия прежних выводов записи: по квитанциям, а без них — по токенам. */
+function undoCorrections(entry) {
+  if (!entry || !Array.isArray(entry.tokens)) return [];
+  const lexicon = lexiconOf(live.state, ctx());
+  const steps = [];
+  for (let i = entry.tokens.length - 1; i >= 0; i -= 1) {
+    const receipt = entry.mode === 'late' && Array.isArray(entry.receipts) && entry.receipts[i]
+      ? entry.receipts[i]
+      : receiptOf(tokenEvent(entry.tokens[i], lexicon), entry.day);
+    if (receipt) steps.push((s) => revertCorrection(s, receipt, live.preset));
+  }
+  return steps;
+}
+
+/** Применить шаги снятия к нынешнему состоянию и снимкам истории. */
+async function commitCorrections(mesId, steps) {
+  if (!steps.length) return;
+  let state = live.state;
+  for (const fn of steps) state = fn(state);
+  historyApply(mesId, steps, steps.length);
+  await commit(state);
+}
+
+/**
+ * Те же шаги — в снимки ходов новее ответа `mesId`: они должны знать о
+ * поправке, иначе откат свайпом вернул бы состояние без неё. Первые
+ * `undoCount` шагов возвращают состояние, остальные — `{state, receipt}`.
+ */
+function historyApply(mesId, steps, undoCount) {
+  for (const t of live.turns) {
+    if (!t.before || !(t.mesId > mesId)) continue;
+    let s = t.before;
+    steps.forEach((fn, i) => {
+      const out = fn(s);
+      s = i < undoCount ? out : out.state;
+    });
+    t.before = s;
+  }
+}
+
+/** Правка выводов с плашки: вычеркнуть один или снять все. */
 async function editAnalysis(mesId, change) {
   const chat = chatOf();
   const message = chat[mesId];
   if (!eligible(message)) return { ok: false };
   const mark = stamp(String(message.mes || ''));
-  const turn = latestFor(mesId, chat);
-  if (!turn || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
-  const entry = ledgerEntry(mark) || (turn.stamp ? ledgerEntry(turn.stamp) : null);
-  setTokens(mark, change(entry && Array.isArray(entry.tokens) ? entry.tokens : null));
+  const entry = entryOf(mark, liveTurnOf(mesId, chat));
   live.analysisErrors.delete(mark);
-  await handleMessage(mesId, { source: 'analysis' });
-  renderPanels();
-  return { ok: true };
+  return writeAnalysis(mesId, change(entry && Array.isArray(entry.tokens) ? entry.tokens : null));
 }
 
 /** Последний ответ чата, который новее последнего хода, — его ещё можно посчитать. */

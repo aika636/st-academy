@@ -81,13 +81,6 @@ export const TIME_MODES = [
   { id: 'marker', label: 'Своя метка', hint: 'чистые посты, всё идёт служебным блоком' },
 ];
 
-/** Когда секретарь разбирает ответ (`storage.DEFAULT_SETTINGS.analysis`). */
-export const ANALYSIS_MODE_VIEW = [
-  { id: 'button', label: 'По кнопке', hint: 'значок на плашке под ответом' },
-  { id: 'missing', label: 'Если нет метки', hint: 'сам, когда рассказчик метку не поставил' },
-  { id: 'auto', label: 'Всегда', hint: 'после каждого ответа — отдельный запрос' },
-];
-
 /** Кто решает исход контрольного в этом чате (`exams.examRule`). */
 export const EXAM_RULE_VIEW = [
   { id: 'story', label: 'Сюжет', hint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — хвост' },
@@ -109,6 +102,36 @@ export const TABS = [
  * ничего лишнего на экране» здесь понимается буквально — вкладки нет.
  */
 export const DEBUG_TAB = { id: 'debug', label: 'Отладка' };
+
+/** Иконки вкладок (Font Awesome 6 из таверны) — по id, ярлыки остаются пресету. */
+export const TAB_ICONS = {
+  today: 'fa-sun', gradebook: 'fa-book-open', people: 'fa-users', settings: 'fa-gear', debug: 'fa-bug',
+};
+
+/**
+ * Иконка блока по словам заголовка. Заголовки пишутся словами пресета и
+ * механизма, поэтому сверяется корень, а не строка целиком; незнакомому —
+ * общая точка.
+ */
+const SECTION_ICONS = [
+  [/анкет/i, 'fa-id-card'],
+  [/дисциплин|предмет|учебн|расписан/i, 'fa-list-check'],
+  [/пресет/i, 'fa-building-columns'],
+  [/api|генерац/i, 'fa-plug'],
+  [/времен/i, 'fa-clock'],
+  [/разбор|экзамен/i, 'fa-wand-magic-sparkles'],
+  [/лорбук/i, 'fa-book-atlas'],
+  [/отладк|доктор/i, 'fa-bug'],
+  [/выгруз|загруз|файл/i, 'fa-file-arrow-down'],
+  [/вех/i, 'fa-trophy'],
+  [/звук/i, 'fa-bell'],
+  [/ремонт|поправ/i, 'fa-screwdriver-wrench'],
+];
+
+export function sectionIcon(title) {
+  const hit = SECTION_ICONS.find(([re]) => re.test(String(title || '')));
+  return hit ? hit[1] : 'fa-circle-dot';
+}
 
 /** Сколько переходов ярлыка показывать по одному преподавателю (3.9: телефон). */
 export const PEOPLE_HISTORY = 3;
@@ -1117,7 +1140,6 @@ export function settingsView(state, settings, preset, extra = {}) {
     modes: TIME_MODES.map((m) => ({ ...m, active: m.id === (s.mode || 'auto') })),
     // Секретарь (`core/analysis`) — настройка общая; правило экзаменов — своё
     // у каждого чата и есть только у заведённого семестра.
-    analysisModes: ANALYSIS_MODE_VIEW.map((m) => ({ ...m, active: m.id === (ANALYSIS_MODE_VIEW.some((x) => x.id === s.analysis) ? s.analysis : 'button') })),
     examRules: state ? EXAM_RULE_VIEW.map((r) => ({ ...r, active: r.id === examRule(state) })) : [],
     // В режиме «из контекста» инжект инструкции не имеет смысла (3.2).
     injectMarker: s.mode === 'context' ? false : s.injectMarker !== false,
@@ -3456,20 +3478,6 @@ function renderApiBlock(host, view) {
  * правило — своё у чата, поэтому без семестра его выбирать не из чего.
  */
 function renderAnalysisBlock(host, view) {
-  const group = nextId('academy_analysis');
-  const modes = el('div', { class: 'academy-modes' }, view.analysisModes.map((m) => {
-    const radio = el('input', { type: 'radio', name: group, value: m.id, checked: m.active });
-    radio.addEventListener('change', () => {
-      safe(() => host.setSettings({ analysis: m.id }), null);
-      renderPanel(host);
-    });
-    return el('label', { class: m.active ? 'academy-mode academy-mode-on' : 'academy-mode' }, [
-      radio,
-      el('span', { class: 'academy-mode-label', text: m.label }),
-      el('span', { class: 'academy-note', text: m.hint }),
-    ]);
-  }));
-
   const ruleGroup = nextId('academy_exam_rule');
   const status = el('div', { class: 'academy-status' });
   const rules = view.examRules.length
@@ -3489,8 +3497,7 @@ function renderAnalysisBlock(host, view) {
     : el('p', { class: 'academy-note', text: 'Правило экзаменов выбирается, когда в чате заведён семестр.' });
 
   return section('Разбор ответов и экзамены', [
-    el('p', { class: 'academy-note', text: 'Секретарь — отдельный запрос через API Академии: читает ответ модели и записывает оценки, прогулы и отношения. Выводы видны на плашке под ответом, лишнее там же вычёркивается.' }),
-    modes,
+    el('p', { class: 'academy-note', text: 'Секретарь — отдельный запрос через API Академии, только по кнопке на плашке под ответом: читает ответ модели и записывает оценки, прогулы, опоздания и перемены в отношении преподавателей. Последний ответ пересчитывается начисто, старый получает поправку датой того ответа. Каждый вывод можно вычеркнуть.' }),
     el('p', { class: 'academy-note', text: 'Кто решает исход контрольного в этом чате:' }),
     rules,
     status,
@@ -4209,7 +4216,13 @@ function section(title, children, open = false) {
   const key = `${sectionScope}::${title}`;
   const wasOpen = sectionOpen.has(key) ? sectionOpen.get(key) === true : open === true;
   const node = el('details', { class: 'academy-section', open: wasOpen }, [
-    el('summary', { class: 'academy-section-title', text: title }),
+    // Название — текстом самого заголовка, иконки — после него в DOM, а
+    // впереди их ставит `order` в style.css: так у заголовка остаётся чистый
+    // `textContent`, по которому блок узнают тесты и поиск.
+    el('summary', { class: 'academy-section-title', text: title }, [
+      el('i', { class: `fa-solid ${sectionIcon(title)} academy-section-icon`, 'aria-hidden': 'true' }),
+      el('i', { class: 'fa-solid fa-chevron-right academy-section-chevron', 'aria-hidden': 'true' }),
+    ]),
     ...[].concat(children),
   ]);
   // Читаем `open` у самого узла, а не считаем нажатия: `<details>` умеет
@@ -4299,10 +4312,14 @@ export function mountPanel(host) {
 
   const panel = el('div', { id: ID.panel, class: 'academy-panel draggable', role: 'dialog', 'aria-label': 'Академия' }, [
     el('div', { class: 'academy-bar panelControlBar' }, [
-      el('div', { class: 'academy-grab drag-grabber fa-solid fa-grip', title: 'Перетащить' }),
-      el('div', { class: 'academy-title', text: 'Академия' }),
+      el('div', { class: 'academy-grab drag-grabber fa-solid fa-grip-vertical', title: 'Перетащить' }),
+      el('div', { class: 'academy-logo' }, [el('i', { class: 'fa-solid fa-graduation-cap', 'aria-hidden': 'true' })]),
+      el('div', { class: 'academy-titles' }, [
+        el('div', { class: 'academy-title', text: 'Академия' }),
+        el('div', { class: 'academy-subtitle' }),
+      ]),
       el('div', {
-        class: 'academy-close dragClose fa-solid fa-circle-xmark',
+        class: 'academy-close dragClose fa-solid fa-xmark',
         title: 'Закрыть',
         onclick: () => closePanel(),
       }),
@@ -4385,9 +4402,19 @@ export function renderPanel(host) {
     tabsBox.append(el('div', {
       class: t.id === mounted.tab ? 'academy-tab academy-tab-on' : 'academy-tab',
       dataset: { tab: t.id },
-      text: t.label,
       onclick: () => { mounted.tab = t.id; renderPanel(h); },
-    }));
+    }, [
+      el('i', { class: `fa-solid ${TAB_ICONS[t.id] || 'fa-circle'} academy-tab-icon`, 'aria-hidden': 'true' }),
+      el('span', { class: 'academy-tab-label', text: t.label }),
+    ]));
+  }
+
+  // Подзаголовок шапки — где сюжет в календаре: «вторник, 8 декабря · 21:20».
+  const sub = mounted.panel.querySelector('.academy-subtitle');
+  if (sub) {
+    const st = safe(() => h.getState(), null);
+    const cal = st && st.started && st.calendar;
+    sub.textContent = cal ? [formatDate(cal.day), cal.time].filter(Boolean).join(' · ') : '';
   }
 
   const body = clear(mounted.panel.querySelector('.academy-body'));
@@ -4637,6 +4664,12 @@ function dragBy(handle, target, host, kind, onTap) {
 function swipeToClose(panel) {
   let from = null;
   panel.addEventListener('touchstart', (e) => {
+    // Только за шапку и полосу вкладок: на весь экран панель листается
+    // пальцем, и короткое содержимое закрывалось бы от любого жеста вверх.
+    if (!(e.target && e.target.closest && e.target.closest('.academy-bar, .academy-tabs'))) {
+      from = null;
+      return;
+    }
     const t = e.touches[0];
     from = { x: t.clientX, y: t.clientY, top: panel.scrollTop };
   }, { passive: true });

@@ -61,13 +61,6 @@ export const DEFAULT_SETTINGS = {
    * одноразовый факт остаются инжектами, их место важно (3.1, 3.5).
    */
   statusViaMacro: false,
-  /**
-   * Секретарь (`core/analysis`): когда отдельный запрос читает ответ модели и
-   * записывает оценки, прогулы и отношения. `'button'` — только по кнопке на
-   * плашке под сообщением; `'auto'` — после каждого ответа; `'missing'` —
-   * после ответа, в котором рассказчик не поставил метку.
-   */
-  analysis: 'button',
   /** Режим отладки: журнал и разбор ответа в панели. */
   debug: false,
   /**
@@ -414,10 +407,10 @@ export const LEDGER_KEY = `${KEY}_ledger`;
 export const LEDGER_FORMAT = 1;
 
 /** Сколько ответов помнить. */
-export const LEDGER_SIZE = 40;
+export const LEDGER_SIZE = 100;
 
 /**
- * Запись протокола: `{stamp, rows, day, time, tokens, marker, at}`.
+ * Запись протокола: `{stamp, rows, day, time, tokens, marker, at, mode, receipts, summary}`.
  * `tokens` — выводы секретаря (`null` — разбора не было), `rows` — события
  * мира, которые этот ответ сделал, готовыми строками (`mes-panel.rowText`), `marker` — была ли
  * метка рассказчика. Всё непохожее выбрасывается молча, как в истории ходов.
@@ -435,6 +428,11 @@ export function readLedger(raw) {
       tokens: Array.isArray(e.tokens) ? e.tokens.filter((t) => typeof t === 'string' && t) : null,
       marker: e.marker === true,
       at: Number.isFinite(e.at) ? e.at : 0,
+      // Как легли выводы (`core/corrections`): `'live'` — пересчётом хода,
+      // `'late'` — поправкой к старому ответу; у поправки — квитанции по токенам.
+      mode: e.mode === 'late' ? 'late' : 'live',
+      receipts: Array.isArray(e.receipts) ? e.receipts.map((r) => (r && typeof r === 'object' ? r : null)) : null,
+      summary: typeof e.summary === 'string' ? e.summary.slice(0, 300) : '',
     });
   }
   return out.slice(-LEDGER_SIZE);

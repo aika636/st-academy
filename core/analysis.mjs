@@ -36,9 +36,6 @@ export const ANALYSIS_KINDS = ['grade', 'rel', 'attendance'];
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
 
-/** Режимы разбора в настройках. */
-export const ANALYSIS_MODES = ['button', 'auto', 'missing'];
-
 const SYSTEM = [
   'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку и списки предметов и преподавателей.',
   'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось с героиней. Ничего не додумываешь.',
@@ -70,7 +67,9 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   lines.push('Предметы (id — название — преподаватель):', ...subjects);
   lines.push('Преподаватели (id — имя):', ...teachers);
   if (values.length) lines.push(`Оценки пишутся одним из значений: ${values.join(', ')}.`);
-  const exams = todaysExamLines(state, preset);
+  // Старый ответ разбирается поправкой (`core/corrections`): сегодняшнее
+  // контрольное к нему не относится.
+  const exams = input.exams === false ? [] : todaysExamLines(state, preset);
   if (exams.length) {
     lines.push(`Сегодня по расписанию: ${exams.join('; ')}. Если во фрагменте его сдали или провалили — запиши исход как grade по этому предмету.`);
   }
@@ -87,7 +86,9 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
     '- Время и дату не пиши.',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
-    '- Если ничего из этого не случилось — ответь <!-- [ACADEMY] -->.',
+    '- Если ничего из этого не случилось — пустая метка <!-- [ACADEMY] -->.',
+    '',
+    'Второй строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини (пары, оценки, преподаватели, прогулы) — или «к учёбе не относится».',
   );
   return { system: SYSTEM, user: lines.join('\n') };
 }
@@ -117,7 +118,7 @@ function todaysExamLines(state, preset) {
  *
  * @param {string} raw ответ модели
  * @param {Object} lexicon то же, что `parseMarker`: пресет со списками состояния и `names`
- * @returns {{found: boolean, tokens: string[], rejected: Array<{raw: string, reason: string}>}}
+ * @returns {{found: boolean, tokens: string[], summary: string, rejected: Array<{raw: string, reason: string}>}}
  */
 export function parseAnalysis(raw, lexicon) {
   const text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
@@ -127,7 +128,11 @@ export function parseAnalysis(raw, lexicon) {
     const t = tokenOf(ev);
     if (t && !tokens.includes(t)) tokens.push(t);
   }
-  return { found: parsed.found, tokens, rejected: parsed.rejected };
+  // «Кратко: …» — что секретарь вычитал словами; показывается на плашке, в
+  // состояние не идёт.
+  const m = /кратко\s*[:：]\s*(.+)/i.exec(text);
+  const summary = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 300) : '';
+  return { found: parsed.found, tokens, summary, rejected: parsed.rejected };
 }
 
 /** Событие разборщика → канонический токен; время и прочее — `null`. */
@@ -178,8 +183,7 @@ export function effectiveText(text, tokens) {
  * как есть.
  */
 export function tokenText(token, lexicon) {
-  const parsed = parseMarker(analysisMarker([token]), lexicon);
-  const ev = parsed.events[0];
+  const ev = tokenEvent(token, lexicon);
   if (!ev) return String(token);
   const subject = (id) => {
     const s = (lexicon.subjects || []).find((x) => x.id === id);
@@ -195,6 +199,11 @@ export function tokenText(token, lexicon) {
     return `${who}: ${dir}${how ? ` (${how})` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`;
   }
   return String(token);
+}
+
+/** Токен обратно в событие разборщика; не читается — `null`. */
+export function tokenEvent(token, lexicon) {
+  return parseMarker(analysisMarker([token]), lexicon).events[0] || null;
 }
 
 function str(v) {
