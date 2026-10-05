@@ -34,6 +34,8 @@ export const PANEL_TEXT = {
   byAnalysisEmpty: 'Секретарь ничего не нашёл.',
   events: 'Что изменилось',
   onlyLast: 'Разбирать можно только последний ответ: более ранние уже легли в основу следующих.',
+  notCounted: 'ответ ещё не посчитан',
+  uncounted: 'Академия этот ответ ещё не считала. Разбор сначала посчитает его, потом позовёт секретаря.',
   more: 'ещё {n}',
 };
 
@@ -78,6 +80,7 @@ export function rowText(row) {
  * Петрова: теплее · ещё 2».
  */
 export function summaryText(view) {
+  if (view.uncounted) return PANEL_TEXT.notCounted;
   const when = [view.date, view.time].filter(Boolean).join(' · ');
   const lines = (view.rows || []).filter(Boolean);
   const head = lines.slice(0, 2);
@@ -235,6 +238,8 @@ function buildPanel(host, mesId, view) {
           : null,
       ])))
       : el('div', { class: 'academy-mes-note', text: PANEL_TEXT.byAnalysisEmpty }));
+  } else if (view.uncounted) {
+    content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.uncounted }));
   } else if (view.marker === false) {
     content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.noMarker }));
   }

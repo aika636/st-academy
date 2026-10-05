@@ -1209,11 +1209,11 @@ function startDayHint() {
  * соседом ещё раз, отсекается сохранённым отпечатком.
  */
 async function handleMessage(mesId, { source = 'received' } = {}) {
-  if (!live.preset || !live.state || !live.state.started) return;
+  if (!live.preset || !live.state || !live.state.started) return 'семестр не начат';
   const c = ctx();
   const chat = chatOf();
   const message = chat[mesId];
-  if (!eligible(message)) return;
+  if (!eligible(message)) return 'не ответ модели';
 
   const text = String(message.mes || '');
   const mark = stamp(text);
@@ -1227,14 +1227,14 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   if (turn) {
     // Тот же ход: свайп, продолжение, правка. Уже посчитан этим текстом и этим
     // разбором — выход; иначе считается заново от снимка «до него».
-    if (turn.stamp === mark && (turn.analysis ?? null) === analysisKey) return;
+    if (turn.stamp === mark && (turn.analysis ?? null) === analysisKey) return 'уже посчитан';
   } else {
     const latest = live.turns[live.turns.length - 1];
     // Сообщение раньше последнего хода: либо уже посчитанный старый ход (его
     // не пересчитываем, см. правило выше), либо сообщение, которое никогда не
     // было ходом. Считать его сейчас — значит вклеить прошлое поверх
     // настоящего не по порядку.
-    if (latest && mesId <= latest.mesId) return;
+    if (latest && mesId <= latest.mesId) return `раньше последнего хода #${latest.mesId}`;
     // Откаченный под свайп ход, так и не получивший нового текста (генерацию
     // остановили, человек написал своё): вклада в состояние у него нет.
     if (latest && latest.stamp === null) live.turns.pop();
@@ -1315,6 +1315,26 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   // разбор — отдельный запрос, а этот ответ уже посчитан и в силе.
   if (source === 'received' && !tokens && wantsAutoAnalysis(settings, text)) {
     analyzeMessage(mesId).catch((err) => console.warn(`[${MODULE}] автоматический разбор не удался:`, err));
+  }
+  return 'посчитан';
+}
+
+/**
+ * Журнал событий ответа: что пришло от таверны и что Академия с ним сделала.
+ * Ответ, который она пропустила, иначе не виден ничем, а на телефоне нет
+ * консоли — журнал показывает «Вернуть кнопку» в меню расширений
+ * (`panelDiagnosis`). Ошибка обработчика сюда тоже попадает: раньше она тонула
+ * в `eventSource` молча, и ответ просто оставался непосчитанным.
+ */
+async function traced(event, mesId, run) {
+  const row = { event, mesId, result: '…' };
+  live.trace = [...(live.trace || []), row].slice(-6);
+  try {
+    const result = await run();
+    row.result = typeof result === 'string' ? result : 'готово';
+  } catch (err) {
+    row.result = `ошибка: ${(err && err.message) || err}`;
+    console.error(`[${MODULE}] ${event} #${mesId} упал:`, err);
   }
 }
 
@@ -1425,7 +1445,10 @@ function panelView(mesId) {
   // Запись протокола тогда лежит под отпечатком, с которым ход был посчитан.
   const isLast = Boolean(turn && turn.before);
   const entry = ledgerEntry(mark) || (isLast && turn.stamp ? ledgerEntry(turn.stamp) : null);
-  if (!entry && !isLast) return null;
+  // Последний ответ чата, которого Академия не считала вовсе (событие не
+  // пришло или обработчик упал): плашка всё равно есть, разбор его досчитает.
+  const uncounted = !entry && !isLast && countable(mesId, chat);
+  if (!entry && !isLast && !uncounted) return null;
   const lexicon = lexiconOf(live.state, ctx());
   const tokens = entry && Array.isArray(entry.tokens) ? entry.tokens : null;
   return {
@@ -1435,7 +1458,8 @@ function panelView(mesId) {
     analyzed: Boolean(tokens),
     tokens: (tokens || []).map((t) => tokenText(t, lexicon)),
     marker: entry ? entry.marker : null,
-    canAnalyze: isLast,
+    canAnalyze: isLast || uncounted,
+    uncounted,
     busy: live.analyzing.has(mark),
     error: live.analysisErrors.get(mark) || '',
   };
@@ -1452,6 +1476,8 @@ async function analyzeMessage(mesId) {
   if (!live.state || !live.state.started || !eligible(message)) return { ok: false, error: 'Здесь нечего разбирать.' };
   const text = String(message.mes || '');
   const mark = stamp(text);
+  // Непосчитанный последний ответ сперва считается — как если бы событие пришло.
+  if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
   const turn = latestFor(mesId, chat);
   if (!turn || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
   if (live.analyzing.has(mark)) return { ok: false, error: PANEL_TEXT.analyzing };
@@ -1525,6 +1551,13 @@ async function editAnalysis(mesId, change) {
   return { ok: true };
 }
 
+/** Последний ответ чата, который новее последнего хода, — его ещё можно посчитать. */
+function countable(mesId, chat) {
+  if (mesId !== lastEligible(chat)) return false;
+  const latest = live.turns[live.turns.length - 1];
+  return !latest || mesId > latest.mesId;
+}
+
 /**
  * Почему у ответов нет плашки — словами, для меню расширений (на телефоне
  * консоли нет). Каждая часть проверяемая.
@@ -1542,6 +1575,8 @@ function panelDiagnosis() {
     parts.push(`последний ход — #${turn.mesId}, текст ${same ? 'совпадает' : 'изменён после подсчёта'}`);
   }
   parts.push(`записей протокола: ${live.ledger.length}`);
+  const trace = (live.trace || []).map((r) => `${r.event} #${r.mesId} — ${r.result}`);
+  parts.push(trace.length ? `последние события: ${trace.join(', ')}` : 'событий об ответах с запуска не было');
   if (typeof document !== 'undefined') {
     parts.push(`сообщений на странице: ${document.querySelectorAll('#chat .mes[mesid]').length}`);
     parts.push(`плашек на странице: ${document.querySelectorAll('.academy-mes-panel').length}`);
@@ -2630,10 +2665,10 @@ async function init() {
 
   const ev = c.eventSource;
   const t = c.event_types;
-  ev.on(t.MESSAGE_RECEIVED, (mesId) => handleMessage(mesId));
-  ev.on(t.MESSAGE_SWIPED, (mesId) => handleSwipe(mesId));
-  ev.on(t.MESSAGE_EDITED, (mesId) => handleEdited(mesId));
-  ev.on(t.MESSAGE_UPDATED, (mesId) => handleEdited(mesId));
+  ev.on(t.MESSAGE_RECEIVED, (mesId, type) => traced(`ответ${type ? ` (${type})` : ''}`, mesId, () => handleMessage(mesId)));
+  ev.on(t.MESSAGE_SWIPED, (mesId) => traced('свайп', mesId, () => handleSwipe(mesId)));
+  ev.on(t.MESSAGE_EDITED, (mesId) => traced('правка', mesId, () => handleEdited(mesId)));
+  ev.on(t.MESSAGE_UPDATED, (mesId) => traced('обновление', mesId, () => handleEdited(mesId)));
   ev.on(t.MESSAGE_DELETED, () => handleDeleted());
   ev.on(t.CHAT_CHANGED, () => handleChatChanged());
   // Плашки под ответами: таверна перерисовывает сообщения сама (новый ответ,

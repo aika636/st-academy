@@ -455,3 +455,30 @@ test('сквозной: сосед молча дописал текст отве
   assert.equal(tavern.seam.panel.panelFor(id).analyzed, true);
   assert.match(tavern.seam.host.panelDiagnosis(), /последний ход — #\d+, текст совпадает/);
 });
+
+test('сквозной: последний ответ, которого Академия не считала, — плашка есть, разбор его досчитывает', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:4] -->' });
+  await reply(tavern, 'Первая сцена.');
+  // Второй ответ пришёл мимо Академии: события не было.
+  tavern.chat.push({ mes: 'Аня у доски.', is_user: true, is_system: false });
+  tavern.chat.push({ mes: 'Петрова ставит четыре.', is_user: false, is_system: false, swipes: ['Петрова ставит четыре.'], swipe_id: 0 });
+  const id = tavern.chat.length - 1;
+
+  const view = tavern.seam.panel.panelFor(id);
+  assert.ok(view, 'плашка есть');
+  assert.equal(view.uncounted, true);
+  assert.equal(view.canAnalyze, true);
+  assert.equal(tavern.seam.panel.panelFor(1).canAnalyze, true, 'плашка прежнего хода никуда не делась');
+
+  const res = await actions(tavern).analyzeMessage(id);
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
+  assert.equal(tavern.seam.live.turns.at(-1).mesId, id, 'ответ стал ходом');
+  assert.equal(tavern.seam.panel.panelFor(id).uncounted, false);
+});
+
+test('сквозной: журнал событий говорит, что Академия сделала с ответом', async () => {
+  const tavern = await boot();
+  await reply(tavern, 'Сцена.');
+  assert.match(tavern.seam.host.panelDiagnosis(), /последние события: ответ \(normal\) #\d+ — посчитан/);
+});
