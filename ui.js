@@ -4484,15 +4484,45 @@ function placeLauncher(host) {
   const h = window.innerHeight;
   if (!(w > LAUNCHER_SIZE && h > LAUNCHER_SIZE)) return;
   const pos = safe(() => (host.getSettings() || {}).ui, {}) || {};
-  if (!(Number.isFinite(pos.buttonX) && Number.isFinite(pos.buttonY))) {
-    for (const k of ['left', 'top', 'right', 'bottom']) button.style[k] = '';
-    return;
-  }
+  const saved = Number.isFinite(pos.buttonX) && Number.isFinite(pos.buttonY);
+  // Угол по умолчанию — те же отступы, что в style.css (`right: 12px`,
+  // `bottom: 120px`, на узком экране 140px), но числами от верха и слева:
+  // см. `moveFixed`, почему не `bottom`.
+  const x = saved ? pos.buttonX : w - LAUNCHER_SIZE - 12;
+  const y = saved ? pos.buttonY : h - LAUNCHER_SIZE - (w <= 600 ? 140 : 120);
   const minTop = topReserve();
-  button.style.left = `${Math.min(Math.max(0, pos.buttonX), w - LAUNCHER_SIZE)}px`;
-  button.style.top = `${Math.min(Math.max(minTop, pos.buttonY), h - LAUNCHER_SIZE)}px`;
-  button.style.right = 'auto';
-  button.style.bottom = 'auto';
+  moveFixed(button, Math.min(Math.max(0, x), w - LAUNCHER_SIZE), Math.min(Math.max(minTop, y), h - LAUNCHER_SIZE));
+}
+
+/**
+ * Начало координат `position: fixed` для узла — в координатах экрана.
+ *
+ * Обычно это угол окна, (0, 0). Но если тема или соседнее расширение ставят на
+ * `body` (или `html`) `transform`, `filter`, `contain` или `will-change`,
+ * fixed-узлы отсчитываются от `body`, а не от окна. На телефоне владелицы так и
+ * было: `bottom: 140px` считался от низа `body` нулевой высоты, и кнопка
+ * стояла на -182 по вертикали — за верхним краем, где её не видно и где её не
+ * находит STFolder. Замер честный: место узла на экране минус его же
+ * вычисленные `left`/`top`.
+ */
+function fixedOrigin(node) {
+  // Без замера (не браузер, узел не на странице) — обычный случай: угол окна.
+  if (typeof getComputedStyle !== 'function' || !node.isConnected || typeof node.getBoundingClientRect !== 'function') {
+    return { x: 0, y: 0 };
+  }
+  const cs = getComputedStyle(node);
+  const r = node.getBoundingClientRect();
+  const x = r.left - parseFloat(cs.left);
+  const y = r.top - parseFloat(cs.top);
+  return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };
+}
+
+/** Поставить fixed-узел так, чтобы на экране его угол оказался в (`left`, `top`). */
+function moveFixed(node, left, top, origin = fixedOrigin(node)) {
+  node.style.left = `${Math.round(left - origin.x)}px`;
+  node.style.top = `${Math.round(top - origin.y)}px`;
+  node.style.right = 'auto';
+  node.style.bottom = 'auto';
 }
 
 let viewportWatched = false;
@@ -4526,6 +4556,8 @@ export function launcherDiagnosis() {
   const off = r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight;
   if (style.display === 'none' && !parts.length) parts.push('она скрыта стилем (display: none)');
   if (off) parts.push('она за краем экрана');
+  const o = fixedOrigin(b);
+  if (Math.abs(o.x) > 1 || Math.abs(o.y) > 1) parts.push(`тема или расширение сдвинули систему координат (${Math.round(o.x)}, ${Math.round(o.y)}) — Академия это учитывает`);
   parts.push(`место: ${Math.round(r.left)}, ${Math.round(r.top)}; окно ${window.innerWidth}×${window.innerHeight}`);
   return `Кнопка на странице: ${parts.join('; ')}.`;
 }
@@ -4554,7 +4586,7 @@ function dragBy(handle, target, host, kind, onTap) {
   const begin = (e) => {
     const p = point(e);
     const rect = target.getBoundingClientRect();
-    start = { x: p.clientX, y: p.clientY, left: rect.left, top: rect.top, moved: false };
+    start = { x: p.clientX, y: p.clientY, left: rect.left, top: rect.top, origin: fixedOrigin(target), moved: false };
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', end);
     document.addEventListener('touchmove', move, { passive: true });
@@ -4574,10 +4606,7 @@ function dragBy(handle, target, host, kind, onTap) {
     const h = target.offsetHeight;
     const left = Math.min(Math.max(0, start.left + dx), Math.max(0, window.innerWidth - w));
     const top = Math.min(Math.max(0, start.top + dy), Math.max(0, window.innerHeight - h));
-    target.style.left = `${left}px`;
-    target.style.top = `${top}px`;
-    target.style.right = 'auto';
-    target.style.bottom = 'auto';
+    moveFixed(target, left, top, start.origin);
   };
 
   const end = () => {
