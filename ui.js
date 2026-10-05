@@ -4717,7 +4717,10 @@ function renderSettingsBlock(host) {
     el('div', {
       class: 'menu_button academy-btn',
       text: 'Вернуть кнопку',
-      onclick: () => { launcherNote.textContent = `${launcherDiagnosis()} Возвращаю в угол… ${resetLauncher(host)}`; },
+      onclick: () => {
+        const panels = safe(() => (typeof host.panelDiagnosis === 'function' ? host.panelDiagnosis() : ''), '') || '';
+        launcherNote.textContent = `${launcherDiagnosis()} Возвращаю в угол… ${resetLauncher(host)} ${panels}`;
+      },
     }),
   ]), launcherNote);
   // Пресет — настройка общая для всех чатов, и человек ищет такие в меню

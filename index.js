@@ -1419,9 +1419,12 @@ function panelView(mesId) {
   const message = chat[mesId];
   if (!eligible(message)) return null;
   const mark = stamp(String(message.mes || ''));
-  const entry = ledgerEntry(mark);
   const turn = latestFor(mesId, chat);
-  const isLast = Boolean(turn && turn.stamp === mark && turn.before);
+  // Последний ход узнаётся и по номеру сообщения: соседи (трекеры, Horae)
+  // бывает дописывают текст ответа молча, без события, и отпечаток расходится.
+  // Запись протокола тогда лежит под отпечатком, с которым ход был посчитан.
+  const isLast = Boolean(turn && turn.before);
+  const entry = ledgerEntry(mark) || (isLast && turn.stamp ? ledgerEntry(turn.stamp) : null);
   if (!entry && !isLast) return null;
   const lexicon = lexiconOf(live.state, ctx());
   const tokens = entry && Array.isArray(entry.tokens) ? entry.tokens : null;
@@ -1450,7 +1453,7 @@ async function analyzeMessage(mesId) {
   const text = String(message.mes || '');
   const mark = stamp(text);
   const turn = latestFor(mesId, chat);
-  if (!turn || turn.stamp !== mark || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
+  if (!turn || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
   if (live.analyzing.has(mark)) return { ok: false, error: PANEL_TEXT.analyzing };
 
   const epoch = live.epoch;
@@ -1513,13 +1516,37 @@ async function editAnalysis(mesId, change) {
   if (!eligible(message)) return { ok: false };
   const mark = stamp(String(message.mes || ''));
   const turn = latestFor(mesId, chat);
-  if (!turn || turn.stamp !== mark) return { ok: false, error: PANEL_TEXT.onlyLast };
-  const entry = ledgerEntry(mark);
+  if (!turn || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
+  const entry = ledgerEntry(mark) || (turn.stamp ? ledgerEntry(turn.stamp) : null);
   setTokens(mark, change(entry && Array.isArray(entry.tokens) ? entry.tokens : null));
   live.analysisErrors.delete(mark);
   await handleMessage(mesId, { source: 'analysis' });
   renderPanels();
   return { ok: true };
+}
+
+/**
+ * Почему у ответов нет плашки — словами, для меню расширений (на телефоне
+ * консоли нет). Каждая часть проверяемая.
+ */
+function panelDiagnosis() {
+  if (!live.state) return 'Плашки: семестра в этом чате нет.';
+  if (!live.state.started) return 'Плашки: семестр не начат.';
+  const chat = chatOf();
+  const last = lastEligible(chat);
+  const turn = live.turns[live.turns.length - 1];
+  const parts = [`последний ответ в чате — #${last}`];
+  if (!turn) parts.push('ходов Академия не помнит (ответов после обновления ещё не было)');
+  else {
+    const same = chat[turn.mesId] ? stamp(String(chat[turn.mesId].mes || '')) === turn.stamp : false;
+    parts.push(`последний ход — #${turn.mesId}, текст ${same ? 'совпадает' : 'изменён после подсчёта'}`);
+  }
+  parts.push(`записей протокола: ${live.ledger.length}`);
+  if (typeof document !== 'undefined') {
+    parts.push(`сообщений на странице: ${document.querySelectorAll('#chat .mes[mesid]').length}`);
+    parts.push(`плашек на странице: ${document.querySelectorAll('.academy-mes-panel').length}`);
+  }
+  return `Плашки: ${parts.join('; ')}.`;
 }
 
 const panelHost = {
@@ -1849,6 +1876,8 @@ function registerMacro(c) {
  */
 const host = {
   getState: () => live.state,
+  /** Почему нет плашек под ответами — для меню расширений. */
+  panelDiagnosis: () => panelDiagnosis(),
   getReport: () => live.report,
   getPreset: () => live.preset,
   /** Из чего выбирать пресет и что выбрано сейчас. Имена — из самих пресетов. */

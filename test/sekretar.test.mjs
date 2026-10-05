@@ -438,3 +438,20 @@ test('сквозной: правило экзаменов меняется по�
   assert.equal(stateOf(tavern).examBy, 'story');
   assert.equal((await actions(tavern).setExamRule('монетка')).ok, false);
 });
+
+test('сквозной: сосед молча дописал текст ответа — плашка и разбор на месте', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
+  const id = await reply(tavern, 'Петрова ставит пять.');
+  // Трекер дописывает свой блок прямо в `mes` и событий не шлёт.
+  tavern.chat[id].mes += '\n<horae>time:10:15</horae>';
+  const view = tavern.seam.panel.panelFor(id);
+  assert.ok(view, 'плашка есть');
+  assert.equal(view.canAnalyze, true);
+  assert.ok(view.date, 'запись протокола нашлась по ходу');
+
+  const res = await actions(tavern).analyzeMessage(id);
+  assert.equal(res.ok, true, res.error);
+  assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
+  assert.equal(tavern.seam.panel.panelFor(id).analyzed, true);
+  assert.match(tavern.seam.host.panelDiagnosis(), /последний ход — #\d+, текст совпадает/);
+});
