@@ -4374,6 +4374,38 @@ function openPanel(host) {
   if (!mounted.panel) return;
   mounted.panel.classList.add('academy-open');
   renderPanel(host || mounted.host);
+  fitPanel();
+  watchViewport(host || mounted.host);
+}
+
+/** Ширина, до которой панель — на весь экран (как `@media (max-width: 600px)`). */
+const FULLSCREEN_MAX = 600;
+
+/**
+ * На телефоне панель — ровно видимая часть экрана. CSS здесь мало: `100dvh`
+ * понимают не все браузеры телефона, а `100vh` на Android считает и полосу
+ * адреса — низ панели уезжал за экран, и до него было не долистать. Высота
+ * берётся у `visualViewport` (без клавиатуры и полос), место — с поправкой на
+ * начало координат fixed-узла (`fixedOrigin`: у владелицы тема сдвигает его).
+ * Значения ставятся с `important`, чтобы перебить правила медиазапроса.
+ */
+function fitPanel() {
+  const panel = mounted.panel;
+  if (!panel || typeof window === 'undefined') return;
+  const props = ['top', 'left', 'height', 'width'];
+  if (!panel.classList.contains('academy-open') || window.innerWidth > FULLSCREEN_MAX) {
+    for (const p of props) panel.style.removeProperty(p);
+    return;
+  }
+  for (const p of props) panel.style.removeProperty(p);
+  const vv = window.visualViewport;
+  const h = Math.round((vv && vv.height) || window.innerHeight);
+  const w = Math.round((vv && vv.width) || window.innerWidth);
+  const o = fixedOrigin(panel);
+  panel.style.setProperty('top', `${Math.round(-o.y + ((vv && vv.offsetTop) || 0))}px`, 'important');
+  panel.style.setProperty('left', `${Math.round(-o.x)}px`, 'important');
+  panel.style.setProperty('height', `${h}px`, 'important');
+  panel.style.setProperty('width', `${w}px`, 'important');
 }
 
 function closePanel() {
@@ -4560,7 +4592,7 @@ function watchViewport(host) {
   let timer = null;
   const again = () => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => { timer = null; placeLauncher(mounted.host || host); }, 150);
+    timer = setTimeout(() => { timer = null; placeLauncher(mounted.host || host); fitPanel(); }, 150);
   };
   window.addEventListener('resize', again);
   window.addEventListener('orientationchange', again);

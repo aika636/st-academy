@@ -1788,3 +1788,16 @@
   background: var(--ac-tint);
   border-left: 3px solid var(--academy-accent);
 }
+
+/* Содержимое панели листается само: без min-height: 0 флекс-ребёнок не сжимается
+   меньше своего содержимого, и на части телефонных браузеров прокрутка не включалась. */
+.academy-panel .academy-body {
+  min-height: 0;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.academy-panel .academy-bar,
+.academy-panel .academy-tabs {
+  flex: 0 0 auto;
+}
