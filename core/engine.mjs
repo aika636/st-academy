@@ -50,7 +50,7 @@ import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
   examTermIndex, examSessionEnded, closeExamSession, isPassing, examScore,
   scheduleDatedExams, datedExams, sittableExams, isDatedExam, kindOf, seededRng, examSeed,
-  announceResults, awaitingAnnouncement, externalValue,
+  announceResults, awaitingAnnouncement, externalValue, examRule,
 } from './exams.mjs';
 
 /** Режимы источника времени из таблицы 3.2. */
@@ -772,6 +772,8 @@ export function sitExam(state, preset, opts = {}) {
   if (!item) {
     return { state: cloneState(state), exam: null, permission: '', divergence: null, applied: false };
   }
+  const said = opts.modelSaid !== undefined && opts.modelSaid !== null && opts.modelSaid !== '';
+  if (examRule(state) === 'story') return sitByStory(state, preset, item, said ? String(opts.modelSaid) : '', opts.dice);
 
   // Балл, по которому судят на сессии, считается ВНУТРИ учебного периода
   // события, а не за весь год: иначе сильный первый триместр подпирал бы исходы
@@ -846,6 +848,47 @@ export function sitExam(state, preset, opts = {}) {
     },
     permission,
     divergence,
+    applied: true,
+  };
+}
+
+/**
+ * Контрольное по правилу «решает сюжет» (`exams.examRule`). Броска нет:
+ * исход — то, что сцена сказала меткой рассказчика или разбором секретаря, а
+ * кубик соседа в реплике человека — тоже часть сцены, её бросил сам человек.
+ * Сцена промолчала — сегодня никто не садился: контрольное ждёт следующего
+ * ответа, а не сыгранное до конца сессии станет хвостом.
+ *
+ * Хвост вызова — тот же, что у броска: строка допуска, репутация по исходу
+ * этой попытки, объявление итога по правилу пресета.
+ */
+function sitByStory(state, preset, item, said, dice) {
+  let value = said;
+  let external = null;
+  if (!value && dice) {
+    value = externalValue(preset, item.kind, dice);
+    if (value) external = { source: 'dice', tier: dice.tier, roll: dice.roll ?? null, dc: dice.dc ?? null, value };
+  }
+  if (!value) return { state: cloneState(state), exam: null, permission: '', divergence: null, applied: false };
+
+  const score = examScore(state, preset, item);
+  const permission = permissionLine(state, preset, { subjectId: item.subjectId, score, kind: item.kind });
+  let s = applyOutcome(state, { examId: item.id, value, day: state.calendar.day, reason: 'story', check: null }, preset).state;
+  const done = s.exams.items.find((i) => i.id === item.id) || item;
+  const delta = (preset.reputation && preset.reputation.delta) || {};
+  s = changeReputation(s, {
+    delta: isPassing(preset, done.outcome) ? delta.examPassed : delta.examFailed,
+    reason: 'exam',
+  }, preset).state;
+  return {
+    state: s,
+    exam: {
+      examId: item.id, subjectId: item.subjectId, value: done.outcome, reason: 'story', check: null,
+      ...(external ? { external } : {}),
+      ...(awaitingAnnouncement(done) ? { announceOn: done.announceOn } : {}),
+    },
+    permission,
+    divergence: null,
     applied: true,
   };
 }

@@ -61,6 +61,13 @@ export const DEFAULT_SETTINGS = {
    * одноразовый факт остаются инжектами, их место важно (3.1, 3.5).
    */
   statusViaMacro: false,
+  /**
+   * Секретарь (`core/analysis`): когда отдельный запрос читает ответ модели и
+   * записывает оценки, прогулы и отношения. `'button'` — только по кнопке на
+   * плашке под сообщением; `'auto'` — после каждого ответа; `'missing'` —
+   * после ответа, в котором рассказчик не поставил метку.
+   */
+  analysis: 'button',
   /** Режим отладки: журнал и разбор ответа в панели. */
   debug: false,
   /**
@@ -351,6 +358,8 @@ export function readTurns(raw, preset) {
       before: report.state,
       oneShotBefore: typeof t.oneShotBefore === 'string' ? t.oneShotBefore : '',
       oneShot: typeof t.oneShot === 'string' ? t.oneShot : '',
+      // Каким разбором секретаря ход посчитан (`null` — без разбора).
+      analysis: typeof t.analysis === 'string' ? t.analysis : null,
     });
   }
   return out.slice(-TURN_HISTORY);
@@ -379,10 +388,74 @@ export function saveTurns(ctx, list) {
     before: stripSecrets(t.before),
     oneShotBefore: t.oneShotBefore || '',
     oneShot: t.oneShot || '',
+    analysis: typeof t.analysis === 'string' ? t.analysis : null,
   }));
   md[TURNS_KEY] = { v: TURNS_FORMAT, list: turns };
   c.saveMetadataDebounced();
   return turns;
+}
+
+// --- протокол ответов (плашка под сообщением) --------------------------------
+//
+// Что расширение записало из каждого ответа модели: строки событий для плашки
+// и выводы секретаря. Ключ — отпечаток текста сообщения (`index.js: stamp`), а
+// не индекс: индексы едут от вставок соседей, а свайп туда и обратно должен
+// найти свой разбор, а не чужой.
+//
+// Лежит отдельно от истории ходов: ход откатывается свайпом и забывает себя, а
+// разбор, за который заплачено запросом, при возврате на тот же свайп нужен
+// снова. Список короткий (`LEDGER_SIZE`): плашки старых ответов — справка, а
+// метаданные чата таверна пишет целиком при каждом сохранении.
+
+/** Ключ протокола в `chat_metadata`. */
+export const LEDGER_KEY = `${KEY}_ledger`;
+
+/** Версия формата протокола. */
+export const LEDGER_FORMAT = 1;
+
+/** Сколько ответов помнить. */
+export const LEDGER_SIZE = 40;
+
+/**
+ * Запись протокола: `{stamp, rows, day, time, tokens, marker, at}`.
+ * `tokens` — выводы секретаря (`null` — разбора не было), `rows` — события
+ * мира, которые этот ответ сделал, готовыми строками (`mes-panel.rowText`), `marker` — была ли
+ * метка рассказчика. Всё непохожее выбрасывается молча, как в истории ходов.
+ */
+export function readLedger(raw) {
+  if (!raw || typeof raw !== 'object' || raw.v !== LEDGER_FORMAT || !Array.isArray(raw.list)) return [];
+  const out = [];
+  for (const e of raw.list) {
+    if (!e || typeof e !== 'object' || typeof e.stamp !== 'string' || !e.stamp) continue;
+    out.push({
+      stamp: e.stamp,
+      rows: Array.isArray(e.rows) ? e.rows.filter((r) => typeof r === 'string' && r) : [],
+      day: typeof e.day === 'string' ? e.day : '',
+      time: typeof e.time === 'string' ? e.time : '',
+      tokens: Array.isArray(e.tokens) ? e.tokens.filter((t) => typeof t === 'string' && t) : null,
+      marker: e.marker === true,
+      at: Number.isFinite(e.at) ? e.at : 0,
+    });
+  }
+  return out.slice(-LEDGER_SIZE);
+}
+
+/** Протокол текущего чата. */
+export function loadLedger(ctx) {
+  const c = context(ctx);
+  const md = c.chatMetadata || {};
+  return readLedger(md[LEDGER_KEY]);
+}
+
+/** Записать протокол; длина режется здесь. */
+export function saveLedger(ctx, list) {
+  const c = context(ctx);
+  const md = c.chatMetadata;
+  if (!md) throw new Error('academy/storage: у чата нет метаданных');
+  const ledger = readLedger({ v: LEDGER_FORMAT, list: Array.isArray(list) ? list : [] });
+  md[LEDGER_KEY] = { v: LEDGER_FORMAT, list: ledger };
+  c.saveMetadataDebounced();
+  return ledger;
 }
 
 /**

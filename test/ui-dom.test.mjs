@@ -937,7 +937,7 @@ test('«Сегодня»: исход сегодняшней проверки —
 });
 
 test('«Люди»: портрет миниатюрой, нажатие открывает окно, правка доходит до действия', async () => {
-  const s = { ...started, teachers: [{ ...started.teachers[0], portrait: 'characters/P/p.png', birthday: '03-08' }] };
+  const s = { ...started, teachers: [{ ...started.teachers[0], portrait: 'characters/P/p.png' }] };
   const sent = [];
   const host = fakeHost(s, {}, LOREBOOK_FULL, {
     setTeacherDetails: async (id, patch) => { sent.push([id, patch]); return { ok: true }; },
@@ -946,7 +946,7 @@ test('«Люди»: портрет миниатюрой, нажатие откр
   const body = openTab(node, 'people');
   const img = findNode(body, (n) => n.tagName === 'IMG');
   assert.equal(img.attrs.src, 'characters/P/p.png');
-  assert.ok(allTexts(body).includes('день рождения: 8 марта'));
+  assert.ok(!allTexts(body).some((t) => /рожд/i.test(t)), 'дня рождения на вкладке нет');
 
   const before = document.body.children.length;
   await img.listeners.click[0]({ currentTarget: img });
@@ -956,15 +956,14 @@ test('«Люди»: портрет миниатюрой, нажатие откр
 
   const inputs = [];
   walk(body, (n) => { if (n.tagName === 'INPUT' && n.attrs.type === 'text') inputs.push(n); });
-  const [portrait, birthday] = inputs;
+  const [portrait] = inputs;
   portrait.value = 'javascript:alert(1)';
   const save = findNode(body, (n) => n.textContent === 'Сохранить' && n.listeners.click);
   await click(save);
   assert.deepEqual(sent, [], 'негодный портрет отвергнут до хоста');
   portrait.value = 'https://example.com/p.png';
-  birthday.value = '8.3';
   await click(save);
-  assert.deepEqual(sent, [['petrova', { portrait: 'https://example.com/p.png', birthday: '8.3' }]]);
+  assert.deepEqual(sent, [['petrova', { portrait: 'https://example.com/p.png' }]]);
   api.destroy();
 });
 

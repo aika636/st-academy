@@ -1,7 +1,7 @@
 // core/upcoming — ближние события для строки состояния (9.4.4).
 //
-// «Через 2 дня — зачёт по химии; в пятницу день рождения Петровой». Приём —
-// `birthdayBlock` у Pregnancy: не календарь на месяц вперёд, а одно-два
+// «Через 2 дня — зачёт по химии; в пятницу объявят итог по физике». Не
+// календарь на месяц вперёд, а одно-два
 // события в пределах пары дней, коротко. Строка состояния дорогая (3.3: одна
 // строка, не больше шести чисел), поэтому здесь три ограничения, и все —
 // параметры пресета с умолчанием:
@@ -11,8 +11,7 @@
 //    объявленное за десять дней, превращается в фон, который модель
 //    пересказывает в каждом ответе.
 // 2. **Не больше `limits.nearEvents` событий**, по умолчанию 2. Ближайшие —
-//    первыми; при равенстве дня контрольное важнее объявления итога, а то —
-//    дня рождения.
+//    первыми; при равенстве дня контрольное важнее объявления итога.
 // 3. **Без чисел.** Когда — словом («сегодня», «завтра», «в пятницу»): слово
 //    дня недели не съедает ни одной из шести позиций строки. Слова — в
 //    `prompt.mjs` (`DEFAULT_LABELS`), здесь только данные.
@@ -25,8 +24,7 @@
 //   календарь, дошедший туда сам, завёл бы то же самое;
 // - `announce` — объявление итога, который посчитан, но мир его ещё не знает
 //   (9.4.3): «в пятницу вывесят ведомость по химии». Значения здесь нет — это
-//   знание мира, а не закрытое знание симуляции;
-// - `birthday` — день рождения наставника (`Teacher.birthday`, `ММ-ДД`).
+//   знание мира, а не закрытое знание симуляции.
 //
 // Модуль чистый: состояние и пресет на входе, список на выходе.
 
@@ -44,7 +42,7 @@ export const DEFAULT_LIMIT = 2;
 const MAX_HORIZON = 7;
 
 /** Порядок при равном дне: что важнее сцене. */
-const PRIORITY = { exam: 0, announce: 1, birthday: 2 };
+const PRIORITY = { exam: 0, announce: 1 };
 
 /** Горизонт пресета (`limits.nearHorizon`), 0 — ближние события выключены. */
 export function nearHorizon(preset) {
@@ -65,8 +63,8 @@ export function nearLimit(preset) {
  * @param {Object} state
  * @param {Object} preset
  * @param {{horizon?: number, limit?: number}} [opts] перекрыть пресет (тесты, панель)
- * @returns {Array<{kind: 'exam'|'announce'|'birthday', day: string, days: number,
- *   subjectId?: ?string, teacherId?: string, what?: string, count?: number}>}
+ * @returns {Array<{kind: 'exam'|'announce', day: string, days: number,
+ *   subjectId?: ?string, what?: string, count?: number}>}
  */
 export function upcomingEvents(state, preset, opts = {}) {
   const today = state && state.calendar && state.calendar.day;
@@ -101,33 +99,9 @@ export function upcomingEvents(state, preset, opts = {}) {
     out.push({ kind: 'announce', day: item.announceOn, days, subjectId: item.subjectId });
   }
 
-  for (const t of state.teachers || []) {
-    if (!t || typeof t.birthday !== 'string') continue;
-    for (let k = 0; k <= horizon; k += 1) {
-      const day = addDays(today, k);
-      if (!birthdayOn(t.birthday, day)) continue;
-      out.push({ kind: 'birthday', day, days: k, teacherId: t.id });
-      break;
-    }
-  }
-
   return out
     .sort((a, b) => (a.days - b.days) || (PRIORITY[a.kind] - PRIORITY[b.kind]))
     .slice(0, limit);
-}
-
-/**
- * День рождения `ММ-ДД` приходится на `day`. 29 февраля в невисокосный год
- * празднуют 28-го: иначе у такого наставника дня рождения три года из четырёх
- * не было бы вовсе.
- */
-export function birthdayOn(birthday, day) {
-  const md = String(day).slice(5);
-  if (md === birthday) return true;
-  if (birthday === '02-29' && md === '02-28') {
-    return addDays(day, 1).slice(5) !== '02-29';
-  }
-  return false;
 }
 
 /** Слово дня недели нужно `prompt.mjs`; день недели — отсюда же, чтобы не считать дважды. */

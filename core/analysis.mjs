@@ -1,0 +1,208 @@
+// core/analysis — секретарь: отдельный запрос читает готовый ответ рассказчика
+// и записывает, что в нём случилось.
+//
+// Зачем. Оценки, прогулы и отношения приходят только меткой, а метку пишет та
+// же модель, что ведёт сцену: в длинном красивом ответе она про `grade=` и
+// `rel=` забывает, а рядом с трекерами соседей не ставит метку вовсе. Зачёт,
+// сыгранный в прозе, тогда в зачётку не попадает. Секретарь снимает с
+// рассказчика бухгалтерию: он читает только этот ответ (и реплику перед ним) и
+// возвращает одну строку в формате той же метки.
+//
+// Четыре решения.
+//
+// 1. **Ответ секретаря — наша метка, а не JSON.** Её разборщик уже
+//    снисходителен к тому, как пишут модели (порядок ключей, имена вместо id,
+//    русские ключи, стоп-лист имён героини), и всё, что он отверг, видно в
+//    отладке. Второй формат значил бы второй разборщик со своими дырами.
+// 2. **Время секретарь не пишет.** Время уже идёт из прозы и метки рассказчика
+//    (3.2); второй источник сдвига удвоил бы пары. Ключи `t=` из его ответа
+//    отбрасываются, даже если он их поставил.
+// 3. **Выводы хранятся каноническими токенами** (`grade=chemistry:5`): по id, а
+//    не по именам. Так их можно показать по одному, вычеркнуть один и прогнать
+//    ответ заново — набор токенов и есть «что записано из этого ответа».
+// 4. **Разбор главнее метки рассказчика.** Когда разбор есть, из метки модели
+//    остаётся только время (`keepMarkerKinds`): иначе пятёрка, которую увидели
+//    оба, легла бы в зачётку дважды.
+//
+// Модуль чистый: состояние, пресет и тексты на входе, строки на выходе.
+
+import { parseMarker, keepMarkerKinds } from './parse-marker.mjs';
+import { sittableExams, kindOf } from './exams.mjs';
+import { teacherOfSubject } from './state.mjs';
+
+/** Что секретарь вправе записать. Время — нет (решение 2). */
+export const ANALYSIS_KINDS = ['grade', 'rel', 'attendance'];
+
+/** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
+export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
+
+/** Режимы разбора в настройках. */
+export const ANALYSIS_MODES = ['button', 'auto', 'missing'];
+
+const SYSTEM = [
+  'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку и списки предметов и преподавателей.',
+  'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось с героиней. Ничего не додумываешь.',
+  'Отвечаешь ровно одной строкой служебной метки и больше ничем.',
+].join(' ');
+
+/**
+ * Промпт секретаря.
+ *
+ * @param {Object} state
+ * @param {Object} preset
+ * @param {{reply: string, userText?: string, statusLine?: string, heroine?: string}} input
+ *   `statusLine` — строка состояния, которую видел рассказчик (`prompt.statusLine`):
+ *   день, пара, хвосты словами пресета. Её собирает вызывающий — ядро не знает
+ *   про `prompt.mjs`.
+ * @returns {{system: string, user: string}}
+ */
+export function buildAnalysisPrompt(state, preset, input = {}) {
+  const heroine = str(input.heroine) || 'героиня';
+  const subjects = (state.subjects || []).map((s) => {
+    const t = teacherOfSubject(state, s.id);
+    return `- ${s.id} — ${s.name || s.id}${t ? ` — ${t.name || t.id} (${t.id})` : ''}`;
+  });
+  const teachers = (state.teachers || []).map((t) => `- ${t.id} — ${t.name || t.id}`);
+  const values = ((preset.grades && preset.grades.values) || []).map((g) => g.value);
+
+  const lines = [];
+  if (input.statusLine) lines.push(`Где мы в календаре: ${input.statusLine}`);
+  lines.push('Предметы (id — название — преподаватель):', ...subjects);
+  lines.push('Преподаватели (id — имя):', ...teachers);
+  if (values.length) lines.push(`Оценки пишутся одним из значений: ${values.join(', ')}.`);
+  const exams = todaysExamLines(state, preset);
+  if (exams.length) {
+    lines.push(`Сегодня по расписанию: ${exams.join('; ')}. Если во фрагменте его сдали или провалили — запиши исход как grade по этому предмету.`);
+  }
+  lines.push('');
+  const said = clip(input.userText, ANALYSIS_LIMITS.user);
+  if (said) lines.push('Реплика игрока перед ответом:', '"""', said, '"""', '');
+  lines.push('Ответ рассказчика:', '"""', clip(input.reply, ANALYSIS_LIMITS.reply), '"""', '');
+  lines.push(
+    'Запиши, что случилось, одной строкой вида:',
+    '<!-- [ACADEMY grade=предмет:оценка rel=преподаватель:minor+:повод skip=предмет late=предмет] -->',
+    'Правила:',
+    `- grade — только если ${heroine} получила оценку, сдала или не сдала зачёт или экзамен. Оценки другим людям не пишутся.`,
+    `- rel — если отношение преподавателя к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
+    `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
+    '- Время и дату не пиши.',
+    '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
+    '- Если ничего из этого не случилось — ответь <!-- [ACADEMY] -->.',
+  );
+  return { system: SYSTEM, user: lines.join('\n') };
+}
+
+/** «зачёт: аналитическая химия» по каждому контрольному, за которое можно сесть сегодня. */
+function todaysExamLines(state, preset) {
+  let items = [];
+  try {
+    items = sittableExams(state, preset);
+  } catch {
+    return [];
+  }
+  return items.map((item) => {
+    const kind = kindOf(preset, item.kind);
+    const subject = (state.subjects || []).find((s) => s.id === item.subjectId);
+    return `${(kind && kind.name) || item.kind}: ${(subject && subject.name) || item.subjectId} (${item.subjectId})`;
+  });
+}
+
+/**
+ * Ответ секретаря → канонические токены.
+ *
+ * Рассуждения думающих моделей (`<think>…</think>`) срезаются: в них модель
+ * перебирает варианты меткой, и разборщик подобрал бы черновик. Ответ без
+ * единой метки — `found: false`: это сбой, а не «ничего не случилось»
+ * (на «ничего» есть пустая метка).
+ *
+ * @param {string} raw ответ модели
+ * @param {Object} lexicon то же, что `parseMarker`: пресет со списками состояния и `names`
+ * @returns {{found: boolean, tokens: string[], rejected: Array<{raw: string, reason: string}>}}
+ */
+export function parseAnalysis(raw, lexicon) {
+  const text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
+  const parsed = parseMarker(text, lexicon);
+  const tokens = [];
+  for (const ev of parsed.events) {
+    const t = tokenOf(ev);
+    if (t && !tokens.includes(t)) tokens.push(t);
+  }
+  return { found: parsed.found, tokens, rejected: parsed.rejected };
+}
+
+/** Событие разборщика → канонический токен; время и прочее — `null`. */
+export function tokenOf(ev) {
+  if (!ev || !ANALYSIS_KINDS.includes(ev.kind)) return null;
+  if (ev.kind === 'grade') return `grade=${ev.subjectId}:${ev.value}`;
+  if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'late' : 'skip'}=${ev.subjectId}`;
+  const sign = ev.delta < 0 ? '-' : '+';
+  const strength = ev.impact ? `${ev.impact}${sign}` : `${sign}${Math.abs(ev.delta)}`;
+  const reason = cleanReason(ev.reason);
+  return `rel=${ev.teacherId}:${strength}${reason ? `:${reason}` : ''}`;
+}
+
+/**
+ * Повод — свободный текст внутри метки. Вычищается всё, что разборщик принял
+ * бы за границу: `=` начинает новый ключ, скобки и `-->` закрывают метку.
+ */
+function cleanReason(reason) {
+  return str(reason)
+    .replace(/-->|[=[\]<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, ANALYSIS_LIMITS.reason);
+}
+
+/** Токены одной меткой — так их читает движок. */
+export function analysisMarker(tokens) {
+  const list = (tokens || []).filter(Boolean);
+  return `<!-- [ACADEMY${list.length ? ` ${list.join(' ')}` : ''}] -->`;
+}
+
+/**
+ * Текст, который считает движок (решение 4). Нет разбора (`null`) — ответ как
+ * есть. Есть — из меток рассказчика остаётся время, а события приходят меткой
+ * разбора в конце; пустой разбор значит «секретарь ничего не нашёл», и
+ * оценка из метки рассказчика тогда тоже не ложится.
+ */
+export function effectiveText(text, tokens) {
+  const src = String(text || '');
+  if (!Array.isArray(tokens)) return src;
+  return `${keepMarkerKinds(src, ['time'])}\n${analysisMarker(tokens)}`;
+}
+
+/**
+ * Токен словами — для плашки под сообщением: «оценка: аналитическая химия — 5»,
+ * «Петрова: теплее (немного) — помогла с опытом», «прогул: история».
+ * Имена — из состояния; токен, который больше не читается (предмет удалили), —
+ * как есть.
+ */
+export function tokenText(token, lexicon) {
+  const parsed = parseMarker(analysisMarker([token]), lexicon);
+  const ev = parsed.events[0];
+  if (!ev) return String(token);
+  const subject = (id) => {
+    const s = (lexicon.subjects || []).find((x) => x.id === id);
+    return (s && s.name) || id;
+  };
+  if (ev.kind === 'grade') return `оценка: ${subject(ev.subjectId)} — ${ev.value}`;
+  if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'опоздание' : 'прогул'}: ${subject(ev.subjectId)}`;
+  if (ev.kind === 'rel') {
+    const t = (lexicon.teachers || []).find((x) => x.id === ev.teacherId);
+    const who = (t && t.name) || ev.teacherId;
+    const dir = ev.delta > 0 ? 'теплее' : 'холоднее';
+    const how = ev.impact === 'major' ? 'заметно' : ev.impact === 'minor' ? 'немного' : '';
+    return `${who}: ${dir}${how ? ` (${how})` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`;
+  }
+  return String(token);
+}
+
+function str(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Длинный текст режется с начала: конец ответа — то, чем сцена кончилась. */
+function clip(text, limit) {
+  const s = str(text);
+  return s.length > limit ? `…${s.slice(s.length - limit)}` : s;
+}

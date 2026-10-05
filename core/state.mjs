@@ -84,10 +84,6 @@ export const METADATA_KEY = 'academy';
  * @property {string}   name      «Петрова Анна Сергеевна»
  * @property {string[]} traits    одна-две черты: «злопамятна», «придирается к опозданиям»
  * @property {number}   relation  число внутри, наружу уходит ярлык из пресета
- * @property {string}   [birthday] день рождения `ММ-ДД`, без года (9.4.4, 9.7A
- *                                «возраст и дни рождения»): попадает в ближние
- *                                события строки состояния. Поля может не быть —
- *                                ни анкета, ни генерация плана его пока не пишут.
  * @property {string}   [portrait] портрет (9.7A п.15): путь от корня таверны
  *                                (`characters/…/x.png`, `/img/…`) или ссылка
  *                                `http(s)://`. Без генерации — только адрес, который
@@ -334,53 +330,16 @@ export function normalizePortrait(raw) {
 /** Приводит преподавателя к форме `Teacher`. Отношение — из пресета, если не задано. */
 export function normalizeTeacher(raw, preset) {
   const start = preset && preset.relations ? preset.relations.start : 0;
-  const birthday = normalizeBirthday(raw.birthday);
   return {
     id: String(raw.id || '').trim(),
     name: String(raw.name || raw.id || '').trim(),
     traits: Array.isArray(raw.traits) ? raw.traits.map(String) : [],
     relation: numberOr(raw.relation, numberOr(start, 0)),
-    // Необязательное: у преподавателя без дня рождения ключа нет вовсе, и форма
-    // старых семестров от нормализации не меняется ни на ключ.
-    ...(birthday ? { birthday } : {}),
-    // Портрет (9.7A п.15) — так же: нет адреса или он не годится — нет ключа.
+    // Портрет (9.7A п.15) необязателен: нет адреса или он не годится — нет ключа.
+    // Дня рождения у наставника больше нет: старое поле `birthday` здесь отпадает.
     ...(normalizePortrait(raw.portrait) ? { portrait: normalizePortrait(raw.portrait) } : {}),
   };
 }
-
-/**
- * День рождения к форме `ММ-ДД`. Принимает и полную дату (`1970-03-08` — год
- * отбрасывается: возраст строка не считает) и `8.3`/`08.03` (день.месяц — так
- * пишут по-русски в анкете и лорбуке). Невнятное — `null`, а не догадка.
- */
-export function normalizeBirthday(raw) {
-  if (typeof raw !== 'string') return null;
-  const s = raw.trim();
-  let m = /^(?:\d{4}-)?(\d{1,2})-(\d{1,2})$/.exec(s);
-  let month;
-  let day;
-  if (m) { month = Number(m[1]); day = Number(m[2]); }
-  else {
-    m = /^(\d{1,2})\.(\d{1,2})(?:\.\d{2,4})?$/.exec(s);
-    if (!m) return null;
-    day = Number(m[1]);
-    month = Number(m[2]);
-  }
-  if (!isBirthday(`${pad2(month)}-${pad2(day)}`)) return null;
-  return `${pad2(month)}-${pad2(day)}`;
-}
-
-/** `ММ-ДД` с настоящим месяцем и днём; 29 февраля — законно. */
-export function isBirthday(v) {
-  const m = typeof v === 'string' && /^(\d{2})-(\d{2})$/.exec(v);
-  if (!m) return false;
-  const month = Number(m[1]);
-  const day = Number(m[2]);
-  const last = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
-  return Boolean(last) && day >= 1 && day <= last;
-}
-
-const pad2 = (n) => String(n).padStart(2, '0');
 
 /**
  * Проверка чужого объекта: пришёл из метаданных чата, из импорта или из теста.
@@ -451,9 +410,6 @@ export function validateState(state, preset) {
       if (!t.id) bad('преподаватель без id');
       else if (seen.has(t.id)) bad(`преподаватель ${t.id} повторяется`);
       seen.add(t.id);
-      if (t.birthday !== undefined && t.birthday !== null && !isBirthday(t.birthday)) {
-        bad(`преподаватель ${t.id}: день рождения «${t.birthday}» не в форме ММ-ДД`);
-      }
       // Портрет уходит в `<img src>` панели: строка другой формы — это либо
       // мусор, либо схема, которую открывать нельзя (`isPortrait`).
       if (t.portrait !== undefined && t.portrait !== null && !isPortrait(t.portrait)) {

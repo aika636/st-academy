@@ -1114,3 +1114,165 @@
     margin: -8px;
   }
 }
+
+/* --- плашка под ответом модели (mes-panel.js) ------------------------------
+ *
+ * Обычный блок в потоке сообщения: без position и z-index, поэтому с плашкой
+ * Horae и других соседей она не наслаивается, а встаёт ниже. `order` — на
+ * случай темы, где .mes_block — флекс: Horae ставит себе 9999, мы ниже неё.
+ */
+
+.academy-mes-panel {
+  box-sizing: border-box;
+  order: 10000;
+  margin-top: 6px;
+  max-width: 100%;
+  border: 1px solid var(--academy-line);
+  border-left: 3px solid var(--academy-accent);
+  border-radius: 8px;
+  background: var(--academy-bg);
+  color: var(--academy-ink);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.academy-mes-panel * {
+  box-sizing: border-box;
+}
+
+.academy-mes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 6px 4px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.academy-mes-toggle:hover {
+  background: var(--academy-soft);
+}
+
+.academy-mes-icon {
+  color: var(--academy-accent);
+  flex: 0 0 auto;
+}
+
+.academy-mes-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--academy-dim);
+}
+
+.academy-mes-badge {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--academy-line);
+  color: var(--academy-accent);
+  font-size: 11px;
+}
+
+.academy-mes-action,
+.academy-mes-drop {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--academy-ink);
+  cursor: pointer;
+}
+
+.academy-mes-action:hover,
+.academy-mes-drop:hover {
+  background: var(--academy-soft);
+}
+
+.academy-mes-action:disabled,
+.academy-mes-drop:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.academy-mes-content {
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--academy-line);
+}
+
+.academy-mes-content[hidden] {
+  display: none;
+}
+
+.academy-mes-title {
+  margin: 4px 0 2px;
+  color: var(--academy-accent);
+  font-weight: 600;
+}
+
+.academy-mes-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.academy-mes-tokens {
+  list-style: none;
+  padding-left: 0;
+}
+
+.academy-mes-tokens li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.academy-mes-note {
+  color: var(--academy-dim);
+  font-style: italic;
+}
+
+.academy-mes-error {
+  margin-top: 4px;
+  color: var(--warning, #e5a100);
+}
+
+.academy-mes-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.academy-mes-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .academy-mes-panel {
+    font-size: 11px;
+  }
+
+  .academy-mes-content {
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+
+  .academy-mes-buttons {
+    flex-direction: column;
+  }
+}

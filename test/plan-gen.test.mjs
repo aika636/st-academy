@@ -204,7 +204,7 @@ test('slugify даёт короткий латинский id без пробе�
   assert.equal(slugify('Высшая математика'), slugify('Высшая математика'));
 });
 
-test('день рождения преподавателя доезжает из плана, невнятный молча выпадает (9.4.4)', () => {
+test('день рождения в ответе плана молча отбрасывается и план не бракует', () => {
   const raw = JSON.stringify({
     subjects: [
       { id: 'chem', name: 'Химия', teacherId: 'petrova' },
@@ -219,8 +219,8 @@ test('день рождения преподавателя доезжает из
   const v = validatePlan(parsed.plan, preset);
   assert.equal(v.ok, true);
   const byId = Object.fromEntries(v.plan.teachers.map((t) => [t.id, t]));
-  assert.equal(byId.petrova.birthday, '03-08');
-  assert.equal('birthday' in byId.ivanov, false, 'догадка вместо даты не нужна');
+  assert.equal('birthday' in byId.petrova, false);
+  assert.equal('birthday' in byId.ivanov, false);
   assert.ok(!v.errors.some((e) => /birthday/.test(e)), 'день рождения план не бракует');
-  assert.match(buildPlanPrompt(survey, preset).prompt, /birthday/);
+  assert.doesNotMatch(buildPlanPrompt(survey, preset).prompt, /birthday/);
 });

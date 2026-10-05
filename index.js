@@ -12,12 +12,14 @@
  */
 
 import { applyResponse, sitExam, timeSkipWarning } from './core/engine.mjs';
-import { buildPrompt } from './prompt.mjs';
+import { buildPrompt, statusLine } from './prompt.mjs';
 import {
-  awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams,
+  awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams, EXAM_RULES, examRule,
 } from './core/exams.mjs';
+import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, ANALYSIS_MODES } from './core/analysis.mjs';
+import { MARKER_RE, stripMarker } from './core/parse-marker.mjs';
 import {
-  cloneState, createState, defaultStartDay, isDay, joinSentences, normalizeBirthday, normalizePortrait,
+  cloneState, createState, defaultStartDay, isDay, joinSentences, normalizePortrait,
   normalizeSubject, normalizeTeacher,
 } from './core/state.mjs';
 import { readTime } from './core/time-source.mjs';
@@ -35,9 +37,10 @@ import {
 // и так уже загружен статически через `storage.js`, так что ни риска, ни цены
 // этот импорт не добавляет; монтирование панели по-прежнему ленивое.
 import {
-  extraLabels, fill, gradebookView, hookJournal, hookNow, hookSummary, hookToday, playChime,
+  extraLabels, fill, formatDate, gradebookView, hookJournal, hookNow, hookSummary, hookToday, playChime,
   promptDoctorView, todayView, PRESET_TEXT,
 } from './ui.js';
+import { renderMessagePanels, clearMessagePanels, rowText, PANEL_TEXT } from './mes-panel.js';
 import * as storage from './storage.js';
 import * as api from './api.js';
 import * as lorebook from './lorebook.js';
@@ -83,6 +86,15 @@ const live = {
    * Как ход находит своё сообщение — см. `findTurn`.
    */
   turns: [],
+  /**
+   * Протокол ответов (`storage.js`, «протокол ответов»): что записано из
+   * каждого ответа и выводы секретаря — по отпечатку текста сообщения.
+   */
+  ledger: [],
+  /** Отпечатки ответов, которые секретарь читает прямо сейчас. */
+  analyzing: new Set(),
+  /** Отказ последнего разбора по отпечатку ответа — словами для плашки. */
+  analysisErrors: new Map(),
   /**
    * Одноразовый факт, взведённый для СЛЕДУЮЩЕЙ генерации ответа (3.5, ремонт
    * 9.1.2). Держится отдельно от того, что сейчас лежит в `setExtensionPrompt`:
@@ -387,6 +399,8 @@ function reloadState() {
   // История ходов читается тем же походом: она живёт рядом с состоянием и
   // без него не значит ничего (storage.js, «история ходов»).
   live.turns = storage.loadTurns(ctx(), live.preset);
+  live.ledger = storage.loadLedger(ctx());
+  live.analysisErrors.clear();
   primeMilestones();
   return report;
 }
@@ -433,6 +447,14 @@ async function commit(state, { flush = false } = {}) {
 function forgetTurns() {
   live.turns = [];
   live.oneShot = '';
+  // Протокол — про ответы старого состояния: его плашки врали бы.
+  live.ledger = [];
+  live.analysisErrors.clear();
+  try {
+    storage.saveLedger(ctx(), live.ledger);
+  } catch (err) {
+    console.warn(`[${MODULE}] протокол ответов не очищен:`, err);
+  }
 }
 
 // --- операции, переживающие смену чата (ремонт 9.1.4) ------------------------
@@ -1195,12 +1217,17 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
 
   const text = String(message.mes || '');
   const mark = stamp(text);
+  // Выводы секретаря (`core/analysis`) к этому тексту: есть — оценки,
+  // прогулы и отношения берутся из них, а из метки рассказчика только время.
+  const note = ledgerEntry(mark);
+  const tokens = note && Array.isArray(note.tokens) ? note.tokens : null;
+  const analysisKey = tokens ? tokens.join(' ') : null;
 
   let turn = latestFor(mesId, chat);
   if (turn) {
-    // Тот же ход: свайп, продолжение, правка. Уже посчитан этим текстом —
-    // выход; иначе считается заново от снимка «до него».
-    if (turn.stamp === mark) return;
+    // Тот же ход: свайп, продолжение, правка. Уже посчитан этим текстом и этим
+    // разбором — выход; иначе считается заново от снимка «до него».
+    if (turn.stamp === mark && (turn.analysis ?? null) === analysisKey) return;
   } else {
     const latest = live.turns[live.turns.length - 1];
     // Сообщение раньше последнего хода: либо уже посчитанный старый ход (его
@@ -1236,7 +1263,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   // сегодняшнего контрольного через тот же `resolveConflict`. Телефонный ход —
   // пауза сцены, экзамен в нём не сдают.
   const dice = phoneTurn ? null : readDiceRoll(said);
-  const run = applyResponse(before, text, live.preset, {
+  const run = applyResponse(before, effectiveText(text, tokens), live.preset, {
     mode: settings.mode,
     relativeWords: settings.relativeWords,
     // Обещание движку: за сегодняшнее контрольное сажает этот файл (ниже), и
@@ -1268,6 +1295,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join(' ');
   turn.mesId = mesId;
   turn.stamp = mark;
+  turn.analysis = analysisKey;
   turn.oneShot = oneShot;
   live.lastRun = { ...run, injects, permission, source, mesId };
   // Ответ пришёл — предупреждение промотки своё отработало.
@@ -1280,8 +1308,242 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   // второй раз не звучит (`live.shownMilestones`).
   noticeChanges(before, state, { source, mesId });
   noticeJump(run.jump);
+  recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
   await syncLorebook();
   refreshPanel();
+  // Новый ответ без разбора — секретарь по настройке (`analysis`). Не ждём:
+  // разбор — отдельный запрос, а этот ответ уже посчитан и в силе.
+  if (source === 'received' && !tokens && wantsAutoAnalysis(settings, text)) {
+    analyzeMessage(mesId).catch((err) => console.warn(`[${MODULE}] автоматический разбор не удался:`, err));
+  }
+}
+
+// --- секретарь и плашка под ответом -----------------------------------------
+//
+// Секретарь (`core/analysis`) — отдельный запрос, который читает ответ модели
+// и записывает оценки, прогулы и отношения. Его выводы лежат в протоколе по
+// отпечатку текста и подмешиваются к ответу при каждом его пересчёте
+// (`handleMessage`), поэтому свайп и правка обходятся с ними так же, как с
+// меткой: откат к снимку и пересчёт, без удвоений.
+//
+// Разбирать можно только последний ответ: у него есть снимок «до», от
+// которого он пересчитывается. Ответ из середины уже лёг в основу следующих, и
+// пересчитать его, не выбросив их, нельзя — то же правило, что у правки.
+
+/** Запись протокола по отпечатку текста, свежие — с конца. */
+function ledgerEntry(mark) {
+  for (let i = live.ledger.length - 1; i >= 0; i -= 1) if (live.ledger[i].stamp === mark) return live.ledger[i];
+  return null;
+}
+
+/** Записать протокол: изменённая запись переезжает в конец (она свежая). */
+function putLedger(entry) {
+  live.ledger = [...live.ledger.filter((e) => e.stamp !== entry.stamp), entry];
+  try {
+    live.ledger = storage.saveLedger(ctx(), live.ledger);
+  } catch (err) {
+    console.warn(`[${MODULE}] протокол ответов не записан:`, err);
+  }
+}
+
+/** Есть ли в тексте метка самого рассказчика. */
+function hasOwnMarker(text) {
+  return new RegExp(MARKER_RE.source, 'i').test(String(text || ''));
+}
+
+/** Нужен ли разбор нового ответа без кнопки. */
+function wantsAutoAnalysis(settings, text) {
+  if (live.quiet) return false;
+  if (settings.analysis === 'auto') return true;
+  return settings.analysis === 'missing' && !hasOwnMarker(text);
+}
+
+/**
+ * Что ответ сделал с миром — строками для плашки. Новые записи журнала —
+ * те, что легли после последней записи снимка «до»; журнал режется с головы
+ * (`limits.journalSize`), поэтому граница ищется по содержимому, а не по длине.
+ */
+function turnRows(before, after, exam) {
+  const old = (before && before.journal) || [];
+  const all = (after && after.journal) || [];
+  let from = 0;
+  if (old.length) {
+    const last = JSON.stringify(old[old.length - 1]);
+    from = all.length;
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      if (JSON.stringify(all[i]) === last) { from = i + 1; break; }
+    }
+  }
+  const fresh = all.slice(from);
+  const rows = hookJournal({ ...after, journal: fresh }, live.preset, 50).map(rowText).filter(Boolean);
+  // Итог, который мир узнает позже (9.4.3): журнал наружу его прячет, но что
+  // контрольное сдавали, видно сразу — без оценки.
+  if (exam && exam.announceOn) {
+    const subject = ((after.subjects || []).find((s) => s.id === exam.subjectId) || {}).name || exam.subjectId;
+    rows.push(`${subject}: сдавала, итог объявят ${formatDate(exam.announceOn) || exam.announceOn}`);
+  }
+  return [...new Set(rows)];
+}
+
+function recordLedger(mark, before, after, { marker = false, exam = null } = {}) {
+  const prev = ledgerEntry(mark);
+  putLedger({
+    stamp: mark,
+    rows: turnRows(before, after, exam),
+    day: (after.calendar && after.calendar.day) || '',
+    time: (after.calendar && after.calendar.time) || '',
+    tokens: prev && Array.isArray(prev.tokens) ? prev.tokens : null,
+    marker,
+    at: Date.now(),
+  });
+}
+
+/** Словарь разборщика: пресет, списки состояния и имена сцены для стоп-листа. */
+function lexiconOf(state, c) {
+  return {
+    ...live.preset,
+    subjects: state.subjects,
+    teachers: state.teachers,
+    survey: state.survey,
+    names: sceneNames(c),
+  };
+}
+
+/**
+ * Вид плашки для сообщения `mesId` или `null`. Плашка есть у ответа, который
+ * записан в протокол, и у последнего хода — его можно разобрать.
+ */
+function panelView(mesId) {
+  if (!live.preset || !live.state || !live.state.started) return null;
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return null;
+  const mark = stamp(String(message.mes || ''));
+  const entry = ledgerEntry(mark);
+  const turn = latestFor(mesId, chat);
+  const isLast = Boolean(turn && turn.stamp === mark && turn.before);
+  if (!entry && !isLast) return null;
+  const lexicon = lexiconOf(live.state, ctx());
+  const tokens = entry && Array.isArray(entry.tokens) ? entry.tokens : null;
+  return {
+    date: entry ? formatDate(entry.day) : '',
+    time: entry ? entry.time : '',
+    rows: entry ? entry.rows : [],
+    analyzed: Boolean(tokens),
+    tokens: (tokens || []).map((t) => tokenText(t, lexicon)),
+    marker: entry ? entry.marker : null,
+    canAnalyze: isLast,
+    busy: live.analyzing.has(mark),
+    error: live.analysisErrors.get(mark) || '',
+  };
+}
+
+/**
+ * Разобрать ответ `mesId` секретарём и пересчитать его с выводами.
+ * @returns {Promise<{ok: boolean, error?: string, tokens?: string[], rejected?: Array}>}
+ */
+async function analyzeMessage(mesId) {
+  const c = ctx();
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!live.state || !live.state.started || !eligible(message)) return { ok: false, error: 'Здесь нечего разбирать.' };
+  const text = String(message.mes || '');
+  const mark = stamp(text);
+  const turn = latestFor(mesId, chat);
+  if (!turn || turn.stamp !== mark || !turn.before) return { ok: false, error: PANEL_TEXT.onlyLast };
+  if (live.analyzing.has(mark)) return { ok: false, error: PANEL_TEXT.analyzing };
+
+  const epoch = live.epoch;
+  const fail = (error) => {
+    live.analysisErrors.set(mark, error);
+    return { ok: false, error };
+  };
+  live.analyzing.add(mark);
+  live.analysisErrors.delete(mark);
+  renderPanels();
+  try {
+    const before = turn.before;
+    const prompt = buildAnalysisPrompt(before, live.preset, {
+      reply: stripMarker(text),
+      userText: userTextBefore(chat, mesId),
+      statusLine: statusLine(before, live.preset),
+      heroine: c.name1,
+    });
+    const res = await api.complete(storage.apiSettings(c), {
+      system: prompt.system,
+      user: prompt.user,
+      ctx: c,
+      temperature: 0.2,
+      maxTokens: api.TOKEN_BUDGETS.analysis,
+    });
+    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
+    if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
+    const parsed = parseAnalysis(res.text, lexiconOf(before, c));
+    if (!parsed.found) {
+      console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
+      return fail('Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
+    }
+    // Пока шёл запрос, ответ могли свайпнуть или поправить: выводы — про
+    // прежний текст, и к новому их не приложить.
+    const now = chatOf()[mesId];
+    if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
+    setTokens(mark, parsed.tokens);
+    await handleMessage(mesId, { source: 'analysis' });
+    if (parsed.rejected.length) console.info(`[${MODULE}] секретарь: отвергнуто`, parsed.rejected);
+    return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
+  } catch (err) {
+    console.error(`[${MODULE}] разбор ответа упал:`, err);
+    return fail(`Разбор не удался: ${(err && err.message) || err}`);
+  } finally {
+    live.analyzing.delete(mark);
+    renderPanels();
+  }
+}
+
+/** Выводы секретаря к ответу: `null` — разбора нет, метка рассказчика снова в силе. */
+function setTokens(mark, tokens) {
+  const prev = ledgerEntry(mark) || { stamp: mark, rows: [], day: '', time: '', marker: false };
+  putLedger({ ...prev, tokens: Array.isArray(tokens) ? [...tokens] : null, at: Date.now() });
+}
+
+/** Правка выводов последнего ответа с плашки: пересчёт от снимка. */
+async function editAnalysis(mesId, change) {
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return { ok: false };
+  const mark = stamp(String(message.mes || ''));
+  const turn = latestFor(mesId, chat);
+  if (!turn || turn.stamp !== mark) return { ok: false, error: PANEL_TEXT.onlyLast };
+  const entry = ledgerEntry(mark);
+  setTokens(mark, change(entry && Array.isArray(entry.tokens) ? entry.tokens : null));
+  live.analysisErrors.delete(mark);
+  await handleMessage(mesId, { source: 'analysis' });
+  renderPanels();
+  return { ok: true };
+}
+
+const panelHost = {
+  panelFor: (mesId) => panelView(mesId),
+  analyze: (mesId) => analyzeMessage(mesId),
+  dropToken: (mesId, index) => editAnalysis(mesId, (list) => (list || []).filter((_, i) => i !== index)),
+  clearAnalysis: (mesId) => editAnalysis(mesId, () => null),
+};
+
+let panelTimer = null;
+
+/** Перерисовать плашки — с короткой задержкой: события таверны идут пачками. */
+function renderPanels() {
+  if (typeof document === 'undefined') return;
+  if (panelTimer) clearTimeout(panelTimer);
+  panelTimer = setTimeout(() => {
+    panelTimer = null;
+    try {
+      if (live.state && live.state.started) renderMessagePanels(panelHost);
+      else clearMessagePanels();
+    } catch (err) {
+      console.warn(`[${MODULE}] плашки не нарисованы:`, err);
+    }
+  }, 60);
 }
 
 /**
@@ -1718,6 +1980,9 @@ const host = {
           : buildSchedule(subjects, live.preset),
       });
       state.started = true;
+      // Кто решает исход контрольного (`exams.examRule`): выбор прошлого
+      // семестра этого чата переживает новый, а новый чат начинает с сюжета.
+      state.examBy = EXAM_RULES.includes(prev.examBy) ? prev.examBy : 'story';
       // Новый семестр — новая история: снимок «до последнего ответа» из
       // времени до старта откатил бы свайп в семестр, которого не было.
       forgetTurns();
@@ -1758,7 +2023,7 @@ const host = {
     async setSubjects(plan) {
       // Таблица приносит только свои поля: имя, преподаватель, корпус и
       // аудитория у предмета; имя и черты у преподавателя. Всё прочее —
-      // оценки, хвост, вид контрольного, отношение, день рождения, портрет —
+      // оценки, хвост, вид контрольного, отношение, портрет —
       // живёт в состоянии и сохраняется по `id`. Раньше строки нормализовались
       // с нуля, и «Сохранить таблицу» на идущем семестре молча стирало
       // зачётку и сбрасывало отношения к стартовым (поймано тестом проводки).
@@ -1795,14 +2060,34 @@ const host = {
     },
 
     /**
-     * Портрет и день рождения наставника (9.7A п.15, п.9) — с вкладки «Люди».
-     * Отдельным действием, а не через `setSubjects`: ни то, ни другое не
-     * меняет расписания, и пересобирать его ради картинки незачем.
+     * Портрет наставника (9.7A п.15) — с вкладки «Люди». Отдельным действием,
+     * а не через `setSubjects`: портрет не меняет расписания, и пересобирать
+     * его ради картинки незачем.
      *
-     * Ключ, которого в `patch` нет, не трогается; пустая строка — убрать.
-     * Негодное значение — отказ словами, состояние не пишется вовсе: половина
-     * правки (портрет лёг, день рождения нет) хуже, чем ни одной.
+     * Ключа, которого в `patch` нет, не трогаем; пустая строка — убрать.
+     * Негодный адрес — отказ словами, состояние не пишется.
      */
+    /**
+     * Кто решает исход контрольного в этом чате: `'story'` или `'dice'`
+     * (`exams.examRule`). Менять можно посреди семестра: правило действует на
+     * контрольные, за которые ещё не садились, а посчитанный исход остаётся.
+     */
+    async setExamRule(rule) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      if (!EXAM_RULES.includes(rule)) return { ok: false, error: `неизвестное правило «${rule}»` };
+      if (examRule(live.state) === rule) return { ok: true, rule };
+      const next = cloneState(live.state);
+      next.examBy = rule;
+      await commit(next);
+      refreshPanel();
+      return { ok: true, rule };
+    },
+
+    /** Разбор ответа секретарём — то же, что кнопка на плашке. */
+    async analyzeMessage(mesId) {
+      return analyzeMessage(Number.isInteger(mesId) ? mesId : lastEligible(chatOf()));
+    },
+
     async setTeacherDetails(teacherId, patch = {}) {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const next = cloneState(live.state);
@@ -1818,21 +2103,10 @@ const host = {
           teacher.portrait = portrait;
         }
       }
-      if (patch && 'birthday' in patch) {
-        const raw = String(patch.birthday == null ? '' : patch.birthday).trim();
-        if (!raw) delete teacher.birthday;
-        else {
-          const birthday = normalizeBirthday(raw);
-          if (!birthday) return { ok: false, code: 'bad-birthday', error: X.birthdayBad };
-          teacher.birthday = birthday;
-        }
-      }
       await commit(next);
-      // День рождения входит в ближние события строки состояния (9.4.4).
-      setInjects({});
       await syncLorebook();
       refreshPanel();
-      return { ok: true, portrait: teacher.portrait || '', birthday: teacher.birthday || '' };
+      return { ok: true, portrait: teacher.portrait || '' };
     },
 
     /**
@@ -2246,6 +2520,7 @@ const host = {
 
 function refreshPanel() {
   if (live.panel && typeof live.panel.render === 'function') live.panel.render();
+  renderPanels();
 }
 
 // --- запуск -----------------------------------------------------------------
@@ -2332,6 +2607,11 @@ async function init() {
   ev.on(t.MESSAGE_UPDATED, (mesId) => handleEdited(mesId));
   ev.on(t.MESSAGE_DELETED, () => handleDeleted());
   ev.on(t.CHAT_CHANGED, () => handleChatChanged());
+  // Плашки под ответами: таверна перерисовывает сообщения сама (новый ответ,
+  // свайп, подгрузка истории), и плашку надо вернуть на место.
+  for (const name of ['CHARACTER_MESSAGE_RENDERED', 'MORE_MESSAGES_LOADED', 'MESSAGE_SWIPED', 'MESSAGE_EDITED', 'MESSAGE_UPDATED', 'MESSAGE_DELETED', 'CHAT_CHANGED']) {
+    if (t[name]) ev.on(t[name], () => renderPanels());
+  }
   // Генерации (ремонт 9.1.2, 9.1.3). Сборка без этих событий — не повод молчать
   // целиком: тогда просто нет гашения под фоновые генерации.
   if (t.GENERATION_STARTED) ev.on(t.GENERATION_STARTED, (type, params, dryRun) => handleGenerationStarted(type, params, dryRun));
@@ -2425,4 +2705,4 @@ const ready = init();
  * чтением. Браузера в прогоне нет, панель не монтируется — значит действия надо
  * звать напрямую. Ничего, кроме тестов, сюда ходить не должно.
  */
-export const __seam = { host, live, ready, api: AcademyAPI, examSeedBase };
+export const __seam = { host, live, ready, api: AcademyAPI, examSeedBase, panel: panelHost };

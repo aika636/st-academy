@@ -87,7 +87,6 @@ export const DEFAULT_LABELS = {
   nearExam: '{when} — {what}',
   nearExamSubject: '{when} — {what}: {subject}',
   nearAnnounce: '{when} объявят итог: {subject}',
-  nearBirthday: '{when} день рождения: {teacher}',
   nearGlue: '; ',
 };
 
@@ -180,7 +179,7 @@ export function statusLine(state, preset) {
  * 2. что идёт сейчас — то, что модель отыгрывает прямо в этом ответе;
  * 3. сессия — остаток и несданное, тон меняется целиком (3.5);
  * 4. хвосты — то, что висит и требует действий;
- * 4½. ближние события — «завтра — сессия; в пятницу день рождения Петровой»
+ * 4½. ближние события — «завтра — сессия; в пятницу объявят итог по химии»
  *    (9.4.4). После хвостов: хвост уже висит, событие только впереди. Чисел в
  *    сегменте нет, так что потолок из шести он не съедает;
  * 5. балл — фон, а не событие;
@@ -314,9 +313,6 @@ function nearSegment(state, preset, L) {
       parts.push(fill(subject ? L.nearExamSubject : L.nearExam, { when, what: ev.what || '', subject }));
     } else if (ev.kind === 'announce') {
       parts.push(fill(L.nearAnnounce, { when, subject: subjectName(state, ev.subjectId) }));
-    } else if (ev.kind === 'birthday') {
-      const t = (state.teachers || []).find((x) => x.id === ev.teacherId);
-      parts.push(fill(L.nearBirthday, { when, teacher: (t && (t.name || t.id)) || ev.teacherId }));
     }
   }
   return parts.join(L.nearGlue);

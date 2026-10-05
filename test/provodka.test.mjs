@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 // Проводка шага 4 и крючки 9.7 — чистая половина: поля состояния (портрет,
 // корпус, аудитория), вью панели (исход проверки на «Сегодня», вехи, итоги в
-// ожидании объявления, портрет и день рождения), вид для соседей
+// ожидании объявления, портрет), вид для соседей
 // (`hookNow/hookToday/hookSummary/hookJournal`), доктор промпта, слова отладки
 // и звук вехи. Проводка через `index.js` — в `hooks.test.mjs`.
 
@@ -15,7 +15,7 @@ import {
 } from '../core/state.mjs';
 import { buildSchedule } from '../core/schedule.mjs';
 import {
-  DEBUG_TEXT, DOCTOR_TEXT, EXTRA_UI, awaitingView, birthdayText, debugView, describeApplied, examResultsToday,
+  DEBUG_TEXT, DOCTOR_TEXT, EXTRA_UI, awaitingView, debugView, describeApplied, examResultsToday,
   extraLabels, fill, foreignHead, gradebookView, hookJournal, hookNow, hookSummary, hookToday, milestonesView,
   peopleView, playChime, promptDoctorView, promptOwner, rowsFromState, todayView, uiLabels, validateSubjectRows,
 } from '../ui.js';
@@ -176,9 +176,9 @@ test('зачётка: итог, который мир ещё не знает, �
   assert.equal(gradebookView(s, ru).awaiting.length, 1);
 });
 
-// --- «Люди»: портрет и день рождения ----------------------------------------------
+// --- «Люди»: портрет --------------------------------------------------------------
 
-test('«Люди»: в карточку идёт только годный портрет и день рождения словами', () => {
+test('«Люди»: в карточку идёт только годный портрет, дня рождения нет', () => {
   const s = started(ru, (x) => {
     x.teachers[0].portrait = 'characters/Петрова/p.png';
     x.teachers[0].birthday = '03-08';
@@ -186,13 +186,8 @@ test('«Люди»: в карточку идёт только годный по�
   const v = peopleView(s, ru);
   const petrova = v.teachers.find((t) => t.id === 'petrova');
   assert.equal(petrova.portrait, 'characters/Петрова/p.png');
-  assert.equal(petrova.birthday, '03-08');
-  assert.equal(petrova.birthdayText, 'день рождения: 8 марта');
-  const ivanov = v.teachers.find((t) => t.id === 'ivanov');
-  assert.equal(ivanov.portrait, '');
-  assert.equal(ivanov.birthdayText, '');
-  assert.equal(birthdayText('02-29'), '29 февраля');
-  assert.equal(birthdayText('13-01'), '1', 'месяца нет — только день, без выдумки');
+  assert.equal('birthday' in petrova, false, 'старое поле в карточку не идёт');
+  assert.equal(v.teachers.find((t) => t.id === 'ivanov').portrait, '');
 });
 
 // --- таблица плана: корпус и аудитория ------------------------------------------

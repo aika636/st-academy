@@ -127,6 +127,19 @@ const gradesOf = (preset) => (preset && preset.grades) || {};
 const vocabOf = (preset) => (preset && preset.vocab) || {};
 const phrasesOf = (preset) => ({ ...DEFAULT_PHRASES, ...((preset && preset.phrases && preset.phrases.exams) || {}) });
 
+/**
+ * Кто решает исход контрольного — своё у каждого чата (`state.examBy`):
+ * - `'dice'` — бросок против сложности, как было всегда. Поля нет — это он:
+ *   чаты, заведённые до появления выбора, играют по-прежнему;
+ * - `'story'` — исход тот, что случился в сцене (метка рассказчика или разбор
+ *   секретаря). Броска нет; не сыгранное контрольное ждёт, а к концу сессии
+ *   становится хвостом, как любое несданное (`closeExams`).
+ */
+export const EXAM_RULES = ['story', 'dice'];
+
+/** Правило чата; всё, кроме `'story'`, — бросок. */
+export const examRule = (state) => (state && state.examBy === 'story' ? 'story' : 'dice');
+
 /** Виды контрольных событий: `preset.exams.kinds`. */
 export const examKinds = (preset) => examsOf(preset).kinds || [];
 

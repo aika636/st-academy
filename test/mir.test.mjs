@@ -9,10 +9,10 @@ import {
 } from '../core/exams.mjs';
 import { applyResponse, sitExam } from '../core/engine.mjs';
 import {
-  createState, validateState, normalizeTeacher, normalizeBirthday, isBirthday,
+  createState, validateState, normalizeTeacher,
 } from '../core/state.mjs';
 import { buildSchedule } from '../core/schedule.mjs';
-import { upcomingEvents, birthdayOn, nearHorizon, nearLimit, DEFAULT_HORIZON, DEFAULT_LIMIT } from '../core/upcoming.mjs';
+import { upcomingEvents, nearHorizon, nearLimit, DEFAULT_HORIZON, DEFAULT_LIMIT } from '../core/upcoming.mjs';
 import { statusLine, countNumbers } from '../prompt.mjs';
 import { isSignificant, significantEvents } from '../core/lorebook.mjs';
 import { debts, overallScore } from '../core/gradebook.mjs';
@@ -256,59 +256,32 @@ test('9.4.9 объявление итога тоже с оговоркой; ог
   assert.ok(r.state.pending[0].text.endsWith(DEFAULT_SCENE_GUARD));
 });
 
-// --- 9.4.4: дни рождения наставников ----------------------------------------
-
-test('9.4.4 день рождения: ММ-ДД, полная дата и «день.месяц»; мусор — нет поля', () => {
-  assert.equal(normalizeBirthday('03-08'), '03-08');
-  assert.equal(normalizeBirthday('1970-3-8'), '03-08');
-  assert.equal(normalizeBirthday('8.3'), '03-08');
-  assert.equal(normalizeBirthday('29.02.1980'), '02-29');
-  assert.equal(normalizeBirthday('02-30'), null);
-  assert.equal(normalizeBirthday('весной'), null);
-  assert.equal(isBirthday('13-01'), false);
-
-  const t = normalizeTeacher({ id: 'p', name: 'П', birthday: '8.3' }, preset);
-  assert.equal(t.birthday, '03-08');
-  assert.equal('birthday' in normalizeTeacher({ id: 'p', name: 'П' }, preset), false, 'необязательное поле');
-  assert.equal('birthday' in normalizeTeacher({ id: 'p', birthday: 'когда-то' }, preset), false);
-});
-
-test('9.4.4 validateState ловит день рождения не в форме ММ-ДД', () => {
-  const s = semester('2024-10-01');
-  s.teachers[0].birthday = '2024-10-01';
-  const res = validateState(s, preset);
-  assert.equal(res.ok, false);
-  assert.ok(res.errors.some((e) => e.includes('день рождения')), res.errors.join('; '));
-  s.teachers[0].birthday = '10-01';
-  assert.equal(validateState(s, preset).ok, true);
-});
-
-test('9.4.4 29 февраля празднуют 28-го в невисокосный год', () => {
-  assert.equal(birthdayOn('02-29', '2024-02-29'), true);
-  assert.equal(birthdayOn('02-29', '2024-02-28'), false, 'в високосный — в свой день');
-  assert.equal(birthdayOn('02-29', '2025-02-28'), true);
-  assert.equal(birthdayOn('03-08', '2025-03-08'), true);
-});
-
 // --- 9.4.4: ближние события --------------------------------------------------
 
-const withBirthdays = (map) => TEACHERS.map((t) => (map[t.id] ? { ...t, birthday: map[t.id] } : t));
+/** Итоги, которые мир ещё не знает: `{предмет: день объявления}`. */
+function withAnnounces(day, map) {
+  const s = semester(day);
+  s.exams.items = Object.entries(map).map(([subjectId, announceOn]) => ({
+    id: `0:${subjectId}:credit`, subjectId, announced: false, announceOn,
+  }));
+  return s;
+}
 
 test('9.4.4 ближние события: горизонт 3 дня, не больше двух, ближайшие первыми', () => {
   // Вторник 01.10.2024.
-  const s = semester('2024-10-01', preset, withBirthdays({
-    petrova: '10-04', ivanov: '10-02', sidorova: '10-05', kuznecov: '10-01',
-  }));
+  const s = withAnnounces('2024-10-01', {
+    chemistry: '2024-10-04', physics: '2024-10-02', history: '2024-10-05', math: '2024-10-01',
+  });
   const all = upcomingEvents(s, preset, { limit: 10 });
-  assert.deepEqual(all.map((e) => [e.teacherId, e.days]), [['kuznecov', 0], ['ivanov', 1], ['petrova', 3]],
-    'сидорова — через 4 дня, за горизонтом');
-  assert.deepEqual(upcomingEvents(s, preset).map((e) => e.teacherId), ['kuznecov', 'ivanov'], 'умолчание — два');
+  assert.deepEqual(all.map((e) => [e.subjectId, e.days]), [['math', 0], ['physics', 1], ['chemistry', 3]],
+    'история — через 4 дня, за горизонтом');
+  assert.deepEqual(upcomingEvents(s, preset).map((e) => e.subjectId), ['math', 'physics'], 'умолчание — два');
   assert.equal(DEFAULT_HORIZON, 3);
   assert.equal(DEFAULT_LIMIT, 2);
 });
 
 test('9.4.4 ближние события: горизонт и число — из пресета, 0 выключает', () => {
-  const s = semester('2024-10-01', preset, withBirthdays({ petrova: '10-02' }));
+  const s = withAnnounces('2024-10-01', { chemistry: '2024-10-02' });
   const off = { ...preset, limits: { ...preset.limits, nearEvents: 0 } };
   assert.equal(nearLimit(off), 0);
   assert.deepEqual(upcomingEvents(s, off), []);
@@ -316,6 +289,16 @@ test('9.4.4 ближние события: горизонт и число — и
   assert.equal(nearHorizon(blind), 0);
   assert.deepEqual(upcomingEvents(s, blind), [], 'горизонт 0 — только сегодня, а сегодня ничего');
   assert.equal(nearHorizon({ limits: { nearHorizon: 30 } }), 7, 'неделя — потолок «ближнего»');
+});
+
+test('дней рождения больше нет: старое поле наставника отпадает и в строку не идёт', () => {
+  assert.equal('birthday' in normalizeTeacher({ id: 'p', name: 'П', birthday: '03-08' }, preset), false);
+  // Среда 02.10.2024; в старом чате у Иванова записан день рождения на завтра.
+  const s = semester('2024-10-02');
+  s.teachers = s.teachers.map((t) => (t.id === 'ivanov' ? { ...t, birthday: '10-03' } : t));
+  assert.deepEqual(upcomingEvents(s, preset), []);
+  assert.equal(validateState(s, preset).ok, true, 'старое поле не ломает проверку');
+  assert.ok(!statusLine(s, preset).includes('рожд'), statusLine(s, preset));
 });
 
 test('9.4.4 контрольное впереди: вход в сессию — словом сессии; в идущую сессию — не повторяется', () => {
@@ -337,13 +320,13 @@ test('9.4.4 объявление итога — ближнее событие м
   assert.equal('value' in near[0], false);
 });
 
-test('9.4.4 строка состояния: «завтра — …; в пятницу день рождения: …» — словами, без новых чисел', () => {
-  // Среда 02.10.2024: завтра — день рождения Иванова, в пятницу — Петровой.
-  const s = semester('2024-10-02', preset, withBirthdays({ ivanov: '10-03', petrova: '10-04' }));
+test('9.4.4 строка состояния: «завтра объявят итог: …» — словами, без новых чисел', () => {
+  // Среда 02.10.2024: завтра объявят итог по физике, в пятницу — по химии.
+  const s = withAnnounces('2024-10-02', { physics: '2024-10-03', chemistry: '2024-10-04' });
   const line = statusLine(s, preset);
   // Сегмент начинается с заглавной — строка собирается из предложений.
-  assert.ok(line.includes('Завтра день рождения: Иванов Пётр Ильич'), line);
-  assert.ok(line.includes('в пятницу день рождения: Петрова Анна Сергеевна'), line);
+  assert.ok(line.includes('Завтра объявят итог: физика'), line);
+  assert.ok(line.includes('в пятницу объявят итог: аналитическая химия'), line);
   const bare = statusLine(semester('2024-10-02'), preset);
   assert.equal(countNumbers(line), countNumbers(bare), 'ближние события чисел не добавляют');
 });

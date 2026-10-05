@@ -46,7 +46,7 @@ import { reasonText, relationLabel } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { dayOfWeek, isStalled, parseDay, phaseOf, termAt, termsOf, weekIndex } from './core/time.mjs';
 import {
-  awaitingAnnouncement, examMode, datedExams, gradeInfo, isPassing, publicView,
+  awaitingAnnouncement, examMode, datedExams, examRule, gradeInfo, isPassing, publicView,
 } from './core/exams.mjs';
 import { milestones, milestoneName } from './core/milestones.mjs';
 import { slugify } from './core/plan-gen.mjs';
@@ -79,6 +79,19 @@ export const TIME_MODES = [
   { id: 'auto', label: 'Авто', hint: 'сначала контекст, при неудаче — метка' },
   { id: 'context', label: 'Из контекста', hint: 'время уже печатается в постах, инжекта нет' },
   { id: 'marker', label: 'Своя метка', hint: 'чистые посты, всё идёт служебным блоком' },
+];
+
+/** Когда секретарь разбирает ответ (`storage.DEFAULT_SETTINGS.analysis`). */
+export const ANALYSIS_MODE_VIEW = [
+  { id: 'button', label: 'По кнопке', hint: 'значок на плашке под ответом' },
+  { id: 'missing', label: 'Если нет метки', hint: 'сам, когда рассказчик метку не поставил' },
+  { id: 'auto', label: 'Всегда', hint: 'после каждого ответа — отдельный запрос' },
+];
+
+/** Кто решает исход контрольного в этом чате (`exams.examRule`). */
+export const EXAM_RULE_VIEW = [
+  { id: 'story', label: 'Сюжет', hint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — хвост' },
+  { id: 'dice', label: 'Кубик', hint: 'бросок против сложности, если сцена исход не назвала' },
 ];
 
 /** Четыре вкладки плана (3.9). Порядок — как в перечислении там же. */
@@ -897,10 +910,6 @@ export function peopleView(state, preset) {
       // Портрет (9.7A п.15): адрес, который дал человек, и только годный —
       // в `<img src>` не уходит ничего, что не прошло `isPortrait`.
       portrait: isPortrait(t.portrait) ? t.portrait : '',
-      // День рождения (9.4.4, 9.7A п.9): `ММ-ДД` для поля и словами для карточки.
-      birthday: typeof t.birthday === 'string' ? t.birthday : '',
-      birthdayText: birthdayText(t.birthday)
-        ? fill(extraLabels(preset).birthdayLine, { date: birthdayText(t.birthday) }) : '',
     };
   });
 
@@ -1106,6 +1115,10 @@ export function settingsView(state, settings, preset, extra = {}) {
     api: apiView(api, extra.connections),
     mode: TIME_MODES.some((m) => m.id === s.mode) ? s.mode : 'auto',
     modes: TIME_MODES.map((m) => ({ ...m, active: m.id === (s.mode || 'auto') })),
+    // Секретарь (`core/analysis`) — настройка общая; правило экзаменов — своё
+    // у каждого чата и есть только у заведённого семестра.
+    analysisModes: ANALYSIS_MODE_VIEW.map((m) => ({ ...m, active: m.id === (ANALYSIS_MODE_VIEW.some((x) => x.id === s.analysis) ? s.analysis : 'button') })),
+    examRules: state ? EXAM_RULE_VIEW.map((r) => ({ ...r, active: r.id === examRule(state) })) : [],
     // В режиме «из контекста» инжект инструкции не имеет смысла (3.2).
     injectMarker: s.mode === 'context' ? false : s.injectMarker !== false,
     injectMarkerLocked: s.mode === 'context',
@@ -1639,15 +1652,10 @@ export const EXTRA_UI = {
   portraitOpen: 'Открыть портрет',
   portraitClose: 'Закрыть',
   portraitBroken: 'картинка не открылась — проверьте путь',
-  // Карточка наставника целиком: портрет и день рождения правятся в одном
-  // свёрнутом блоке на вкладке «Люди».
-  detailsTitle: 'Портрет и день рождения',
+  // Портрет правится в свёрнутом блоке на вкладке «Люди».
+  detailsTitle: 'Портрет',
   detailsSave: 'Сохранить',
   detailsSaved: 'Сохранено.',
-  birthdayField: 'День рождения (ММ-ДД или Д.М)',
-  birthdayHint: '03-08',
-  birthdayBad: 'День рождения не читается: нужно ММ-ДД (03-08) или день.месяц (8.3).',
-  birthdayLine: 'день рождения: {date}',
 
   // --- итог, который мир ещё не знает (9.4.3) --------------------------------
   awaitingTitle: 'Ждут объявления',
@@ -1754,13 +1762,6 @@ export function awaitingView(state, preset) {
         text: fill(X.awaitingLine, { subject, date: formatDate(i.announceOn) || i.announceOn }),
       };
     });
-}
-
-/** «8 марта» из `ММ-ДД` — без дня недели: у дня рождения года нет. */
-export function birthdayText(mmdd) {
-  const m = typeof mmdd === 'string' && /^(\d{2})-(\d{2})$/.exec(mmdd);
-  if (!m) return '';
-  return `${Number(m[2])} ${MONTHS[Number(m[1])] || ''}`.trim();
 }
 
 /**
@@ -2630,7 +2631,6 @@ function renderPeople(host, view, preset) {
             class: t.hasTraits ? 'academy-traits' : 'academy-traits academy-traits-none',
             text: t.traitsText,
           }),
-          t.birthdayText ? el('span', { class: 'academy-teacher academy-birthday', text: t.birthdayText }) : null,
         ]),
         el('div', { class: 'academy-td academy-td-history' }, [
           el('span', { class: 'academy-card-title', text: U.relationHistoryTitle }),
@@ -2710,15 +2710,13 @@ function openPortrait(t, X) {
 }
 
 /**
- * Портрет и день рождения прямо в карточке наставника — свёрнутым блоком:
- * вкладка «Люди» — про людей, и эти поля правятся там же, где видны.
- * Сохранение — отдельным действием `setTeacherDetails`, а не через таблицу
- * плана: ни портрет, ни день рождения не меняют расписания и не должны его
- * пересобирать. Пустое поле убирает значение.
+ * Портрет прямо в карточке наставника — свёрнутым блоком: вкладка «Люди» —
+ * про людей, и поле правится там же, где видно. Сохранение — отдельным
+ * действием `setTeacherDetails`, а не через таблицу плана: портрет не меняет
+ * расписания и не должен его пересобирать. Пустое поле убирает значение.
  *
- * Проверка формы — те же правила, что держат состояние (`isPortrait`,
- * `normalizeBirthday` в `index.js`): отказ портрета приходит ещё до похода в
- * хост, день рождения разбирает хост (он принимает и `8.3`, и `03-08`).
+ * Проверка формы — та же, что держит состояние (`isPortrait`): отказ
+ * приходит ещё до похода в хост.
  */
 function portraitEditor(host, t, X) {
   const status = el('div', { class: 'academy-status' });
@@ -2726,10 +2724,6 @@ function portraitEditor(host, t, X) {
     type: 'text', class: 'text_pole academy-input', value: t.portrait || '', placeholder: X.portraitHint,
   });
   input.value = t.portrait || '';
-  const birthday = el('input', {
-    type: 'text', class: 'text_pole academy-input', value: t.birthday || '', placeholder: X.birthdayHint,
-  });
-  birthday.value = t.birthday || '';
   const save = el('div', {
     class: 'menu_button academy-btn academy-btn-small',
     text: X.detailsSave,
@@ -2737,7 +2731,7 @@ function portraitEditor(host, t, X) {
       const value = String(input.value || '').trim();
       if (value && !isPortrait(value)) { setStatus(status, 'error', X.portraitBad); return; }
       const res = await runAction(e.currentTarget, status,
-        () => call(host, 'setTeacherDetails', t.id, { portrait: value, birthday: String(birthday.value || '').trim() }),
+        () => call(host, 'setTeacherDetails', t.id, { portrait: value }),
         X.detailsSaved);
       if (res && res.ok !== false) renderPanel(host);
     },
@@ -2746,7 +2740,6 @@ function portraitEditor(host, t, X) {
     el('summary', { text: X.detailsTitle }),
     el('div', { class: 'academy-repair-body' }, [
       el('label', { class: 'academy-field' }, [el('span', { text: X.portraitField }), input]),
-      el('label', { class: 'academy-field' }, [el('span', { text: X.birthdayField }), birthday]),
       el('div', { class: 'academy-row academy-row-buttons' }, [save]),
       status,
     ]),
@@ -2961,6 +2954,7 @@ function renderSettings(host) {
 
   // --- источник времени и галочки -----------------------------------------
   box.append(renderModeBlock(host, view));
+  box.append(renderAnalysisBlock(host, view));
 
   // --- лорбук академии (3.7) ----------------------------------------------
   box.append(renderLorebookBlock(host, view));
@@ -3453,6 +3447,52 @@ function renderApiBlock(host, view) {
         },
       }),
     ]),
+    status,
+  ]);
+}
+
+/**
+ * Секретарь и правило экзаменов. Секретарь — общая настройка расширения;
+ * правило — своё у чата, поэтому без семестра его выбирать не из чего.
+ */
+function renderAnalysisBlock(host, view) {
+  const group = nextId('academy_analysis');
+  const modes = el('div', { class: 'academy-modes' }, view.analysisModes.map((m) => {
+    const radio = el('input', { type: 'radio', name: group, value: m.id, checked: m.active });
+    radio.addEventListener('change', () => {
+      safe(() => host.setSettings({ analysis: m.id }), null);
+      renderPanel(host);
+    });
+    return el('label', { class: m.active ? 'academy-mode academy-mode-on' : 'academy-mode' }, [
+      radio,
+      el('span', { class: 'academy-mode-label', text: m.label }),
+      el('span', { class: 'academy-note', text: m.hint }),
+    ]);
+  }));
+
+  const ruleGroup = nextId('academy_exam_rule');
+  const status = el('div', { class: 'academy-status' });
+  const rules = view.examRules.length
+    ? el('div', { class: 'academy-modes' }, view.examRules.map((r) => {
+      const radio = el('input', { type: 'radio', name: ruleGroup, value: r.id, checked: r.active });
+      radio.addEventListener('change', async () => {
+        const res = await call(host, 'setExamRule', r.id);
+        if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не вышло.');
+        else renderPanel(host);
+      });
+      return el('label', { class: r.active ? 'academy-mode academy-mode-on' : 'academy-mode' }, [
+        radio,
+        el('span', { class: 'academy-mode-label', text: r.label }),
+        el('span', { class: 'academy-note', text: r.hint }),
+      ]);
+    }))
+    : el('p', { class: 'academy-note', text: 'Правило экзаменов выбирается, когда в чате заведён семестр.' });
+
+  return section('Разбор ответов и экзамены', [
+    el('p', { class: 'academy-note', text: 'Секретарь — отдельный запрос через API Академии: читает ответ модели и записывает оценки, прогулы и отношения. Выводы видны на плашке под ответом, лишнее там же вычёркивается.' }),
+    modes,
+    el('p', { class: 'academy-note', text: 'Кто решает исход контрольного в этом чате:' }),
+    rules,
     status,
   ]);
 }
@@ -4400,17 +4440,17 @@ export function mountButton(host) {
   // кнопку нечем. Поймано стендом tools/preview: buttonX=1800 при окне 360.
   // 42 — ширина кнопки из style.css; спрашивать DOM до вставки в документ
   // бессмысленно, а ошибка в пару пикселей тут ничего не решает.
-  const pos = safe(() => (host.getSettings() || {}).ui, {}) || {};
-  if (Number.isFinite(pos.buttonX) && Number.isFinite(pos.buttonY)) {
-    const size = 42;
-    button.style.left = `${Math.min(Math.max(0, pos.buttonX), Math.max(0, window.innerWidth - size))}px`;
-    button.style.top = `${Math.min(Math.max(0, pos.buttonY), Math.max(0, window.innerHeight - size))}px`;
-    button.style.right = 'auto';
-    button.style.bottom = 'auto';
-  }
-
+  //
+  // Зажимать мало один раз при запуске: на телефоне окно в этот момент бывает
+  // ещё не своего размера (вкладка грузилась в фоне, адресная строка, поворот),
+  // и кнопка оказывалась за краем или под верхней панелью таверны. Тогда её не
+  // видно на экране и её не находит STFolder — он собирает только видимые
+  // кнопки, — то есть её нет нигде. Поэтому место пересчитывается при каждой
+  // смене размера окна (`placeLauncher`, `watchViewport`).
   document.body.append(button);
   mounted.button = button;
+  placeLauncher(host);
+  watchViewport(host);
 
   dragBy(button, button, host, 'button', () => {
     if (!mounted.panel) mountPanel(host);
@@ -4420,6 +4460,85 @@ export function mountButton(host) {
     if (e.key === 'Enter' || e.key === ' ') { if (!mounted.panel) mountPanel(host); openPanel(host); }
   });
   return button;
+}
+
+/** Ширина кнопки из style.css. */
+const LAUNCHER_SIZE = 42;
+
+/** Высота, которую сверху занимает панель таверны (`#top-bar`); на телефоне ~50. */
+function topReserve() {
+  const bar = typeof document !== 'undefined' && document.getElementById('top-settings-holder');
+  const h = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect().bottom : 0;
+  return Number.isFinite(h) && h > 0 && h < window.innerHeight / 3 ? Math.round(h) : 0;
+}
+
+/**
+ * Поставить кнопку по сохранённым координатам, зажатым в окно. Окно нулевого
+ * размера (вкладка ещё не показана) — не повод что-то решать: кнопка остаётся на
+ * месте по умолчанию из style.css, а пересчёт придёт с первым `resize`.
+ */
+function placeLauncher(host) {
+  const button = mounted.button;
+  if (!button) return;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (!(w > LAUNCHER_SIZE && h > LAUNCHER_SIZE)) return;
+  const pos = safe(() => (host.getSettings() || {}).ui, {}) || {};
+  if (!(Number.isFinite(pos.buttonX) && Number.isFinite(pos.buttonY))) {
+    for (const k of ['left', 'top', 'right', 'bottom']) button.style[k] = '';
+    return;
+  }
+  const minTop = topReserve();
+  button.style.left = `${Math.min(Math.max(0, pos.buttonX), w - LAUNCHER_SIZE)}px`;
+  button.style.top = `${Math.min(Math.max(minTop, pos.buttonY), h - LAUNCHER_SIZE)}px`;
+  button.style.right = 'auto';
+  button.style.bottom = 'auto';
+}
+
+let viewportWatched = false;
+
+function watchViewport(host) {
+  if (viewportWatched || typeof window === 'undefined' || !window.addEventListener) return;
+  viewportWatched = true;
+  let timer = null;
+  const again = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; placeLauncher(mounted.host || host); }, 150);
+  };
+  window.addEventListener('resize', again);
+  window.addEventListener('orientationchange', again);
+  if (window.visualViewport && window.visualViewport.addEventListener) window.visualViewport.addEventListener('resize', again);
+  // Первый пересчёт — когда страница уже разложена.
+  setTimeout(again, 1000);
+}
+
+/**
+ * Где кнопка и почему её может быть не видно — словами для меню расширений.
+ * Каждый пункт проверяемый: человек на телефоне консоли не откроет.
+ */
+export function launcherDiagnosis() {
+  const b = mounted.button;
+  if (!b || !b.isConnected) return 'Кнопки нет на странице — панель её не создала.';
+  const parts = [];
+  if (b.classList.contains('stf-hidden') || b.classList.contains('stf-docked')) parts.push('её забрал STFolder — она в его папке');
+  const style = getComputedStyle(b);
+  const r = b.getBoundingClientRect();
+  const off = r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight;
+  if (style.display === 'none' && !parts.length) parts.push('она скрыта стилем (display: none)');
+  if (off) parts.push('она за краем экрана');
+  parts.push(`место: ${Math.round(r.left)}, ${Math.round(r.top)}; окно ${window.innerWidth}×${window.innerHeight}`);
+  return `Кнопка на странице: ${parts.join('; ')}.`;
+}
+
+/** Забыть сохранённое место и поставить кнопку в угол по умолчанию; создать, если её нет. */
+export function resetLauncher(host) {
+  safe(() => host.setSettings({ ui: { buttonX: null, buttonY: null } }, { quiet: true }), null);
+  if (!mounted.button || !mounted.button.isConnected) {
+    mounted.button = null;
+    mountButton(host);
+  }
+  placeLauncher(host);
+  return launcherDiagnosis();
 }
 
 /**
@@ -4557,13 +4676,21 @@ function renderSettingsBlock(host) {
   const settings = safe(() => host.getSettings(), {}) || {};
   const view = settingsView(state, settings, preset, hostExtra(host));
 
+  const launcherNote = el('p', { class: 'academy-note' });
   content.append(el('div', { class: 'academy-row academy-row-buttons' }, [
     el('div', {
       class: 'menu_button academy-btn academy-btn-main',
       text: 'Открыть панель',
       onclick: () => { if (!mounted.panel) mountPanel(host); openPanel(host); },
     }),
-  ]));
+    // Плавающая кнопка пропала (за краем экрана, под панелью таверны,
+    // в папке STFolder) — вернуть её в угол и сказать, где она была.
+    el('div', {
+      class: 'menu_button academy-btn',
+      text: 'Вернуть кнопку',
+      onclick: () => { launcherNote.textContent = `${launcherDiagnosis()} Возвращаю в угол… ${resetLauncher(host)}`; },
+    }),
+  ]), launcherNote);
   // Пресет — настройка общая для всех чатов, и человек ищет такие в меню
   // расширений, а не в панели одного чата. Лорбук и выгрузка остались только в
   // панели: они про этот чат, а не про расширение.

@@ -143,6 +143,41 @@ export function stripMarker(text) {
     .replace(/\s+$/, '');
 }
 
+/**
+ * Метки ответа, в которых оставлены только ключи нужных видов (`'time'`,
+ * `'grade'`…), а прочие вычеркнуты. Нужна секретарю (`core/analysis`): когда
+ * ответ разобран отдельным запросом, оценки и отношения берутся из разбора, а
+ * из метки самой модели — только время, иначе одна пятёрка легла бы дважды.
+ * Неизвестные ключи вычёркиваются тоже: разбор их всё равно не читает.
+ */
+export function keepMarkerKinds(text, kinds) {
+  if (typeof text !== 'string' || !text) return '';
+  const keep = new Set(kinds || []);
+  return text.replace(MARKER_RE, (_, inComment, bare) => {
+    const body = inComment !== undefined ? inComment : (bare || '');
+    const kept = markerPairs(body).filter((p) => keep.has(p.kind)).map((p) => p.raw);
+    return `<!-- [ACADEMY${kept.length ? ` ${kept.join(' ')}` : ''}] -->`;
+  });
+}
+
+/** Пары `ключ=значение` блока — те же границы, что у `parseBody`. */
+function markerPairs(body) {
+  const keys = [...String(body).matchAll(KEY_RE)].map((k) => ({
+    name: k[1].toLowerCase(),
+    at: k.index,
+    valueAt: k.index + k[0].length,
+  }));
+  const out = [];
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const end = i + 1 < keys.length ? keys[i + 1].at : body.length;
+    const value = body.slice(k.valueAt, end).replace(/[,;]s*$/, '').trim();
+    const kind = KIND_BY_NAME.get(k.name);
+    if (kind && value) out.push({ kind, raw: `${k.name}=${value}` });
+  }
+  return out;
+}
+
 // --- разбор одного блока ---------------------------------------------------
 
 function parseBody(body, ctx, events, rejected) {
@@ -446,7 +481,18 @@ function byIdOrName(list, raw) {
   if (!key) return null;
   for (const it of list) if (norm(it.id) === key) return it.id;
   for (const it of list) if (norm(it.name) === key) return it.id;
-  return null;
+  // Короткое имя: «химия» для «аналитической химии», «Петрова» для «Петровой
+  // Анны Сергеевны». Берётся, только если слово (или несколько слов подряд)
+  // целиком входит в имя ровно одного — двусмысленное по-прежнему отвергается.
+  const words = key.split(' ');
+  const hits = list.filter((it) => {
+    const name = norm(it.name || '').split(' ');
+    for (let i = 0; i + words.length <= name.length; i++) {
+      if (words.every((w, k) => name[i + k] === w)) return true;
+    }
+    return false;
+  });
+  return hits.length === 1 ? hits[0].id : null;
 }
 
 function signed(sign, digits) {

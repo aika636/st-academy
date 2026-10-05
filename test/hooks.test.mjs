@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 // Проводка 9.4.1–9.4.2 и крючки 9.7 через настоящий `index.js` поверх
 // поддельной таверны (та же подделка, что в `remont.test.mjs`, списанная с
 // исходника 1.18.0): seed броска экзамена, тосты вех, события `academy:*`,
-// `window.AcademyAPI`, портрет и день рождения, корпус и аудитория, доктор
+// `window.AcademyAPI`, портрет, корпус и аудитория, доктор
 // промпта, кубик соседа, сводка прыжка, объявление после принятого прыжка.
 //
 // Подделка здесь добавляет три вещи, которых не было:
@@ -437,28 +437,26 @@ test('AcademyAPI: журнал и хвосты не выдают необъяв�
   assert.ok(api.journal(50).some((e) => e.subjectId === 'physics' && e.kind === 'exam'), 'объявили — видно');
 });
 
-// --- 5. портрет, день рождения, корпус и аудитория ------------------------------
+// --- 5. портрет, корпус и аудитория ---------------------------------------------
 
-test('портрет и день рождения: сохраняются с вкладки «Люди», негодное — отказ без записи', async () => {
+test('портрет: сохраняется с вкладки «Люди», негодный — отказ без записи', async () => {
   const tavern = await withSemester({ day: '2024-09-03' });
   const act = tavern.seam.host.actions;
-  const ok = await act.setTeacherDetails('petrova', { portrait: 'characters/Петрова/портрет.png', birthday: '8.3' });
+  const ok = await act.setTeacherDetails('petrova', { portrait: 'characters/Петрова/портрет.png' });
   assert.equal(ok.ok, true);
   const petrova = () => stateOf(tavern).teachers.find((t) => t.id === 'petrova');
   assert.equal(petrova().portrait, 'characters/Петрова/портрет.png');
-  assert.equal(petrova().birthday, '03-08', 'день.месяц приведён к ММ-ДД');
 
-  const bad = await act.setTeacherDetails('petrova', { portrait: 'javascript:alert(1)', birthday: '' });
+  const bad = await act.setTeacherDetails('petrova', { portrait: 'javascript:alert(1)' });
   assert.equal(bad.ok, false);
   assert.equal(bad.code, 'bad-portrait');
-  assert.equal(petrova().birthday, '03-08', 'половину правки не пишем');
+  assert.equal(petrova().portrait, 'characters/Петрова/портрет.png', 'отказ ничего не пишет');
 
-  const badDay = await act.setTeacherDetails('petrova', { birthday: '31.02' });
-  assert.equal(badDay.code, 'bad-birthday');
+  await act.setTeacherDetails('petrova', {});
+  assert.equal(petrova().portrait, 'characters/Петрова/портрет.png', 'ключа нет в правке — не трогаем');
 
   await act.setTeacherDetails('petrova', { portrait: '' });
   assert.equal('portrait' in petrova(), false, 'пустое поле убирает портрет');
-  assert.equal(petrova().birthday, '03-08', 'ключа нет в правке — не трогаем');
 });
 
 test('таблица плана: сохранение на идущем семестре не стирает зачётку и отношения', async () => {
