@@ -39,10 +39,12 @@
 //
 // Своих цветов в файле нет: палитра — переменные таверны, см. `style.css`.
 
-import { emptySurvey, isPortrait, labelFor, PLACE_MAX, validateState } from './core/state.mjs';
+import {
+  emptySurvey, isPortrait, labelFor, PLACE_MAX, TEACHER_TEXT_MAX, teacherDetails, validateState,
+} from './core/state.mjs';
 import { currentPeriod, dayPlan, nextPeriod } from './core/schedule.mjs';
 import { debts, overallScore, subjectScore } from './core/gradebook.mjs';
-import { reasonText, relationLabel, relationOf } from './core/relations.mjs';
+import { MEMORY_SIZE, reasonText, relationLabel, relationMemory, relationOf } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { dayOfWeek, isStalled, parseDay, phaseOf, termAt, termsOf, weekIndex } from './core/time.mjs';
 import {
@@ -133,8 +135,12 @@ export function sectionIcon(title) {
   return hit ? hit[1] : 'fa-circle-dot';
 }
 
-/** Сколько переходов ярлыка показывать по одному преподавателю (3.9: телефон). */
-export const PEOPLE_HISTORY = 3;
+/**
+ * Сколько сдвигов отношения «помнит» карточка преподавателя (3.9: телефон).
+ * То же число, что у лорбука (`relations.MEMORY_SIZE`): панель и модель
+ * помнят одно и то же.
+ */
+export const PEOPLE_HISTORY = MEMORY_SIZE;
 
 /** Сколько последних строк журнала показывать в отладке. */
 export const DEBUG_JOURNAL = 12;
@@ -247,7 +253,7 @@ export const DEFAULT_UI = {
   traitsNone: 'черты не заданы',
   subjectsNone: 'предметов не ведёт',
   relationTitle: 'Отношение',
-  relationHistoryTitle: 'Как менялось',
+  relationHistoryTitle: 'Помнит',
   relationNoHistory: 'отношение ещё не менялось',
   relationShift: '{from} → {to}',
   orphanSubjectsTitle: 'Предметы без преподавателя',
@@ -887,14 +893,20 @@ export function relationScore(state, teacherId) {
  * студентке; ниже — репутация заведения и предметы, у которых преподавателя нет.
  *
  * Отношение — ярлык и число (`relationScore`); прежнее правило «только словом»
- * владелица сняла 06.10. История сдвигов — переход ярлыка «ровно → недоволен»:
- * она восстанавливается из журнала (`kind: 'rel'`, поля `data.from`/`data.to`) той же таблицей `preset.relations.labels`, которой
- * пользуется `relationLabel`. Записи, где ярлык не менялся, отбрасываются: это
- * и есть значимое событие по `core/relations.mjs`, остальное — шум.
+ * владелица сняла 06.10.
+ *
+ * Память «за что» (`memory`) — последние сдвиги отношения со знаком и поводом
+ * словами: «+1 — спасла опыт», «−1 — прогул: химия». Источник —
+ * `relations.relationMemory`, тот же, что у лорбука. Прежняя история ярлыков
+ * («ровно → недоволен») в неё слита: сдвиг, перешедший границу ярлыка, несёт
+ * переход полем `shift`, и второго списка в карточке нет — на телефоне два
+ * списка про одно и то же были бы простынёй. Сдвиги внутри одного ярлыка
+ * теперь тоже видны: «недоволен» за прогул и «недоволен» за сорванный опыт —
+ * разные зацепки для сцены.
  *
  * Счёт сводных чисел (3.3): на вкладке ровно одно — сколько преподавателей.
- * Даты в истории в счёт не идут по тому же основанию, что оценки в зачётке:
- * это сама запись, а не метрика, и история без дат бесполезна.
+ * Знак сдвига и даты в счёт не идут по тому же основанию, что оценки в
+ * зачётке: это сама запись, а не метрика.
  */
 export function peopleView(state, preset) {
   const health = stateHealth(state, preset);
@@ -903,31 +915,32 @@ export function peopleView(state, preset) {
   }
 
   const U = uiLabels(preset);
-  const relLabels = (preset && preset.relations && preset.relations.labels) || [];
+  const X = extraLabels(preset);
   const subjects = state.subjects || [];
   const list = state.teachers || [];
-
-  // Журнал разбирается один раз на всех: он кольцевой и до `journalSize` длинный,
-  // а перебирать его по разу на преподавателя — квадрат на ровном месте.
-  const history = new Map();
-  for (const e of state.journal || []) {
-    if (!e || e.kind !== 'rel' || !e.data) continue;
-    const id = e.data.teacherId;
-    if (!id || !Number.isFinite(e.data.from) || !Number.isFinite(e.data.to)) continue;
-    const from = labelFor(relLabels, e.data.from);
-    const to = labelFor(relLabels, e.data.to);
-    if (!from || !to || from === to) continue;
-    const got = history.get(id) || [];
-    got.push({ day: e.day || '', dateLine: formatDate(e.day || ''), from, to, text: fill(U.relationShift, { from, to }) });
-    history.set(id, got);
-  }
 
   const teachers = list.map((t) => {
     const traits = (t.traits || []).map(str).filter(Boolean);
     const own = subjects.filter((s) => s.teacherId === t.id).map((s) => s.name || s.id);
     // Хвост журнала, свежим вперёд: на телефоне видна последняя перемена, а не
-    // первая, и список не растёт вместе с семестром.
-    const shifts = (history.get(t.id) || []).slice(-PEOPLE_HISTORY).reverse();
+    // первая, и список не растёт вместе с семестром. Журнал кольцевой и
+    // короткий, а преподавателей — единицы: проход по нему на каждого дешевле,
+    // чем общий словарь ради него.
+    const memory = relationMemory(state, t.id, preset, PEOPLE_HISTORY).map((m) => {
+      const sign = m.delta > 0 ? `+${m.delta}` : `−${-m.delta}`;
+      const shift = m.crossed ? fill(U.relationShift, m.crossed) : '';
+      return {
+        day: m.day,
+        dateLine: formatDate(m.day),
+        delta: m.delta,
+        sign,
+        reason: m.reason,
+        // Без повода — просто знак: «без повода» никто не пишет, тире не висит.
+        text: m.reason ? fill(X.memoryLine, { sign, reason: m.reason }) : sign,
+        shift,
+      };
+    });
+    const details = teacherDetails(t);
     return {
       id: t.id,
       name: t.name || t.id,
@@ -938,8 +951,13 @@ export function peopleView(state, preset) {
       subjectsText: own.length ? own.join(', ') : U.subjectsNone,
       relation: relationLabel(state, t.id, preset),
       score: relationScore(state, t.id),
-      history: shifts,
-      historyText: shifts.length ? '' : U.relationNoHistory,
+      memory,
+      memoryText: memory.length ? '' : U.relationNoHistory,
+      // Душа преподавателя: пустые — пустые строки, панель их просто не рисует.
+      post: details.post || '',
+      likes: details.likes || '',
+      likesText: details.likes ? fill(X.likesLine, { likes: details.likes }) : '',
+      secret: details.secret || '',
       // Портрет (9.7A п.15): адрес, который дал человек, и только годный —
       // в `<img src>` не уходит ничего, что не прошло `isPortrait`.
       portrait: isPortrait(t.portrait) ? t.portrait : '',
@@ -1685,9 +1703,23 @@ export const EXTRA_UI = {
   portraitClose: 'Закрыть',
   portraitBroken: 'картинка не открылась — проверьте путь',
   // Портрет правится в свёрнутом блоке на вкладке «Люди».
-  detailsTitle: 'Портрет',
+  detailsTitle: 'Детали',
   detailsSave: 'Сохранить',
   detailsSaved: 'Сохранено.',
+
+  // --- душа наставника: должность, «любит», тайна, память ---------------------
+  // Слова человека, а не заведения: должность у каждого пресета своя, и пишет
+  // её модель или человек, а подпись к полю — одна на все сеттинги.
+  postField: 'Должность',
+  postHint: 'декан, куратор, хранитель архива…',
+  likesField: 'Что любит',
+  likesHint: 'белое вино и дорогие картины',
+  secretField: 'Тайна',
+  secretHint: 'то, чего героиня не знает',
+  traitsField: 'Черты (через запятую)',
+  likesLine: 'любит: {likes}',
+  secretTitle: 'секрет',
+  memoryLine: '{sign} — {reason}',
 
   // --- итог, который мир ещё не знает (9.4.3) --------------------------------
   awaitingTitle: 'Ждут объявления',
@@ -2655,7 +2687,9 @@ function renderPeople(host, view, preset) {
           el('span', { class: 'academy-subject', text: t.name }),
           // Ярлык, не число: `peopleView` числа отношения не знает вовсе.
           el('span', { class: 'academy-relation', text: t.score ? `${t.relation} · ${t.score}` : t.relation }),
-          portraitEditor(host, t, X),
+          // Должность — под именем, мелко: это роль в заведении, а не второй заголовок.
+          t.post ? el('span', { class: 'academy-post', text: t.post }) : null,
+          detailsEditor(host, t, X),
         ]),
         el('div', { class: 'academy-td academy-td-person' }, [
           el('span', { class: 'academy-teacher', text: t.subjectsText }),
@@ -2663,15 +2697,26 @@ function renderPeople(host, view, preset) {
             class: t.hasTraits ? 'academy-traits' : 'academy-traits academy-traits-none',
             text: t.traitsText,
           }),
+          t.likesText ? el('span', { class: 'academy-traits academy-likes', text: t.likesText }) : null,
+          // Тайна свёрнута: героиня её не знает, и человеку, который не хочет
+          // спойлера своей же истории, она не должна лезть в глаза.
+          t.secret ? el('details', { class: 'academy-secret' }, [
+            el('summary', { text: X.secretTitle }),
+            el('span', { text: t.secret }),
+          ]) : null,
         ]),
         el('div', { class: 'academy-td academy-td-history' }, [
           el('span', { class: 'academy-card-title', text: U.relationHistoryTitle }),
-          t.history.length
-            ? el('ul', { class: 'academy-shifts' }, t.history.map((h) => el('li', {}, [
-              el('span', { class: 'academy-shift', text: h.text }),
-              h.dateLine ? el('span', { class: 'academy-shift-day', text: h.dateLine }) : null,
+          t.memory.length
+            ? el('ul', { class: 'academy-shifts' }, t.memory.map((m) => el('li', {}, [
+              el('span', { class: 'academy-shift', text: m.text }),
+              // Переход ярлыка и дата — одной приглушённой строкой: на 360
+              // пикселях три строки на сдвиг превращали память в простыню.
+              (m.shift || m.dateLine)
+                ? el('span', { class: 'academy-shift-day', text: [m.shift, m.dateLine].filter(Boolean).join(' · ') })
+                : null,
             ])))
-            : el('span', { class: 'academy-teacher', text: t.historyText }),
+            : el('span', { class: 'academy-teacher', text: t.memoryText }),
         ]),
       ]))));
   }
@@ -2742,28 +2787,47 @@ function openPortrait(t, X) {
 }
 
 /**
- * Портрет прямо в карточке наставника — свёрнутым блоком: вкладка «Люди» —
- * про людей, и поле правится там же, где видно. Сохранение — отдельным
- * действием `setTeacherDetails`, а не через таблицу плана: портрет не меняет
- * расписания и не должен его пересобирать. Пустое поле убирает значение.
+ * Детали наставника прямо в карточке — свёрнутым блоком: вкладка «Люди» —
+ * про людей, и поля правятся там же, где видны. Должность, «любит», тайна,
+ * черты и портрет — одной кнопкой. Сохранение — отдельным действием
+ * `setTeacherDetails`, а не через таблицу плана: детали не меняют расписания и
+ * не должны его пересобирать. Пустое поле убирает значение.
  *
- * Проверка формы — та же, что держит состояние (`isPortrait`): отказ
- * приходит ещё до похода в хост.
+ * Проверка портрета — та же, что держит состояние (`isPortrait`): отказ
+ * приходит ещё до похода в хост. Длины режет `maxlength` поля, а за ним —
+ * та же нормализация в хосте (`state.teacherDetails`).
  */
-function portraitEditor(host, t, X) {
+function detailsEditor(host, t, X) {
   const status = el('div', { class: 'academy-status' });
-  const input = el('input', {
-    type: 'text', class: 'text_pole academy-input', value: t.portrait || '', placeholder: X.portraitHint,
-  });
-  input.value = t.portrait || '';
+  const field = (label, value, hint, max, tag = 'input') => {
+    const input = el(tag, {
+      ...(tag === 'input' ? { type: 'text' } : { rows: '2' }),
+      class: 'text_pole academy-input', value: value || '', placeholder: hint || '',
+      ...(max ? { maxlength: String(max) } : {}),
+    });
+    input.value = value || '';
+    return { input, node: el('label', { class: 'academy-field' }, [el('span', { text: label }), input]) };
+  };
+  const post = field(X.postField, t.post, X.postHint, TEACHER_TEXT_MAX.post);
+  const likes = field(X.likesField, t.likes, X.likesHint, TEACHER_TEXT_MAX.likes);
+  const secret = field(X.secretField, t.secret, X.secretHint, TEACHER_TEXT_MAX.secret, 'textarea');
+  const traits = field(X.traitsField, (t.traits || []).join(', '), '', 0);
+  const portrait = field(X.portraitField, t.portrait, X.portraitHint, 0);
   const save = el('div', {
     class: 'menu_button academy-btn academy-btn-small',
     text: X.detailsSave,
     onclick: async (e) => {
-      const value = String(input.value || '').trim();
+      const value = String(portrait.input.value || '').trim();
       if (value && !isPortrait(value)) { setStatus(status, 'error', X.portraitBad); return; }
+      const patch = {
+        post: String(post.input.value || ''),
+        likes: String(likes.input.value || ''),
+        secret: String(secret.input.value || ''),
+        traits: String(traits.input.value || ''),
+        portrait: value,
+      };
       const res = await runAction(e.currentTarget, status,
-        () => call(host, 'setTeacherDetails', t.id, { portrait: value }),
+        () => call(host, 'setTeacherDetails', t.id, patch),
         X.detailsSaved);
       if (res && res.ok !== false) renderPanel(host);
     },
@@ -2771,7 +2835,7 @@ function portraitEditor(host, t, X) {
   return el('details', { class: 'academy-repair academy-portrait-edit' }, [
     el('summary', { text: X.detailsTitle }),
     el('div', { class: 'academy-repair-body' }, [
-      el('label', { class: 'academy-field' }, [el('span', { text: X.portraitField }), input]),
+      post.node, likes.node, secret.node, traits.node, portrait.node,
       el('div', { class: 'academy-row academy-row-buttons' }, [save]),
       status,
     ]),

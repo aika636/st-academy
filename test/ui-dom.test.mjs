@@ -954,16 +954,51 @@ test('«Люди»: портрет миниатюрой, нажатие откр
   assert.equal(document.body.children.length, before + 1);
   assert.match(overlay.className, /academy-portrait-overlay/);
 
-  const inputs = [];
-  walk(body, (n) => { if (n.tagName === 'INPUT' && n.attrs.type === 'text') inputs.push(n); });
-  const [portrait] = inputs;
+  const portrait = findNode(body, (n) => n.tagName === 'INPUT' && n.attrs.placeholder === ui.EXTRA_UI.portraitHint);
   portrait.value = 'javascript:alert(1)';
   const save = findNode(body, (n) => n.textContent === 'Сохранить' && n.listeners.click);
   await click(save);
   assert.deepEqual(sent, [], 'негодный портрет отвергнут до хоста');
   portrait.value = 'https://example.com/p.png';
   await click(save);
-  assert.deepEqual(sent, [['petrova', { portrait: 'https://example.com/p.png' }]]);
+  // Одна кнопка несёт все детали: поля, которых не трогали, уходят как были.
+  assert.deepEqual(sent, [['petrova', {
+    post: '', likes: '', secret: '', traits: 'злопамятна', portrait: 'https://example.com/p.png',
+  }]]);
+  api.destroy();
+});
+
+test('«Люди»: должность под именем, «любит» строкой, тайна свёрнута; редактор шлёт все поля', async () => {
+  const s = {
+    ...started,
+    teachers: [{
+      ...started.teachers[0], post: 'заведующая кафедрой', likes: 'белое вино', secret: 'влюблена в декана',
+    }],
+  };
+  const sent = [];
+  const host = fakeHost(s, {}, LOREBOOK_FULL, {
+    setTeacherDetails: async (id, patch) => { sent.push([id, patch]); return { ok: true }; },
+  });
+  const { api, node } = mount(host);
+  const body = openTab(node, 'people');
+  const texts = allTexts(body);
+  assert.ok(texts.includes('заведующая кафедрой'), texts.join(' | '));
+  assert.ok(texts.includes('любит: белое вино'), texts.join(' | '));
+  const secret = findNode(body, (n) => n.tagName === 'DETAILS' && /academy-secret/.test(n.className));
+  assert.ok(secret, 'тайна — в свёрнутом блоке');
+  assert.equal(secret.attrs.open, undefined, 'и свёрнута, пока не нажали');
+  assert.equal(secret.children[0].textContent, ui.EXTRA_UI.secretTitle);
+
+  const byHint = (hint) => findNode(body, (n) => (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA')
+    && n.attrs.placeholder === hint);
+  assert.equal(byHint(ui.EXTRA_UI.postHint).value, 'заведующая кафедрой', 'редактор открывается с тем, что есть');
+  assert.equal(byHint(ui.EXTRA_UI.secretHint).tagName, 'TEXTAREA');
+  byHint(ui.EXTRA_UI.postHint).value = 'декан';
+  byHint(ui.EXTRA_UI.likesHint).value = '';
+  await click(findNode(body, (n) => n.textContent === 'Сохранить' && n.listeners.click));
+  assert.deepEqual(sent, [['petrova', {
+    post: 'декан', likes: '', secret: 'влюблена в декана', traits: 'злопамятна', portrait: '',
+  }]]);
   api.destroy();
 });
 

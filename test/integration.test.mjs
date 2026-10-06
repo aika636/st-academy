@@ -697,6 +697,51 @@ test('лорбук: правленую руками запись расшире�
   );
 });
 
+test('детали наставника с вкладки «Люди»: нормализуются, ложатся в лорбук, правку руками не трогают', async () => {
+  const tavern = await withSemester(LOREBOOK_ON, { worldInfo: true });
+  const id = say(tavern, `Пара прошла. ${marker('t=+1')}`);
+  await tavern.eventSource.emit('message_received', id);
+  const act = tavern.seam.host.actions;
+  const teacher = (tid) => stateOf(tavern).teachers.find((t) => t.id === tid);
+  const entry = (tid) => bookEntries(tavern).find((e) => e.academy.uid === `academy:teacher:${tid}`);
+
+  const res = await act.setTeacherDetails('petrova', {
+    post: '  заведующая   кафедрой ',
+    likes: 'белое вино и дорогие картины.',
+    secret: 'влюблена в декана '.repeat(20),
+    traits: 'злопамятна, , любит порядок ',
+  });
+  assert.equal(res.ok, true);
+  const p = teacher('petrova');
+  assert.equal(p.post, 'заведующая кафедрой', 'пробелы схлопнуты');
+  assert.equal(p.secret.length, 160, 'тайна обрезана тем же потолком, что держит состояние');
+  assert.deepEqual(p.traits, ['злопамятна', 'любит порядок'], 'черты — через запятую, пустые выброшены');
+  assert.equal((await import('../core/state.mjs')).validateState(stateOf(tavern), preset).ok, true);
+
+  // Лорбук пересобран тем же действием: должность, «любит» и тайна — в записи.
+  const text = entry('petrova').content;
+  assert.match(text, /Должность: заведующая кафедрой\./);
+  assert.match(text, /Любит: белое вино и дорогие картины\./, 'точка из анкеты не удваивается');
+  assert.match(text, /Тайна \(героиня не знает; проявлять только намёками, прямо не раскрывать\): влюблена/);
+  assert.doesNotMatch(text, /\.\./);
+
+  // Пустое — убрать ключ; ключа нет в правке — не трогать.
+  await act.setTeacherDetails('petrova', { secret: '' });
+  assert.equal('secret' in teacher('petrova'), false);
+  assert.equal(teacher('petrova').post, 'заведующая кафедрой');
+  assert.doesNotMatch(entry('petrova').content, /Тайна/);
+
+  // Запись, тронутая руками, переживает и эту правку (3.7).
+  const mine = 'Петрову я описала сама.';
+  entry('petrova').content = mine;
+  await act.setTeacherDetails('petrova', { likes: 'тишина' });
+  assert.equal(teacher('petrova').likes, 'тишина', 'состояние правится');
+  assert.equal(entry('petrova').content, mine, 'а правленая руками запись — нет');
+
+  const missing = await act.setTeacherDetails('nobody', { post: 'директор' });
+  assert.equal(missing.ok, false);
+});
+
 test('лорбук: предложение про NPC само в лорбук не попадает', async () => {
   const tavern = await withSemester(LOREBOOK_ON, { worldInfo: true });
   const id = say(tavern, `Пара прошла. ${marker('t=+1')}`);

@@ -129,7 +129,7 @@ test('двадцать предметов — обрезка до потолка
   const res = parsePlanResponse(JSON.stringify(bigPlan(20)), preset);
   assert.equal(res.ok, true, 'обрезка не должна выглядеть как «всё пропало»');
   assert.equal(res.plan.subjects.length, preset.limits.maxSubjects);
-  assert.equal(res.plan.teachers.length, preset.limits.maxTeachers);
+  assert.equal(res.plan.teachers.length, preset.limits.planTeachers, 'генерация режет до своего потолка');
   assert.ok(res.errors.some((e) => e.startsWith('too-many-subjects')));
   assert.ok(res.errors.some((e) => e.startsWith('too-many-teachers')));
 });
@@ -202,6 +202,83 @@ test('slugify даёт короткий латинский id без пробе�
   }
   // Один и тот же вход даёт один и тот же id: он уезжает в состояние.
   assert.equal(slugify('Высшая математика'), slugify('Высшая математика'));
+});
+
+// --- учителя с душой --------------------------------------------------------
+
+const PRESET_FILES = ['ru-university', 'magic-academy', 'jp-highschool'];
+const readPreset = (id) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
+
+test('во всех встроенных пресетах генерация зовёт не больше четырёх, таблица держит прежний потолок', () => {
+  for (const id of PRESET_FILES) {
+    const p = readPreset(id);
+    assert.equal(p.limits.planTeachers, 4, id);
+    assert.ok(p.limits.maxTeachers > 4, `${id}: потолок таблицы не урезан — старые семестры сохраняются`);
+    const { prompt } = buildPlanPrompt(survey, p);
+    // В промпт уходит потолок генерации, а не таблицы.
+    assert.match(prompt, /не больше 4[:.]/, `${id}: ${prompt}`);
+    assert.ok(!prompt.includes(`не больше ${p.limits.maxTeachers}:`), id);
+    for (const key of ['"post"', '"likes"', '"secret"']) assert.ok(prompt.includes(key), `${id}: нет ${key} в образце`);
+    assert.match(prompt, /от одно(го|й) до 3/, `${id}: не сказано «1–3 предмета»`);
+    assert.equal(/\{[a-zA-Z]\w*\}/.test(prompt), false, prompt);
+  }
+  // Умолчание без пресета — тоже четыре и те же поля.
+  const bare = buildPlanPrompt(survey, {}).prompt;
+  assert.match(bare, /преподавателей не больше 4/);
+  assert.ok(bare.includes('"secret"'));
+});
+
+test('потолок генерации не выше потолка таблицы', () => {
+  const tight = { ...preset, limits: { ...preset.limits, maxTeachers: 2, planTeachers: 4 } };
+  const res = validatePlan(bigPlan(6), tight);
+  assert.equal(res.plan.teachers.length, 2);
+  assert.match(buildPlanPrompt(survey, tight).prompt, /не больше 2:/);
+});
+
+test('должность, «любит» и тайна разбираются, режутся по длине; без них план не брак', () => {
+  const raw = '```json\n' + JSON.stringify({
+    subjects: [
+      { id: 'necro', name: 'Некромантия', teacherId: 'veyl' },
+      { id: 'herbs', name: 'Травы', teacherId: 'kass' },
+    ],
+    teachers: [
+      {
+        id: 'veyl', name: 'Магистр Вейл', traits: ['злопамятен'],
+        post: '  директор  ', likes: 'белое вино и дорогие картины', secret: 'х'.repeat(300),
+      },
+      // Синонимы ключей, которые модель любит больше наших.
+      { id: 'kass', name: 'Кассандра Палагея', traits: ['строга'], role: 'заведующая кафедрой', loves: ['травы', 'тишина'] },
+    ],
+  }) + '\n```';
+  const res = parsePlanResponse(raw, preset);
+  assert.equal(res.ok, true);
+  const [veyl, kass] = res.plan.teachers;
+  assert.equal(veyl.post, 'директор');
+  assert.equal(veyl.likes, 'белое вино и дорогие картины');
+  assert.equal(veyl.secret.length, 160, 'тайна обрезана до потолка');
+  assert.equal(kass.post, 'заведующая кафедрой');
+  assert.equal(kass.likes, 'травы, тишина');
+  assert.equal('secret' in kass, false, 'нет тайны — нет ключа');
+  assert.ok(!res.errors.some((e) => /post|likes|secret/.test(e)), res.errors.join(', '));
+
+  // Старый формат без души — по-прежнему годный план без претензий к ней.
+  const old = parsePlanResponse(JSON.stringify({
+    subjects: [{ id: 'chem', name: 'Химия', teacherId: 'p' }],
+    teachers: [{ id: 'p', name: 'Петрова', traits: ['строга'] }],
+  }), preset);
+  assert.equal(old.ok, true);
+  assert.deepEqual(old.errors, []);
+  assert.deepEqual(Object.keys(old.plan.teachers[0]).sort(), ['id', 'name', 'traits']);
+});
+
+test('больше трёх предметов на одного — замечание, а не брак', () => {
+  const res = validatePlan({
+    subjects: ['a', 'b', 'c', 'd'].map((id) => ({ id, name: `Предмет ${id}`, teacherId: 'p' })),
+    teachers: [{ id: 'p', name: 'Петрова', traits: ['строга'] }],
+  }, preset);
+  assert.equal(res.ok, true);
+  assert.equal(res.plan.subjects.length, 4);
+  assert.ok(res.errors.includes('teacher-many-subjects:p'), res.errors.join(', '));
 });
 
 test('день рождения в ответе плана молча отбрасывается и план не бракует', () => {

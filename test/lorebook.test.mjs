@@ -414,3 +414,49 @@ function livedSemester() {
   }
   return s;
 }
+
+// --- учителя с душой -----------------------------------------------------------
+
+test('запись преподавателя: должность, «любит», память поводами и тайна с оговоркой', () => {
+  let s = semester();
+  s.teachers[0] = { ...s.teachers[0], post: 'заведующая кафедрой', likes: 'белое вино и дорогие картины', secret: 'влюблена в Кассандру Палагею' };
+  s = changeRelation(s, { teacherId: 'petrova', delta: -1, reason: { kind: 'skip', subjectId: 'chemistry' } }, preset).state;
+  s = changeRelation(s, { teacherId: 'petrova', delta: 1 }, preset).state; // без повода — в память лорбука не идёт
+  s = changeRelation(s, { teacherId: 'petrova', delta: 1, reason: { kind: 'marker', text: 'спасла опыт' } }, preset).state;
+
+  const text = teacherEntry(s, 'petrova', preset).content;
+  assert.match(text, /Должность: заведующая кафедрой\./);
+  assert.match(text, /Любит: белое вино и дорогие картины\./);
+  assert.match(text, /Помнит: спасла опыт; прогул: аналитическая химия\./, 'свежим вперёд, словами');
+  assert.match(text,
+    /Тайна \(героиня не знает; проявлять только намёками, прямо не раскрывать\): влюблена в Кассандру Палагею\.$/);
+  assert.doesNotMatch(text.split('Помнит:')[1], /[+−-]\d/, 'в память лорбука числа не идут');
+});
+
+test('запись преподавателя без души — прежний текст, без пустых фраз и висящих точек', () => {
+  const s = semester();
+  const text = teacherEntry(s, 'ivanov', preset).content;
+  assert.doesNotMatch(text, /Должность|Любит|Помнит|Тайна/);
+  assert.doesNotMatch(text, /\.\s*\./);
+  assert.ok(text.endsWith('.'));
+
+  // Пустая строка и одни пробелы — то же, что нет поля.
+  const blank = semester();
+  blank.teachers[1] = { ...blank.teachers[1], post: '', likes: '   ' };
+  assert.equal(teacherEntry(blank, 'ivanov', preset).content, text);
+});
+
+test('правленая руками запись преподавателя не затирается правкой души', () => {
+  const s = semester();
+  const first = buildLorebook(s, preset);
+  const snapshot = apply([], first);
+  const row = snapshot.find((x) => x.uid === 'academy:teacher:petrova');
+  row.content = 'Моя Петрова.';
+
+  const next = semester();
+  next.teachers[0] = { ...next.teachers[0], secret: 'тайна' };
+  next.teachers[1] = { ...next.teachers[1], secret: 'другая тайна' };
+  const plan = buildLorebook(next, preset, { snapshot });
+  assert.ok(plan.keep.some((k) => k.uid === 'academy:teacher:petrova' && k.reason === KEEP_EDITED));
+  assert.ok(plan.update.some((e) => e.uid === 'academy:teacher:ivanov'), 'нетронутая — обновляется');
+});

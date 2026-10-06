@@ -22,9 +22,19 @@
 //    пробелами (`grade=аналитическая химия:4`), поэтому в метке стоит
 //    `grade=chemistry:4`, а длинное имя живёт отдельным полем.
 //
+// 4. **Учителей мало, но у каждого душа.** Генерация зовёт не больше
+//    `limits.planTeachers` (умолчание — четыре) преподавателей, каждый ведёт
+//    один-три предмета и приносит должность, «что любит» и тайну. Потолок
+//    генерации отделён от `limits.maxTeachers`: тот держит таблицу, правленную
+//    руками, и семестр с восемью наставниками не должен перестать сохраняться
+//    оттого, что модель теперь зовёт четверых. Поля души необязательны: план
+//    без них — не брак.
+//
 // Ни одного числа и ни одного слова сеттинга в логике: потолки — из
 // `preset.limits`, промпт — шаблон из `preset.prompts.plan` (ниже лежит
 // перекрываемый образец по умолчанию).
+
+import { teacherDetails } from './state.mjs';
 
 /**
  * Значения по умолчанию — данные, не логика; каждое перекрывается пресетом.
@@ -32,6 +42,10 @@
 export const DEFAULTS = {
   maxSubjects: 8,
   maxTeachers: 8,
+  /** Сколько преподавателей зовёт генерация: мало, но с душой. Не больше `maxTeachers`. */
+  planTeachers: 4,
+  /** Сколько предметов ведёт один преподаватель: больше — замечание, не брак. */
+  maxSubjectsPerTeacher: 3,
   /** Сколько черт характера ждём у преподавателя: одна-две (3.6). */
   minTraits: 1,
   maxTraits: 2,
@@ -50,17 +64,22 @@ export const DEFAULT_PROMPT = {
   user: [
     'Составь учебный план.',
     'Эпоха: {era}. Страна: {country}. Тип заведения: {institution}. Направление: {faculty}. Курс: {year}. Язык названий и имён: {lang}.',
-    'Предметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}.',
-    'У каждого предмета ровно один преподаватель. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).',
+    'Предметов не больше {maxSubjects}, преподавателей не больше {maxTeachers}: их мало, зато у каждого есть душа.',
+    'У каждого предмета ровно один преподаватель; каждый преподаватель ведёт от одного до {maxSubjectsPerTeacher} предметов. У преподавателя имя в традиции страны и одна-две черты характера, из которых может вырасти конфликт («злопамятен», «придирается к опозданиям»).',
+    'У каждого преподавателя ещё три поля: post — должность в заведении помимо предмета («директор», «заведующая кафедрой», «куратор общежития»), до 60 символов; likes — что любит, зацепка для сцены («белое вино и дорогие картины»), до 120 символов; secret — тайна, которой героиня не знает и которая может всплыть в сюжете («влюблён в коллегу», «скрывает долги»), до 160 символов.',
     'Поле id — короткий латинский идентификатор без пробелов, поле name — полное название на языке {lang}.',
     'Формат ответа:',
-    '{"subjects":[{"id":"chemistry","name":"…","teacherId":"petrova"}],"teachers":[{"id":"petrova","name":"…","traits":["…"]}]}',
+    '{"subjects":[{"id":"chemistry","name":"…","teacherId":"petrova"}],"teachers":[{"id":"petrova","name":"…","traits":["…"],"post":"…","likes":"…","secret":"…"}]}',
   ].join('\n'),
 };
 
 const limitsOf = (preset) => (preset && preset.limits) || {};
 const maxSubjects = (preset) => intOr(limitsOf(preset).maxSubjects, DEFAULTS.maxSubjects);
 const maxTeachers = (preset) => intOr(limitsOf(preset).maxTeachers, DEFAULTS.maxTeachers);
+/** Потолок генерации: `planTeachers`, но не выше общего `maxTeachers`. */
+const planTeachers = (preset) => Math.min(
+  intOr(limitsOf(preset).planTeachers, DEFAULTS.planTeachers), maxTeachers(preset));
+const maxSubjectsPerTeacher = (preset) => intOr(limitsOf(preset).maxSubjectsPerTeacher, DEFAULTS.maxSubjectsPerTeacher);
 const minTraits = (preset) => intOr(limitsOf(preset).minTraits, DEFAULTS.minTraits);
 const maxTraits = (preset) => intOr(limitsOf(preset).maxTraits, DEFAULTS.maxTraits);
 
@@ -79,7 +98,10 @@ export function buildPlanPrompt(survey, preset) {
     faculty: str(s.faculty), year: str(s.year),
     lang: str(s.lang) || str(preset && preset.lang),
     maxSubjects: String(maxSubjects(preset)),
-    maxTeachers: String(maxTeachers(preset)),
+    // В промпт уходит потолок генерации, а не таблицы: `{maxTeachers}` в
+    // шаблонах пресетов — это «сколько звать», и оно теперь меньше.
+    maxTeachers: String(planTeachers(preset)),
+    maxSubjectsPerTeacher: String(maxSubjectsPerTeacher(preset)),
   };
   return { system: fill(tpl.system, vars), prompt: fill(tpl.user, vars) };
 }
@@ -230,7 +252,15 @@ export function shapePlan(data) {
     const id = str(src.id) || slugify(name);
     if (!id) return null;
     if (!byId.has(id)) {
-      const t = { id, name: name || id, traits: toTraits(src.traits || src.trait || src.character) };
+      const t = {
+        id,
+        name: name || id,
+        traits: toTraits(src.traits || src.trait || src.character),
+        // Душа преподавателя: синонимы — потому что модель любит своё слово.
+        ...pickText(src, 'post', ['post', 'position', 'role']),
+        ...pickText(src, 'likes', ['likes', 'loves', 'like']),
+        ...pickText(src, 'secret', ['secret', 'secrets']),
+      };
       byId.set(id, t);
       teachers.push(t);
     } else if (name && !byId.get(id).name) {
@@ -252,6 +282,15 @@ export function shapePlan(data) {
   });
 
   return { plan: { subjects, teachers }, errors };
+}
+
+/** `{[key]: строка}` из первого непустого синонима или `{}`; обрезка — в `validatePlan`. */
+function pickText(src, key, names) {
+  for (const n of names) {
+    const v = Array.isArray(src[n]) ? src[n].map(str).filter(Boolean).join(', ') : str(src[n]);
+    if (v) return { [key]: v };
+  }
+  return {};
 }
 
 function firstArray(obj, keys) {
@@ -297,11 +336,13 @@ export function validatePlan(plan, preset) {
       traits = traits.slice(0, maxTraits(preset));
     }
     if (traits.length < minTraits(preset)) errors.push(`teacher-no-traits:${id}`);
-    teachers.push({ id, name, traits, relation: numberOr(raw && raw.relation, undefined) });
+    // Должность, «любит», тайна — той же нормализацией, что держит состояние:
+    // одна строка, потолок длины, пустое — ключа нет. Отсутствие — не брак.
+    teachers.push({ id, name, traits, ...teacherDetails(raw), relation: numberOr(raw && raw.relation, undefined) });
   }
-  if (teachers.length > maxTeachers(preset)) {
+  if (teachers.length > planTeachers(preset)) {
     errors.push(`too-many-teachers:${teachers.length}`);
-    teachers.length = maxTeachers(preset);
+    teachers.length = planTeachers(preset);
   }
   const kept = new Set(teachers.map((t) => t.id));
   for (const t of teachers) if (t.relation === undefined) delete t.relation;
@@ -333,6 +374,12 @@ export function validatePlan(plan, preset) {
   if (subjects.length > maxSubjects(preset)) {
     errors.push(`too-many-subjects:${subjects.length}`);
     subjects.length = maxSubjects(preset);
+  }
+  // Один-три предмета на преподавателя — просьба промпта, а не схема: лишний
+  // предмет у одного — замечание, таблица всё равно откроется человеку.
+  for (const t of teachers) {
+    const count = subjects.filter((s) => s.teacherId === t.id).length;
+    if (count > maxSubjectsPerTeacher(preset)) errors.push(`teacher-many-subjects:${t.id}`);
   }
 
   return { ok: subjects.length > 0, errors, plan: { subjects, teachers } };

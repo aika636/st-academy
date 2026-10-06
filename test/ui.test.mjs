@@ -449,8 +449,8 @@ test('пятая вкладка есть только при включённо�
 function peopleStrings(view) {
   const out = [view.reputation, ...view.numbers.map((n) => n.text), ...view.orphans];
   for (const t of view.teachers) {
-    out.push(t.name, t.relation, t.traitsText, t.subjectsText, t.historyText);
-    for (const h of t.history) out.push(h.text, h.dateLine, h.from, h.to);
+    out.push(t.name, t.relation, t.traitsText, t.subjectsText, t.memoryText, t.post, t.likesText, t.secret);
+    for (const m of t.memory) out.push(m.text, m.dateLine, m.shift);
   }
   return out.filter((s) => s !== '' && s !== undefined);
 }
@@ -484,33 +484,62 @@ test('«Люди»: число отношения видно рядом со с�
   assert.equal(peopleView(started(), preset).teachers.find((t) => t.id === 'petrova').score, '0');
 });
 
-test('«Люди»: история — переходы ярлыка словами, ровные сдвиги в неё не попадают', () => {
-  // Внутри шкалы `-1` и `-2` дают разные ярлыки, а `-2 → -3` — один и тот же:
-  // вторая правка меняет число, но не слово, и на экране ей делать нечего.
+test('«Люди»: память «за что» — каждый сдвиг со знаком и поводом, переход ярлыка — при нём', () => {
+  // Внутри шкалы `-1` и `-2` дают разные ярлыки, а `-2 → -3` — один и тот же.
+  // Раньше вкладка помнила только переходы; теперь помнит и сдвиг внутри
+  // ярлыка: «недоволен» за прогул — зацепка для сцены, даже если слово то же.
   let state = started();
-  state = changeRelation(state, { teacherId: 'petrova', delta: -2 }, preset).state; // ровно → неприязнь
-  state = changeRelation(state, { teacherId: 'petrova', delta: -1 }, preset).state; // ярлык тот же
+  state = changeRelation(state, {
+    teacherId: 'petrova', delta: -2, reason: { kind: 'skip', subjectId: 'chemistry' },
+  }, preset).state; // ровно → неприязнь
+  state = changeRelation(state, { teacherId: 'petrova', delta: -1 }, preset).state; // ярлык тот же, повода нет
+  state = changeRelation(state, {
+    teacherId: 'petrova', delta: 1, reason: { kind: 'marker', text: 'спасла опыт' },
+  }, preset).state;
   const view = peopleView(state, preset);
   const petrova = view.teachers.find((t) => t.id === 'petrova');
 
-  assert.equal(petrova.history.length, 1, 'записан переход через границу, а не каждый сдвиг');
-  assert.equal(petrova.history[0].from, 'ровно');
-  assert.equal(petrova.history[0].to, 'неприязнь');
-  assert.equal(petrova.history[0].text, 'ровно → неприязнь');
-  assert.equal(petrova.historyText, '');
-  assert.equal(view.teachers.find((t) => t.id === 'grinev').historyText,
+  assert.deepEqual(petrova.memory.map((m) => m.text),
+    ['+1 — спасла опыт', '−1', '−2 — прогул: аналитическая химия'],
+    'свежим вперёд, со знаком; без повода — только знак, без «без повода» и висящего тире');
+  assert.equal(petrova.memory[2].shift, 'ровно → неприязнь', 'переход ярлыка живёт при своём сдвиге');
+  assert.equal(petrova.memory[1].shift, '', 'сдвиг внутри ярлыка перехода не выдумывает');
+  assert.equal(petrova.memory[0].sign, '+1');
+  assert.equal(petrova.memoryText, '');
+  assert.equal(view.teachers.find((t) => t.id === 'grinev').memoryText,
     uiLabels(preset).relationNoHistory, 'у нетронутого преподавателя — своя фраза, а не пустота');
 });
 
-test('«Люди»: история обрезается по потолку, свежим вперёд', () => {
+test('«Люди»: память обрезается по потолку, свежим вперёд; упор в край шкалы не помнится', () => {
   let state = started();
-  // Пройти шкалу вверх и вниз: границ ярлыков пересекается заведомо больше трёх.
   for (const delta of [2, 2, -2, -2, -2, 2]) {
     state = changeRelation(state, { teacherId: 'petrova', delta }, preset).state;
   }
-  const petrova = peopleView(state, preset).teachers.find((t) => t.id === 'petrova');
-  assert.equal(petrova.history.length, PEOPLE_HISTORY);
-  assert.equal(petrova.history[0].to, petrova.relation, 'первым стоит последний по времени переход');
+  let petrova = peopleView(state, preset).teachers.find((t) => t.id === 'petrova');
+  assert.equal(petrova.memory.length, PEOPLE_HISTORY);
+  assert.deepEqual(petrova.memory.map((m) => m.delta), [2, -2, -2], 'первым стоит последний сдвиг');
+
+  // Сдвиг, упёршийся в край шкалы, отношения не сдвинул — и помнить нечего.
+  let edge = started();
+  for (let i = 0; i < 12; i += 1) edge = changeRelation(edge, { teacherId: 'petrova', delta: -1 }, preset).state;
+  petrova = peopleView(edge, preset).teachers.find((t) => t.id === 'petrova');
+  assert.equal(petrova.memory.length, PEOPLE_HISTORY);
+  assert.ok(petrova.memory.every((m) => m.delta === -1));
+  assert.equal(petrova.memory[0].to, undefined, 'наружу — знак и повод, а не числа шкалы');
+});
+
+test('«Люди»: должность, «любит» и тайна — из состояния, пустые не рисуются', () => {
+  const state = started();
+  state.teachers[0] = { ...state.teachers[0], post: 'заведующая кафедрой', likes: 'белое вино', secret: 'влюблена в декана' };
+  const view = peopleView(state, preset);
+  const petrova = view.teachers.find((t) => t.id === state.teachers[0].id);
+  assert.equal(petrova.post, 'заведующая кафедрой');
+  assert.equal(petrova.likesText, 'любит: белое вино');
+  assert.equal(petrova.secret, 'влюблена в декана');
+  const other = view.teachers.find((t) => t.id !== state.teachers[0].id);
+  assert.equal(other.post, '');
+  assert.equal(other.likesText, '');
+  assert.equal(other.secret, '');
 });
 
 test('«Люди»: преподаватель без черт и предмет без преподавателя не ломают вкладку', () => {

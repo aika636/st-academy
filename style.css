@@ -460,6 +460,38 @@
   font-style: italic;
 }
 
+/* Душа наставника: должность — строкой под именем, «любит» — как черты,
+   тайна — свёрнутой одной строкой «секрет», чтобы карточка на телефоне не
+   становилась простынёй и не раскрывала спойлер без нажатия. */
+.academy-post {
+  flex-basis: 100%;
+  color: var(--academy-dim);
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+.academy-secret {
+  font-size: 0.85em;
+  color: var(--academy-dim);
+}
+
+.academy-secret > summary {
+  cursor: pointer;
+  list-style: revert;
+}
+
+.academy-secret[open] > span {
+  display: block;
+  padding-top: 2px;
+  color: var(--academy-accent);
+  overflow-wrap: anywhere;
+}
+
+.academy-portrait-edit textarea.academy-input {
+  resize: vertical;
+  min-height: 2.6em;
+}
+
 .academy-shifts,
 .academy-journal {
   list-style: none;

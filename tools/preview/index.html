@@ -113,7 +113,10 @@ const SUBJECTS = [
 // Портрет (9.7A п.15): у Петровой — настоящая картинка стенда, у
 // Соколовского — битый путь (ветка «картинка не открылась»).
 const TEACHERS = [
-  { id: 'petrova', name: 'Петрова Анна Сергеевна', traits: ['злопамятна', 'придирается к опозданиям'], portrait: 'portrait.svg', birthday: '03-08' },
+  {
+    id: 'petrova', name: 'Петрова Анна Сергеевна', traits: ['злопамятна', 'придирается к опозданиям'], portrait: 'portrait.svg',
+    post: 'заведующая кафедрой аналитической химии', likes: 'белое вино и дорогие картины', secret: 'влюблена в Соколовского и скрывает это от кафедры',
+  },
   { id: 'sokolovsky', name: 'Соколовский Владимир Константинович', traits: ['рассеян', 'любит доказательства у доски'], portrait: 'characters/нет/такого.png' },
   { id: 'grigoryan', name: 'Григорян Ашот Суренович', traits: [] },
 ];
@@ -281,7 +284,11 @@ const host = {
     if (name === 'startTerm') { state.started = true; return { ok: true }; }
     if (name === 'setTeacherDetails') {
       const t = state.teachers.find((x) => x.id === args[0]);
-      if (t) { t.portrait = args[1].portrait || undefined; t.birthday = args[1].birthday || undefined; }
+      const p = args[1] || {};
+      if (t) {
+        for (const key of ['portrait', 'post', 'likes', 'secret']) if (key in p) t[key] = String(p[key] || '').trim() || undefined;
+        if ('traits' in p) t.traits = String(p.traits || '').split(',').map((x) => x.trim()).filter(Boolean);
+      }
       return { ok: true };
     }
     return { ok: true };

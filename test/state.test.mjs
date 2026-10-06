@@ -16,6 +16,8 @@ import {
   takePending,
   labelFor,
   defaultStartDay,
+  TEACHER_TEXT_MAX,
+  teacherDetails,
 } from '../core/state.mjs';
 import { overallScore } from '../core/gradebook.mjs';
 
@@ -305,4 +307,51 @@ test('validateState не падает на достаточно битом со�
   assert.ok(res.errors.some((e) => e.includes('subjects не массив')));
   assert.ok(res.errors.some((e) => e.includes('teachers не массив')));
   assert.ok(res.errors.some((e) => e.includes('неизвестный предмет chemistry')));
+});
+
+// --- учителя с душой: должность, «любит», тайна -------------------------------
+
+test('нормализация: должность, «любит» и тайна — строкой в одну строку, по потолку, пустые без ключа', () => {
+  const t = normalizeTeacher({
+    id: 'veyl', name: 'Магистр Вейл', traits: ['злопамятен'],
+    post: '  директор\n академии ', likes: 'белое вино', secret: 'я'.repeat(500),
+  }, PRESET);
+  assert.equal(t.post, 'директор академии');
+  assert.equal(t.likes, 'белое вино');
+  assert.equal(t.secret.length, TEACHER_TEXT_MAX.secret);
+  assert.equal(normalizeTeacher({ id: 'a', post: 'я'.repeat(100) }, PRESET).post.length, TEACHER_TEXT_MAX.post);
+
+  const bare = normalizeTeacher({ id: 'a', name: 'А', post: '   ', likes: null, secret: {} }, PRESET);
+  for (const key of ['post', 'likes', 'secret']) assert.equal(key in bare, false, key);
+  assert.deepEqual(teacherDetails({ post: 'декан', other: 'x' }), { post: 'декан' });
+});
+
+test('старое состояние без полей души валидно и после миграции не обрастает ключами', () => {
+  const old = semester();
+  old.teachers = old.teachers.map(({ id, name, traits, relation }) => ({ id, name, traits, relation }));
+  assert.deepEqual(validateState(old, PRESET).errors, []);
+  const m = migrate(old, PRESET);
+  assert.deepEqual(validateState(m, PRESET).errors, []);
+  assert.deepEqual(Object.keys(m.teachers[0]).sort(), ['id', 'name', 'relation', 'traits']);
+
+  // Восемь преподавателей прошлого семестра не урезаются: потолок генерации
+  // (`planTeachers`) — про то, сколько звать, а не сколько держать.
+  const many = semester();
+  many.teachers = Array.from({ length: 8 }, (_, i) => ({ id: `t${i}`, name: `П${i}`, traits: [], relation: 0 }));
+  many.subjects.forEach((s) => { s.teacherId = 't0'; });
+  assert.deepEqual(validateState(many, PRESET).errors, []);
+  assert.equal(migrate(many, PRESET).teachers.length, 8);
+});
+
+test('миграция приводит длинную тайну к потолку, validateState называет негодную', () => {
+  const s = semester();
+  s.teachers[0].secret = 'я'.repeat(400);
+  s.teachers[1].post = 42;
+  const errors = validateState(s, PRESET).errors.join(' | ');
+  assert.match(errors, /petrova: поле secret/);
+  assert.match(errors, /ivanov: поле post/);
+  const m = migrate(s, PRESET);
+  assert.equal(m.teachers[0].secret.length, TEACHER_TEXT_MAX.secret);
+  assert.equal(m.teachers[1].post, '42');
+  assert.deepEqual(validateState(m, PRESET).errors, []);
 });

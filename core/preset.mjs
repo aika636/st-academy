@@ -98,6 +98,9 @@ export const NAME_MAX = 80;
 export const LIMIT_BOUNDS = {
   maxSubjects: [1, 20],
   maxTeachers: [1, 20],
+  // Сколько преподавателей зовёт генерация плана и сколько предметов на одного.
+  planTeachers: [1, 20],
+  maxSubjectsPerTeacher: [1, 20],
   maxNumbersInPrompt: [0, 20],
   idleWarnAfter: [1, 100],
   journalSize: [10, 1000],

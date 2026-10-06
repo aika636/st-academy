@@ -225,6 +225,47 @@ export function reasonText(reason, state, preset) {
   return base || vars.text;
 }
 
+/** Сколько последних сдвигов помнит преподаватель: карточка «Люди» и лорбук. */
+export const MEMORY_SIZE = 3;
+
+/**
+ * Память «за что»: последние сдвиги отношения преподавателя, свежим вперёд.
+ *
+ * Источник — журнал (`kind: 'rel'`, `data.from`/`data.to`/`data.reason`), и в
+ * память идут ВСЕ сдвиги, а не только переходы ярлыка: «−1 за прогул химии»
+ * внутри одного «недоволен» и есть то, что преподаватель держит в голове.
+ * Не идёт только сдвиг, который ничего не сдвинул (зажим на краю шкалы,
+ * погашенный повтор): помнить там нечего.
+ *
+ * Журнал кольцевой — память заканчивается там же, где он; это не потеря, а
+ * естественная забывчивость: три последних повода важнее сентябрьских.
+ *
+ * @returns {Array<{day: string, delta: number, reason: string,
+ *   from: number, to: number, crossed: ?{from: string, to: string}}>}
+ */
+export function relationMemory(state, teacherId, preset, limit = MEMORY_SIZE) {
+  const labels = (preset && preset.relations && preset.relations.labels) || [];
+  const out = [];
+  const journal = (state && state.journal) || [];
+  for (let i = journal.length - 1; i >= 0 && out.length < limit; i -= 1) {
+    const e = journal[i];
+    if (!e || e.kind !== 'rel' || !e.data || e.data.teacherId !== teacherId) continue;
+    const { from, to } = e.data;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) continue;
+    const a = labelFor(labels, from);
+    const b = labelFor(labels, to);
+    out.push({
+      day: e.day || '',
+      delta: to - from,
+      reason: reasonText(e.data.reason, state, preset).replace(/\s+/g, ' ').trim(),
+      from,
+      to,
+      crossed: a && b && a !== b ? { from: a, to: b } : null,
+    });
+  }
+  return out;
+}
+
 function fillReason(template, vars) {
   return String(template || '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }

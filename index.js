@@ -21,7 +21,7 @@ import { applyCorrection, revertCorrection, receiptOf, completionReceipt } from 
 import { MARKER_RE, stripMarker } from './core/parse-marker.mjs';
 import {
   cloneState, createState, defaultStartDay, isDay, joinSentences, normalizePortrait,
-  normalizeSubject, normalizeTeacher,
+  normalizeSubject, normalizeTeacher, TEACHER_TEXT_MAX, teacherDetails,
 } from './core/state.mjs';
 import { readTime } from './core/time-source.mjs';
 import { readDiceRoll, readTimeSkip, readPhoneTurn } from './core/cues.mjs';
@@ -2318,14 +2318,6 @@ const host = {
     },
 
     /**
-     * Портрет наставника (9.7A п.15) — с вкладки «Люди». Отдельным действием,
-     * а не через `setSubjects`: портрет не меняет расписания, и пересобирать
-     * его ради картинки незачем.
-     *
-     * Ключа, которого в `patch` нет, не трогаем; пустая строка — убрать.
-     * Негодный адрес — отказ словами, состояние не пишется.
-     */
-    /**
      * Кто решает исход контрольного в этом чате: `'story'` или `'dice'`
      * (`exams.examRule`). Менять можно посреди семестра: правило действует на
      * контрольные, за которые ещё не садились, а посчитанный исход остаётся.
@@ -2346,13 +2338,35 @@ const host = {
       return analyzeMessage(Number.isInteger(mesId) ? mesId : lastEligible(chatOf()));
     },
 
+    /**
+     * Детали наставника — с вкладки «Люди»: портрет (9.7A п.15), должность,
+     * «любит», тайна и черты. Отдельным действием, а не через `setSubjects`:
+     * детали не меняют расписания, и пересобирать его ради них незачем.
+     *
+     * Ключа, которого в `patch` нет, не трогаем; пустая строка — убрать.
+     * Нормализация та же, что держит состояние (`teacherDetails`: одна
+     * строка, потолок длины). Черты — строкой через запятую или списком.
+     * Негодный адрес портрета — отказ словами, состояние не пишется вовсе.
+     * Лорбук пересобирается: запись про наставника несёт должность и тайну.
+     */
     async setTeacherDetails(teacherId, patch = {}) {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const next = cloneState(live.state);
       const teacher = (next.teachers || []).find((t) => t.id === teacherId);
       if (!teacher) return { ok: false, error: `наставника «${teacherId}» нет в списке` };
       const X = extraLabels(live.preset);
-      if (patch && 'portrait' in patch) {
+      const p = patch && typeof patch === 'object' ? patch : {};
+      for (const key of Object.keys(TEACHER_TEXT_MAX)) {
+        if (!(key in p)) continue;
+        const value = teacherDetails({ [key]: p[key] })[key];
+        if (value) teacher[key] = value;
+        else delete teacher[key];
+      }
+      if ('traits' in p) {
+        const list = Array.isArray(p.traits) ? p.traits : String(p.traits == null ? '' : p.traits).split(',');
+        teacher.traits = list.map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim()).filter(Boolean);
+      }
+      if ('portrait' in p) {
         const raw = String(patch.portrait == null ? '' : patch.portrait).trim();
         if (!raw) delete teacher.portrait;
         else {
@@ -2364,7 +2378,14 @@ const host = {
       await commit(next);
       await syncLorebook();
       refreshPanel();
-      return { ok: true, portrait: teacher.portrait || '' };
+      return {
+        ok: true,
+        portrait: teacher.portrait || '',
+        post: teacher.post || '',
+        likes: teacher.likes || '',
+        secret: teacher.secret || '',
+        traits: [...(teacher.traits || [])],
+      };
     },
 
     /**

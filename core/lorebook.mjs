@@ -35,6 +35,7 @@
 
 import { labelFor, findSubject, findTeacher, teacherOfSubject } from './state.mjs';
 import { milestones, milestoneName } from './milestones.mjs';
+import { relationMemory } from './relations.mjs';
 
 /** Категории записей из 3.7. Порядок — приоритет при потолке: устав важнее хроники. */
 export const CATEGORIES = ['charter', 'people', 'places', 'chronicle'];
@@ -58,9 +59,21 @@ export const DEFAULTS = {
 /**
  * Запасные шаблоны. Ни одного доменного слова — только подстановки и пунктуация,
  * иначе первый же чужой сеттинг получил бы русскую «пару» внутри английской записи.
+ *
+ * Исключение — фразы души наставника (`teacherPost` … `teacherSecret`): это
+ * слова про человека, а не про заведение («любит», «тайна»), и сеттинга в них
+ * нет. Каждая — отдельная фраза, которая дописывается к `teacher`, только если
+ * поле не пустое: висящих «Любит: .» в лорбуке не бывает. Пресет перекрывает
+ * любую из них тем же блоком `phrases.lorebook`.
  */
 export const DEFAULT_TEMPLATES = {
   teacher: '{name} — {teacher}, {subject}. {traits}. {relation}.',
+  teacherPost: 'Должность: {post}.',
+  teacherLikes: 'Любит: {likes}.',
+  teacherMemory: 'Помнит: {memory}.',
+  // Тайна — для модели, а не для героини: без оговорки модель выложила бы её
+  // в первой же сцене, и зацепка сгорела бы.
+  teacherSecret: 'Тайна (героиня не знает; проявлять только намёками, прямо не раскрывать): {secret}.',
   charter: '{institution}. {term}, {period}, {examPeriod}. {gradebook}, {debtPlural}. {warning} → {expulsion}. {reputation}.',
   chronicleExam: '{day} — {subject}: {value} ({teacher}).',
   chronicleWarn: '{day} — {warning}: {reputation}.',
@@ -173,13 +186,28 @@ export function teacherEntry(state, teacherId, preset) {
   if (!teacher) return null;
 
   const subject = (state.subjects || []).find((s) => s.teacherId === teacher.id);
-  const content = fill(templateOf(preset, 'teacher'), {
+  const base = fill(templateOf(preset, 'teacher'), {
     ...vocabVars(preset),
     name: teacher.name,
     subject: (subject && subject.name) || '',
     traits: (teacher.traits || []).join(', '),
     relation: labelFor(relationLabels(preset), teacher.relation),
   });
+
+  // Душа наставника — фразами вслед за основной, и только непустыми. Память —
+  // те же последние сдвиги, что видит карточка «Люди», но поводами словами и
+  // без чисел: число модели ни о чём не говорит (3.3), а «прогул: химия» —
+  // зацепка. Сдвиг без повода сказать нечего — он выпадает.
+  const memory = relationMemory(state, teacher.id, preset).map((m) => m.reason).filter(Boolean);
+  const soul = [
+    ['teacherPost', 'post', teacher.post],
+    ['teacherLikes', 'likes', teacher.likes],
+    ['teacherMemory', 'memory', memory.map(bare).join('; ')],
+    ['teacherSecret', 'secret', teacher.secret],
+  ]
+    .map(([tpl, key, value]) => (bare(value) ? fill(templateOf(preset, tpl), { ...vocabVars(preset), [key]: bare(value) }) : ''))
+    .filter(Boolean);
+  const content = [base, ...soul].join(' ');
 
   return entry({
     uid: `academy:teacher:${teacher.id}`,
@@ -599,6 +627,14 @@ function entry(raw) {
     fingerprint: fingerprint(content),
     ...(raw.day ? { day: raw.day } : {}),
   };
+}
+
+/**
+ * Значение без хвостовой точки и пробелов: шаблон ставит точку сам, и
+ * «картины.» из анкеты иначе дало бы «картины..».
+ */
+function bare(value) {
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim().replace(/[\s.;,]+$/, '');
 }
 
 /** Шаблон из `preset.phrases.lorebook`, иначе запасной — без доменных слов. */

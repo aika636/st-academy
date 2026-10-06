@@ -88,6 +88,13 @@ export const METADATA_KEY = 'academy';
  *                                (`characters/…/x.png`, `/img/…`) или ссылка
  *                                `http(s)://`. Без генерации — только адрес, который
  *                                дал человек. Форма — `isPortrait`.
+ * @property {string}   [post]    должность в заведении помимо предмета: «директор»,
+ *                                «заведующая кафедрой» (до `TEACHER_TEXT_MAX.post`)
+ * @property {string}   [likes]   что любит — зацепка для сцены: «белое вино и
+ *                                дорогие картины»
+ * @property {string}   [secret]  тайна, которой героиня не знает; в лорбук уходит
+ *                                с пометкой «только намёками». Все три поля
+ *                                необязательны: пустое — ключа нет.
  */
 
 /**
@@ -288,9 +295,33 @@ export const PLACE_MAX = 60;
 
 /** `{[key]: строка}` для непустого места или `{}` — пустых ключей не бывает. */
 function placeField(key, raw) {
+  return textField(key, raw, PLACE_MAX);
+}
+
+/** Строка в одну строку до `max` символов под ключом `key`, либо `{}`. */
+function textField(key, raw, max) {
   if (typeof raw !== 'string' && typeof raw !== 'number') return {};
-  const v = String(raw).replace(/\s+/g, ' ').trim().slice(0, PLACE_MAX);
+  const v = String(raw).replace(/\s+/g, ' ').trim().slice(0, max).trim();
   return v ? { [key]: v } : {};
+}
+
+/**
+ * Потолки «души» преподавателя: должность, что любит, тайна. Это подписи в
+ * карточке и одна фраза в лорбуке, а не биография — длинное режется.
+ */
+export const TEACHER_TEXT_MAX = { post: 60, likes: 120, secret: 160 };
+
+/**
+ * `{post?, likes?, secret?}` из чего угодно: строка в одну строку, обрезанная до
+ * потолка; пустое и не-строка — ключа нет. Одна нормализация на состояние,
+ * разбор плана и правку с вкладки «Люди».
+ */
+export function teacherDetails(raw) {
+  const out = {};
+  for (const [key, max] of Object.entries(TEACHER_TEXT_MAX)) {
+    Object.assign(out, textField(key, raw && raw[key], max));
+  }
+  return out;
 }
 
 /** Потолок длины адреса портрета. Картинка `data:` сюда не влезет — и не должна. */
@@ -338,6 +369,9 @@ export function normalizeTeacher(raw, preset) {
     // Портрет (9.7A п.15) необязателен: нет адреса или он не годится — нет ключа.
     // Дня рождения у наставника больше нет: старое поле `birthday` здесь отпадает.
     ...(normalizePortrait(raw.portrait) ? { portrait: normalizePortrait(raw.portrait) } : {}),
+    // Должность, «любит» и тайна — тоже необязательны и без пустых ключей:
+    // преподаватель старого семестра не меняется ни на ключ.
+    ...teacherDetails(raw),
   };
 }
 
@@ -414,6 +448,14 @@ export function validateState(state, preset) {
       // мусор, либо схема, которую открывать нельзя (`isPortrait`).
       if (t.portrait !== undefined && t.portrait !== null && !isPortrait(t.portrait)) {
         bad(`преподаватель ${t.id}: портрет — не путь от корня таверны и не ссылка http(s)`);
+      }
+      // Должность, «любит», тайна: необязательны, но если есть — непустая
+      // строка до потолка. Панель и лорбук печатают их как есть.
+      for (const [key, max] of Object.entries(TEACHER_TEXT_MAX)) {
+        if (t[key] === undefined || t[key] === null) continue;
+        if (typeof t[key] !== 'string' || !t[key].trim() || t[key].length > max) {
+          bad(`преподаватель ${t.id}: поле ${key} — не строка до ${max} символов`);
+        }
       }
     }
   }
