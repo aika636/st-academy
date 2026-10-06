@@ -343,6 +343,7 @@ function checkHolidays(list) {
     if (!isMD(h.from)) e.push(`${where}.from: начало в виде ММ-ДД`);
     if (h.to !== undefined && !isMD(h.to)) e.push(`${where}.to: конец в виде ММ-ДД`);
     if (h.lead !== undefined && (!isInt(h.lead) || h.lead < 0 || h.lead > 14)) e.push(`${where}.lead: за сколько дней — целое от 0 до 14`);
+    if (h.off !== undefined && typeof h.off !== 'boolean') e.push(`${where}.off: «занятий нет» — true или false`);
   });
   return e;
 }

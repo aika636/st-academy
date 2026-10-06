@@ -46,7 +46,17 @@ const KEY_GROUPS = [
   { kind: 'rel', names: ['rel', 'relation', 'отношение', 'отн'] },
   { kind: 'skip', names: ['skip', 'прогул', 'пропуск'] },
   { kind: 'late', names: ['late', 'опоздание', 'опоздал', 'опоздала'] },
+  { kind: 'event', names: ['event', 'событие', 'праздник'] },
 ];
+
+/**
+ * Насколько далеко вперёд метка вправе заводить событие (`event=`): дальше
+ * двух недель — уже не «скоро», а календарь, и в планы такое не пишется.
+ */
+export const EVENT_HORIZON = 13;
+
+/** Потолок длины названия события — тот же, что у своего события чата. */
+const EVENT_NAME_MAX = 80;
 
 const KIND_BY_NAME = new Map();
 for (const g of KEY_GROUPS) for (const n of g.names) KIND_BY_NAME.set(n, g.kind);
@@ -219,6 +229,7 @@ function parseBody(body, ctx, events, rejected) {
       case 'rel': parseRel(value, raw, ctx, events, rejected); break;
       case 'skip':
       case 'late': parseAttendance(value, raw, kind, ctx, events, rejected); break;
+      case 'event': parseEvent(value, raw, events, rejected); break;
       // default не нужен: незнакомый ключ отсеян выше
     }
   }
@@ -402,6 +413,36 @@ function parseImpact(word, ctx) {
   const weight = ctx.impactWeight(level);
   if (!weight) return null;
   return { level, delta: sign === '-' ? -weight : weight };
+}
+
+/**
+ * `event=+3:бал у Миражи`, `event=+5..+6:ярмарка` — событие в планы, через
+ * сколько дней от дня сцены (0 — сегодня). Диапазон — через `..` или тире.
+ * Дальше `EVENT_HORIZON` дней — в `rejected`: такое в планы не пишется.
+ */
+function parseEvent(value, raw, events, rejected) {
+  const v = value.replace(/[−‒–—―]/g, '-');
+  const m = v.match(/^\+?\s*(\d{1,3})\s*(?:(?:\.\.|-)\s*\+?\s*(\d{1,3}))?\s*(?:дн[а-яё]*|d|days?)?\s*:\s*([\s\S]+)$/iu);
+  if (!m) {
+    rejected.push({ raw, reason: 'ожидается event=+дни:название' });
+    return;
+  }
+  const days = Number(m[1]);
+  const until = m[2] === undefined ? days : Number(m[2]);
+  const name = m[3].replace(/[[\]<>]/g, ' ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim().slice(0, EVENT_NAME_MAX);
+  if (!name) {
+    rejected.push({ raw, reason: 'у события нет названия' });
+    return;
+  }
+  if (until < days) {
+    rejected.push({ raw, reason: 'конец события раньше начала' });
+    return;
+  }
+  if (days > EVENT_HORIZON) {
+    rejected.push({ raw, reason: `событие дальше двух недель (+${days}) — в планы не пишется` });
+    return;
+  }
+  events.push({ kind: 'event', days, until: Math.min(until, days + 31), name });
 }
 
 /** `skip=предмет`, `late=предмет` — ключи посещаемости из 3.4. */

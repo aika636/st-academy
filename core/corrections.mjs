@@ -27,6 +27,8 @@ import { addGrade } from './gradebook.mjs';
 import { mark } from './attendance.mjs';
 import { changeRelation } from './relations.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
+import { planEvent } from './holidays.mjs';
+import { addDays } from './time.mjs';
 
 /** Remember only the academic fields changed by a summary, leaving later play intact. */
 export function completionReceipt(before, after, subjectIds) {
@@ -82,6 +84,15 @@ export function applyCorrection(state, ev, preset, opts = {}) {
     const after = ((r.state.teachers || []).find((t) => t.id === ev.teacherId) || {}).relation;
     const applied = Number(after) - Number(before);
     return { state: r.state, receipt: { kind: 'rel', teacherId: ev.teacherId, applied: Number.isFinite(applied) ? applied : 0 } };
+  }
+
+  // Событие в планы — от дня того ответа: «через три дня бал», сказанное
+  // позавчера, — бал завтра. Уже прошедшее событие тоже ложится: оно просто
+  // окажется в списке прошедшим.
+  if (ev.kind === 'event') {
+    const r = planEvent(state, preset, ev, day);
+    if (!r.ok) return { state, receipt: null };
+    return { state: r.state, receipt: { kind: 'event', id: r.event.id, name: r.event.name, from: r.event.from } };
   }
 
   if (ev.kind === 'attendance') {
@@ -161,6 +172,13 @@ export function revertCorrection(state, receipt, preset) {
     return changeRelation(next, { teacherId: receipt.teacherId, delta, reason: null }, preset).state;
   }
 
+  if (receipt.kind === 'event') {
+    const list = Array.isArray(next.events) ? next.events : [];
+    const at = list.findIndex((e) => e && (receipt.id ? e.id === receipt.id : e.name === receipt.name && e.from === receipt.from));
+    if (at >= 0) list.splice(at, 1);
+    return next;
+  }
+
   if (receipt.kind === 'attendance') {
     const records = next.attendance.records || [];
     let at = -1;
@@ -187,5 +205,6 @@ export function receiptOf(ev, day) {
   if (ev.kind === 'grade') return { kind: 'grade', subjectId: ev.subjectId, value: String(ev.value), day };
   if (ev.kind === 'rel') return { kind: 'rel', teacherId: ev.teacherId, delta: ev.delta };
   if (ev.kind === 'attendance') return { kind: 'attendance', subjectId: ev.subjectId, status: ev.status, day };
+  if (ev.kind === 'event' && day) return { kind: 'event', name: ev.name, from: addDays(day, ev.days) };
   return null;
 }

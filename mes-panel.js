@@ -38,7 +38,7 @@ export const PANEL_TEXT = {
   correction: 'поправка',
   summary: 'Кратко',
   lookingFor: 'Что ищет секретарь',
-  lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает только то, что случилось с героиней. Время не трогает.',
+  lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает только то, что случилось с героиней, а праздники и события на две недели вперёд — в планы. Время не трогает.',
   events: 'Изменилось в Академии',
   empty: '—',
   correctionNote: 'Это не последний ответ: выводы лягут поправкой — датой этого ответа, поверх нынешнего состояния.',
@@ -54,6 +54,7 @@ export const SECTIONS = [
   { kind: 'grade', icon: 'fa-star', label: 'Оценки, зачёты, экзамены', tone: 'gold' },
   { kind: 'attendance', icon: 'fa-person-walking', label: 'Прогулы и опоздания', tone: 'red' },
   { kind: 'rel', icon: 'fa-heart', label: 'Отношение преподавателей', tone: 'pink' },
+  { kind: 'event', icon: 'fa-calendar-day', label: 'В планы: праздники и события', tone: 'blue' },
 ];
 
 const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная' };

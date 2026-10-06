@@ -217,3 +217,67 @@ test('движок: ответ в день праздника отдаёт по�
   const swiped = applyResponse(cloneState(s), 'Другая сцена.\n<!-- [ACADEMY t=+1] -->', preset, { mode: 'marker' });
   assert.ok(swiped.injects.some((i) => i.kind === 'holiday'));
 });
+
+// --- каникулы: `off: true` у праздника и своего события, каникулы пресета ----
+
+test('каникулы: праздник и своё событие с off выключают пары, без off — нет', async () => {
+  const { isVacation, isStudyDay, phaseOf } = await import('../core/time.mjs');
+  const { dayPlan } = await import('../core/schedule.mjs');
+  const preset = { ...ru, holidays: [{ id: 'founders', name: 'День основания', from: '10-06', off: true }, { id: 'fair', name: 'Ярмарка', from: '10-08' }] };
+  const { buildSchedule } = await import('../core/schedule.mjs');
+  const withSchedule = () => {
+    const st = stateOn(preset, '2026-10-05');
+    st.schedule = buildSchedule(st.subjects, preset);
+    return st;
+  };
+  const s = addEvent(withSchedule(), { name: 'карантин', from: '2026-10-07', to: '2026-10-08', off: true }).state;
+  assert.equal(s.events[0].off, true);
+
+  assert.equal(isVacation(preset, '2026-10-06'), true, 'праздник пресета с off — каникулы и без состояния');
+  assert.equal(isVacation(preset, '2026-10-07'), false, 'своё событие без состояния не видно');
+  assert.equal(isVacation(preset, '2026-10-07', s), true);
+  assert.equal(isStudyDay(preset, '2026-10-08', s), false, 'последний день карантина');
+  assert.equal(phaseOf(preset, s, '2026-10-07'), 'vacation');
+  assert.equal(phaseOf(preset, s, '2026-10-09'), 'study', 'после карантина — снова учёба');
+
+  assert.ok(dayPlan(s, preset, '2026-10-05').length > 0, 'в понедельник пары есть');
+  assert.deepEqual(dayPlan(s, preset, '2026-10-06'), []);
+  assert.deepEqual(dayPlan(s, preset, '2026-10-07'), []);
+  assert.ok(dayPlan(s, preset, '2026-10-09').length > 0);
+
+  const plain = addEvent(withSchedule(), { name: 'вечеринка', from: '2026-10-07' }).state;
+  assert.equal('off' in plain.events[0], false, 'без отметки поле не пишется');
+  assert.ok(dayPlan(plain, preset, '2026-10-07').length > 0, 'обычное событие пары не отменяет');
+});
+
+test('каникулы пресета видны в блоке праздников и в строке состояния заранее', () => {
+  const s = stateOn(ru, '2026-11-02');
+  const ahead = holidaysView(s, ru).find((h) => h.name === 'ноябрьские');
+  assert.ok(ahead, 'ноябрьские впереди');
+  assert.equal(ahead.off, true);
+  assert.match(statusLine(s, ru), /ноябрьские/);
+
+  const during = holidaysView(stateOn(ru, '2026-11-05'), ru).find((h) => h.name === 'ноябрьские');
+  assert.equal(during.days, 0);
+  assert.match(during.note, /занятий нет до/);
+});
+
+test('каникулы: повод без своего текста говорит «занятий нет», бал внутри каникул не вытеснен', () => {
+  const v = { name: 'зимние каникулы', off: true, hook: '', today: '' };
+  assert.match(hookText(v, {}), /зимние каникулы; занятий нет/);
+  const preset = { ...ru, calendar: { ...ru.calendar, vacations: [{ name: 'зимние', from: '12-25', to: '01-08' }] }, holidays: P.holidays };
+  assert.deepEqual(holidaysOn(preset, '2026-12-27').map((h) => h.id), ['ball', 'vacation-1']);
+  const s = stateOn(preset, '2026-12-27');
+  assert.deepEqual(armHolidayHooks(s, preset), ['ball@2026-12-27', 'vacation-1@2026-12-25']);
+});
+
+test('валидация: off — только да или нет', () => {
+  const builtins = { 'ru-university': ru };
+  const s = stateOn(ru, '2026-10-05');
+  s.events = [{ id: 'x', name: 'x', from: '2026-10-07', off: 'да' }];
+  assert.equal(validateState(s).ok, false);
+  const res = normalizePreset({ ...ru, id: 'x', holidays: [{ name: 'x', from: '10-06', off: 'yes' }] }, { builtins });
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => e.includes('.off')), res.errors.join('; '));
+  assert.equal(normalizePreset({ ...ru, id: 'x', holidays: [{ name: 'x', from: '10-06', off: true }] }, { builtins }).ok, true);
+});

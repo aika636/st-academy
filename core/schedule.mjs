@@ -74,7 +74,7 @@ export function buildSchedule(subjects, preset, opts = {}) {
  *   start: ?string, end: ?string}>}
  */
 export function dayPlan(state, preset, day = state.calendar.day) {
-  if (!isStudyDay(preset, day)) return [];
+  if (!isStudyDay(preset, day, state)) return [];
   if (phaseOf(preset, state, day) !== 'study') return [];
 
   const row = state.schedule ? state.schedule[String(dayOfWeek(day))] : null;

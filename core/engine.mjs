@@ -47,7 +47,7 @@ import { mark, inferMissed, shouldInfer, countsAttendance } from './attendance.m
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
-import { armHolidayHooks } from './holidays.mjs';
+import { armHolidayHooks, planEvent } from './holidays.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
   examTermIndex, examSessionEnded, closeExamSession, isPassing, examScore,
@@ -513,6 +513,20 @@ export function applyResponse(state, text, preset, opts = {}) {
     out.permission = sat.permission;
     out.divergence = sat.divergence;
     if (sat.applied) out.debug.applied.push({ kind: 'exam', ...sat.exam });
+  }
+
+  // --- события в планы (`event=`, разбор секретаря) --------------------------
+  // День считается от дня сцены — после сдвига времени: «через три дня бал» в
+  // ответе, где наступило утро, — три дня от этого утра. Уже известное событие
+  // не дублируется (`holidays.planEvent`).
+  for (const ev of parsed.events.filter((e) => e.kind === 'event')) {
+    const planned = planEvent(s, preset, ev);
+    if (planned.ok) {
+      s = planned.state;
+      out.debug.applied.push({ kind: 'event', id: planned.event.id, name: planned.event.name, from: planned.event.from });
+    } else {
+      out.debug.applied.push({ kind: 'event-known', name: ev.name });
+    }
   }
 
   // --- (6) одноразовые инжекты ---------------------------------------------
@@ -1195,7 +1209,7 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}
   // пока ведёт себя как `attend` — см. `skipPolicyOf`.
   if (policy !== 'absent') {
     for (let day = fromDay; day < s.calendar.day; day = addDays(day, 1)) {
-      if (!isStudyDay(preset, day)) continue;
+      if (!isStudyDay(preset, day, s)) continue;
       s = present(s, day, day === fromDay ? fromPos : 0, Infinity);
     }
     return finish(s);
@@ -1203,7 +1217,7 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}
 
   // День сменился прыжком: всё, что стояло в пройденных учебных днях, прошло мимо.
   for (let day = fromDay; day < s.calendar.day; day = addDays(day, 1)) {
-    if (!isStudyDay(preset, day)) continue;
+    if (!isStudyDay(preset, day, s)) continue;
     const expected = dayPlan(s, preset, day).map((p) => ({ subjectId: p.subjectId, periodIndex: p.index }));
     if (!expected.length) continue; // сессия и каникулы: лекций нет, прогуливать нечего
     const res = inferMissed(s, { day, expected }, preset, markOpts);

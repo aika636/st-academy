@@ -229,24 +229,34 @@ export function weekIndex(state, day = state.calendar.day, preset = null) {
  * Каникулы заданы в пресете как `ММ-ДД` без года: они повторяются каждый год, а
  * семестр может пересекать новогоднюю границу. Диапазон, у которого конец
  * раньше начала (`12-25`…`01-08`), считается перешагивающим через Новый год.
+ *
+ * Кроме `calendar.vacations` занятий нет в дни праздников пресета и своих
+ * событий чата с флажком `off: true` (`core/holidays.mjs`): «день основания —
+ * выходной», «школу закрыли на карантин». Свои события живут в состоянии,
+ * поэтому без `state` они не видны — вызывающий, у которого состояние есть,
+ * обязан его передать.
  */
-export function isVacation(preset, day) {
-  const list = (preset.calendar && preset.calendar.vacations) || [];
-  if (!list.length) return false;
+export function isVacation(preset, day, state = null) {
   const { m, d } = parseDay(day);
   const x = m * 100 + d;
-  for (const v of list) {
+  const inMD = (v) => {
     const from = mdToNumber(v.from);
-    const to = mdToNumber(v.to);
-    if (from === null || to === null) continue;
-    if (from <= to ? x >= from && x <= to : x >= from || x <= to) return true;
-  }
-  return false;
+    const to = mdToNumber(v.to === undefined ? v.from : v.to);
+    if (from === null || to === null) return false;
+    return from <= to ? x >= from && x <= to : x >= from || x <= to;
+  };
+  const vacations = (preset.calendar && preset.calendar.vacations) || [];
+  if (vacations.some((v) => v && inMD(v))) return true;
+  const holidays = Array.isArray(preset.holidays) ? preset.holidays : [];
+  if (holidays.some((h) => h && h.off === true && inMD(h))) return true;
+  const events = state && Array.isArray(state.events) ? state.events : [];
+  return events.some((e) => e && e.off === true && isDay(e.from)
+    && day >= e.from && day <= (isDay(e.to) && e.to >= e.from ? e.to : e.from));
 }
 
 /** Учебный ли день: стоит в `preset.week.studyDays` и не попал в каникулы. */
-export function isStudyDay(preset, day) {
-  if (isVacation(preset, day)) return false;
+export function isStudyDay(preset, day, state = null) {
+  if (isVacation(preset, day, state)) return false;
   const days = (preset.week && preset.week.studyDays) || [];
   return days.includes(dayOfWeek(day));
 }
@@ -271,7 +281,7 @@ export function isStudyDay(preset, day) {
  * @returns {'study'|'weekend'|'vacation'|'break'|'exams'}
  */
 export function phaseOf(preset, state, day = state.calendar.day) {
-  if (isVacation(preset, day)) return 'vacation';
+  if (isVacation(preset, day, state)) return 'vacation';
 
   const at = termAt(preset, state, day);
   if (!at.inside) return at.scope === 'between' ? 'break' : 'vacation';
@@ -288,11 +298,11 @@ export function phaseOf(preset, state, day = state.calendar.day) {
  * Возвращает null, если за месяц поиска учебного дня не нашлось: пресет с
  * пустыми `studyDays` или каникулы длиннее горизонта — не повод зациклиться.
  */
-export function nextStudyDay(preset, day, step = 1) {
+export function nextStudyDay(preset, day, step = 1, state = null) {
   let cur = day;
   for (let i = 0; i < STUDY_DAY_LOOKAHEAD; i += 1) {
     cur = addDays(cur, step);
-    if (isStudyDay(preset, cur)) return cur;
+    if (isStudyDay(preset, cur, state)) return cur;
   }
   return null;
 }
@@ -517,7 +527,7 @@ function advancePeriods(next, n, preset) {
   const step = n > 0 ? 1 : -1;
 
   while (target >= perDay || target < 0) {
-    const moved = nextStudyDay(preset, day, step);
+    const moved = nextStudyDay(preset, day, step, next);
     if (!moved) {
       const reason = `учебных дней в пресете не нашлось, сдвиг на ${periodPlural(preset)} невозможен`;
       pushJournal(next, { kind: 'debug', text: reason }, preset);

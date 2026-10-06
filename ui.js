@@ -53,7 +53,7 @@ import {
 import {
   KINDS, isSecretKind, milestoneCatalog, milestoneHint, milestoneName, milestoneTitle, milestones,
 } from './core/milestones.mjs';
-import { EVENT_TEXT_MAX, eventsOf, holidaysAhead, holidaysOn } from './core/holidays.mjs';
+import { EVENT_TEXT_MAX, eventsOf, holidayEnd, holidaysAhead, holidaysOn } from './core/holidays.mjs';
 import { slugify } from './core/plan-gen.mjs';
 import { PRESET_MAX_BYTES } from './core/preset.mjs';
 // Единственный импорт мимо `core/`: чистое правило «куда уйдёт запрос». Панель
@@ -1594,6 +1594,8 @@ export function describeApplied(item, vocab, ctx = {}) {
     case 'daypart': return `время суток: ${item.daypart}`;
     case 'time-held': return `прыжок придержан до решения: ${item.day}${item.jump ? ` (+${item.jump} дн.)` : ''}${item.via ? ` (${item.via})` : ''}`;
     case 'exams-dated': return `назначено по календарю: ${item.added} — ${item.day}`;
+    case 'event': return `в планы: ${item.name} — ${item.from}`;
+    case 'event-known': return `уже в планах: ${item.name}`;
     default: return `${item.kind}${item.subjectId ? `: ${item.subjectId}` : ''}`;
   }
 }
@@ -1702,8 +1704,11 @@ export const EXTRA_UI = {
   holidayInDays: 'через {n} дн.',
   holidayTomorrow: 'завтра',
   holidayOwnMark: 'своё',
+  holidayOffUntil: 'занятий нет до {date}',
+  holidayOffMark: 'занятий нет',
   eventsSummary: 'Своё событие',
-  eventsNote: 'Вечеринка, свидание, концерт — то, чего нет в календаре заведения. За несколько дней до события оно слышно фоном, а в его день модель один раз получает повод.',
+  eventsNote: 'Вечеринка, свидание, концерт — то, чего нет в календаре заведения. За несколько дней до события оно слышно фоном, а в его день модель один раз получает повод. Отметка «занятий нет» превращает событие в каникулы: расписание в эти дни молчит, прогулов нет.',
+  eventOff: 'Занятий нет (каникулы, карантин, выходной)',
   eventName: 'Название',
   eventNamePlaceholder: 'вечеринка у Миражи',
   eventFrom: 'День',
@@ -1956,7 +1961,14 @@ export function holidaysView(state, preset) {
   const day = state && state.calendar && state.calendar.day;
   if (!day) return [];
   const now = holidaysOn(preset, day, state).map((h) => ({
-    id: h.id, name: h.name, about: h.about, note: h.today, whenLine: X.holidayNowLine, days: 0, own: h.dated,
+    id: h.id,
+    name: h.name,
+    about: h.about,
+    note: h.today || (h.off ? fill(X.holidayOffUntil, { date: formatDate(holidayEnd(h, day)) }) : ''),
+    whenLine: X.holidayNowLine,
+    days: 0,
+    own: h.dated,
+    off: h.off,
   }));
   const ahead = holidaysAhead(preset, day, 14, state).map((a) => ({
     id: a.holiday.id,
@@ -1966,6 +1978,7 @@ export function holidaysView(state, preset) {
     whenLine: a.days === 1 ? X.holidayTomorrow : `${fill(X.holidayInDays, { n: a.days })} · ${formatDate(a.day)}`,
     days: a.days,
     own: a.holiday.dated,
+    off: a.holiday.off,
   }));
   return [...now, ...ahead].slice(0, 3);
 }
@@ -1984,6 +1997,7 @@ export function ownEventsView(state) {
       name: e.name,
       dateLine: e.to !== e.from ? `${formatDate(e.from)} — ${formatDate(e.to)}` : formatDate(e.from),
       hook: e.hook,
+      off: e.off,
       past: Boolean(state && state.calendar && state.calendar.day > e.to),
     }));
 }
@@ -2841,6 +2855,7 @@ function ownEventsBlock(host, view, X) {
   const to = el('input', { type: 'date', class: 'text_pole academy-input' });
   const buzz = el('input', { type: 'text', class: 'text_pole academy-input', maxlength: String(max.buzz), placeholder: X.eventBuzzPlaceholder });
   const hook = el('textarea', { class: 'text_pole academy-input', rows: '2', maxlength: String(max.hook), placeholder: X.eventHookPlaceholder });
+  const off = el('input', { type: 'checkbox' });
 
   const list = view.ownEvents || [];
   const items = list.length
@@ -2852,7 +2867,10 @@ function ownEventsBlock(host, view, X) {
       }, [
         el('span', { class: 'academy-ach-text' }, [
           el('span', { class: 'academy-milestone-name', text: e.name }),
-          el('span', { class: 'academy-ach-hint', text: e.past ? `${e.dateLine} · ${X.eventPast}` : e.dateLine }),
+          el('span', {
+            class: 'academy-ach-hint',
+            text: [e.dateLine, e.off ? X.holidayOffMark : '', e.past ? X.eventPast : ''].filter(Boolean).join(' · '),
+          }),
         ]),
         el('div', {
           class: 'menu_button academy-btn',
@@ -2876,6 +2894,7 @@ function ownEventsBlock(host, view, X) {
       ]),
       el('label', { class: 'academy-field' }, [el('span', { text: X.eventBuzz }), buzz]),
       el('label', { class: 'academy-field' }, [el('span', { text: X.eventHook }), hook]),
+      el('label', { class: 'academy-check' }, [off, el('span', { text: X.eventOff })]),
       el('div', { class: 'academy-row academy-row-buttons' }, [
         el('div', {
           class: 'menu_button academy-btn',
@@ -2886,6 +2905,7 @@ function ownEventsBlock(host, view, X) {
             to: to.value || undefined,
             buzz: buzz.value,
             hook: hook.value,
+            off: Boolean(off.checked),
           }), X.eventAdded).then((res) => { if (res && res.ok) renderPanel(host); }),
         }),
       ]),
@@ -2907,7 +2927,10 @@ function holidaysBlock(list, X) {
         el('span', { class: 'academy-milestone-name', text: h.name }),
         h.note || h.about ? el('span', { class: 'academy-ach-hint', text: h.note || h.about }) : null,
       ]),
-      el('span', { class: 'academy-shift-day', text: h.own ? `${h.whenLine} · ${X.holidayOwnMark}` : h.whenLine }),
+      el('span', {
+        class: 'academy-shift-day',
+        text: [h.whenLine, h.own ? X.holidayOwnMark : '', h.off && h.days > 0 ? X.holidayOffMark : ''].filter(Boolean).join(' · '),
+      }),
     ]))),
   ]);
 }

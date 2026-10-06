@@ -29,9 +29,11 @@
 import { parseMarker, keepMarkerKinds } from './parse-marker.mjs';
 import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
+import { holidaysAhead, holidaysOn } from './holidays.mjs';
+import { EVENT_HORIZON } from './parse-marker.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
-export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance'];
+export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event'];
 
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
@@ -75,13 +77,15 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   if (exams.length) {
     lines.push(`Сегодня по расписанию: ${exams.join('; ')}. Если во фрагменте его сдали или провалили — запиши исход как grade по этому предмету.`);
   }
+  const known = knownEventLines(state, preset);
+  lines.push(`Уже в планах (не повторяй): ${known.length ? known.join('; ') : 'ничего'}.`);
   lines.push('');
   const said = clip(input.userText, ANALYSIS_LIMITS.user);
   if (said) lines.push('Реплика игрока перед ответом:', '"""', said, '"""', '');
   lines.push('Ответ рассказчика:', '"""', clipAnalysisReply(input.reply), '"""', '');
   lines.push(
     'Запиши, что случилось, одной строкой вида:',
-    '<!-- [ACADEMY grade=предмет:оценка rel=преподаватель:minor+:повод skip=предмет late=предмет] -->',
+    '<!-- [ACADEMY grade=предмет:оценка rel=преподаватель:minor+:повод skip=предмет late=предмет event=+3:название] -->',
     'Правила:',
     `- grade — только если ${heroine} получила оценку, сдала или не сдала зачёт или экзамен. Оценки другим людям не пишутся.`,
     '- Прочитай весь фрагмент: учебный итог может быть фоном, воспоминанием о прошедших днях или репликой собеседника, даже если главная сцена бытовая или романтическая.',
@@ -91,13 +95,30 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     `- rel — если отношение преподавателя к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
     `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
     '- skip/late только при прямом факте пропуска/опоздания героини. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.',
-    '- Время и дату не пиши.',
+    `- event — праздник, вечеринка, бал, концерт, поход, свидание или другое событие, о котором во фрагменте сказано, что оно будет: event=+дни:название, где дни — через сколько дней от момента сцены (0 — сегодня, 1 — завтра). Несколько дней подряд — event=+5..+6:название. Событий несколько — несколько ключей event. Дальше ${EVENT_HORIZON} дней, без понятного срока, прошедшее и уже записанное в планах — не пиши.`,
+    '- Время и дату не пиши (кроме дней до события в event).',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
     '- Если ничего из этого не случилось — пустая метка <!-- [ACADEMY] -->.',
     '',
     'Второй строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини (пары, оценки, преподаватели, прогулы) — или «к учёбе не относится».',
   );
   return { system: SYSTEM, user: lines.join('\n') };
+}
+
+/**
+ * Что уже стоит в календаре на ближайшие две недели: праздники пресета,
+ * каникулы и свои события — «Зимний бал (+3)». Секретарь их не повторяет.
+ */
+function knownEventLines(state, preset) {
+  const day = state && state.calendar && state.calendar.day;
+  if (!day) return [];
+  try {
+    const now = holidaysOn(preset, day, state).map((h) => `${h.name} (идёт сейчас)`);
+    const ahead = holidaysAhead(preset, day, EVENT_HORIZON + 1, state).map((a) => `${a.holiday.name} (+${a.days})`);
+    return [...now, ...ahead].slice(0, 12);
+  } catch {
+    return [];
+  }
 }
 
 /** «зачёт: аналитическая химия» по каждому контрольному, за которое можно сесть сегодня. */
@@ -148,6 +169,11 @@ export function tokenOf(ev) {
   if (ev.kind === 'grade') return `grade=${ev.subjectId}:${ev.value}`;
   if (ev.kind === 'completion') return `completion=${ev.scope}:${ev.value}`;
   if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'late' : 'skip'}=${ev.subjectId}`;
+  if (ev.kind === 'event') {
+    const name = cleanReason(ev.name).replace(/:/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!name) return null;
+    return `event=+${ev.days}${ev.until > ev.days ? `..+${ev.until}` : ''}:${name}`;
+  }
   const sign = ev.delta < 0 ? '-' : '+';
   const strength = ev.impact ? `${ev.impact}${sign}` : `${sign}${Math.abs(ev.delta)}`;
   const reason = cleanReason(ev.reason);
@@ -200,6 +226,7 @@ export function tokenText(token, lexicon) {
   if (ev.kind === 'grade') return `оценка: ${subject(ev.subjectId)} — ${ev.value}`;
   if (ev.kind === 'completion') return `Сданы ${ev.scope === 'all' ? 'все зачёты и экзамены' : ev.scope === 'debts' ? 'все текущие хвосты' : subject(ev.scope)}: ${ev.value}`;
   if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'опоздание' : 'прогул'}: ${subject(ev.subjectId)}`;
+  if (ev.kind === 'event') return `в планы: ${ev.name} — ${daysText(ev.days)}${ev.until > ev.days ? ` (на ${ev.until - ev.days + 1} дн.)` : ''}`;
   if (ev.kind === 'rel') {
     const t = (lexicon.teachers || []).find((x) => x.id === ev.teacherId);
     const who = (t && t.name) || ev.teacherId;
@@ -208,6 +235,14 @@ export function tokenText(token, lexicon) {
     return `${who}: ${dir}${how ? ` (${how})` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`;
   }
   return String(token);
+}
+
+/** «сегодня», «завтра», «через 3 дн.» — от дня сцены. */
+function daysText(n) {
+  if (n === 0) return 'сегодня';
+  if (n === 1) return 'завтра';
+  if (n === 2) return 'послезавтра';
+  return `через ${n} дн.`;
 }
 
 /** Токен обратно в событие разборщика; не читается — `null`. */
@@ -230,7 +265,7 @@ export function clipAnalysisReply(text, limit = ANALYSIS_LIMITS.reply) {
   const edge = Math.floor(budget / 4);
   const middle = source.slice(edge, source.length - edge);
   const relevant = middle.split(/\n\s*\n|(?<=[.!?])\s+/u)
-    .filter((part) => /экзамен|зач[её]т|хвост|оценк|отметк|профессор|преподавател|прогул|опозда|сдал|сдан|сдач|exam|grade|passed/iu.test(part))
+    .filter((part) => /экзамен|зач[её]т|хвост|оценк|отметк|профессор|преподавател|прогул|опозда|сдал|сдан|сдач|праздн|(?<![а-яё])бал(?!л)|вечеринк|концерт|ярмарк|фестивал|турнир|поход|свидани|через .{0,12}(дн|недел)|завтра|послезавтра|в (понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)|exam|grade|passed/iu.test(part))
     .join('\n');
   return [source.slice(0, edge), relevant.slice(0, budget - edge * 2), source.slice(-edge)]
     .filter(Boolean).join(separator);
