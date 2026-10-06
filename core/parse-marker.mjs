@@ -42,6 +42,7 @@ export const MARKER_RE =
 const KEY_GROUPS = [
   { kind: 'time', names: ['t', 'time', 'время', 'врем'] },
   { kind: 'grade', names: ['grade', 'mark', 'оценка', 'оц'] },
+  { kind: 'completion', names: ['completion'] },
   { kind: 'rel', names: ['rel', 'relation', 'отношение', 'отн'] },
   { kind: 'skip', names: ['skip', 'прогул', 'пропуск'] },
   { kind: 'late', names: ['late', 'опоздание', 'опоздал', 'опоздала'] },
@@ -206,6 +207,15 @@ function parseBody(body, ctx, events, rejected) {
     switch (kind) {
       case 'time': parseTime(value, raw, events, rejected); break;
       case 'grade': parseGrade(value, raw, ctx, events, rejected); break;
+      case 'completion': {
+        const at = value.lastIndexOf(':');
+        const rawScope = value.slice(0, at).trim();
+        const scope = ['all', 'debts'].includes(rawScope) ? rawScope : ctx.findSubject(rawScope);
+        const grade = at >= 0 ? ctx.findGrade(value.slice(at + 1)) : null;
+        if (!scope || grade === null) rejected.push({ raw, reason: 'ожидается completion=all|debts|предмет:оценка из шкалы' });
+        else events.push({ kind: 'completion', scope, value: grade });
+        break;
+      }
       case 'rel': parseRel(value, raw, ctx, events, rejected); break;
       case 'skip':
       case 'late': parseAttendance(value, raw, kind, ctx, events, rejected); break;
@@ -432,6 +442,7 @@ function buildContext(preset) {
   for (const g of grades.values || []) {
     const v = typeof g === 'string' ? g : g.value;
     if (v !== undefined && v !== null) graded.set(norm(v), String(v));
+    if (g && typeof g === 'object' && g.label && v !== undefined && v !== null) graded.set(norm(g.label), String(v));
   }
   for (const [alias, target] of Object.entries(grades.aliases || {})) {
     const canon = graded.get(norm(target)) ?? String(target);

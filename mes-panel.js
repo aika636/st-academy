@@ -26,8 +26,11 @@ export const PANEL_TEXT = {
   analyze: 'Разобрать',
   reanalyze: 'Разобрать заново',
   analyzing: 'Секретарь читает ответ…',
-  undoAll: 'Отменить разбор',
-  undoAllHint: 'Снять всё, что записал секретарь. У последнего ответа снова будет действовать скрытая метка, которую рассказчик сам ставит в начале ответа (если она там есть).',
+  undoAll: 'Отменить сохранение',
+  undoAllHint: 'Вернуть предыдущий сохранённый разбор этого ответа. Если его не было — снять выводы секретаря.',
+  draft: 'Черновик — ещё не сохранён',
+  save: 'Сохранить',
+  discard: 'Не сохранять',
   drop: 'Вычеркнуть',
   nothing: 'без перемен',
   notAnalyzed: 'не разобрано',
@@ -41,7 +44,7 @@ export const PANEL_TEXT = {
   correctionNote: 'Это не последний ответ: выводы лягут поправкой — датой этого ответа, поверх нынешнего состояния.',
   liveNote: 'Последний ответ: выводы лягут пересчётом, как будто рассказчик сам их отметил.',
   notCounted: 'ответ ещё не посчитан',
-  uncounted: 'Академия этот ответ ещё не считала. Разбор сначала посчитает его, потом позовёт секретаря.',
+  uncounted: 'Академия этот ответ ещё не считала. Разбор подготовит черновик; изменения применятся после сохранения.',
   onlyLast: 'Этот ответ сейчас не разобрать.',
   more: 'ещё {n}',
 };
@@ -95,6 +98,7 @@ export function rowText(row) {
  * разобрано».
  */
 export function summaryText(view) {
+  if (view.draft) return PANEL_TEXT.draft;
   if (view.uncounted) return PANEL_TEXT.notCounted;
   const when = [view.date, view.time].filter(Boolean).join(' · ');
   const lines = [...(view.rows || []), ...(view.analyzed && view.correction ? (view.tokens || []).map((t) => t.text || t) : [])]
@@ -187,7 +191,8 @@ function place(mes, panel) {
 }
 
 function buildPanel(host, mesId, view) {
-  const isOpen = open.has(mesId);
+  const isOpen = open.has(mesId) || Boolean(view.draft);
+  if (view.draft) open.add(mesId);
   const busy = Boolean(view.busy);
   const content = el('div', { class: 'academy-mes-content' });
   if (!isOpen) content.hidden = true;
@@ -230,6 +235,7 @@ function buildPanel(host, mesId, view) {
   ]);
 
   // --- подробности ---
+  if (view.draft) content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.draft }));
   if (view.summary) {
     content.append(el('div', { class: 'academy-mes-quote' }, [
       icon('fa-feather-pointed'),
@@ -275,13 +281,21 @@ function buildPanel(host, mesId, view) {
   if (view.error) content.append(el('div', { class: 'academy-mes-error', text: view.error }));
 
   content.append(el('div', { class: 'academy-mes-buttons' }, [
+    view.draft ? el('button', {
+      type: 'button', class: 'menu_button academy-mes-btn academy-mes-btn-main', disabled: busy,
+      onclick: () => run(host.saveAnalysis(mesId)),
+    }, [icon('fa-floppy-disk'), el('span', { text: PANEL_TEXT.save })]) : null,
+    view.draft ? el('button', {
+      type: 'button', class: 'menu_button academy-mes-btn', disabled: busy,
+      onclick: () => run(host.discardAnalysis(mesId)),
+    }, [icon('fa-xmark'), el('span', { text: PANEL_TEXT.discard })]) : null,
     el('button', {
       type: 'button',
       class: 'menu_button academy-mes-btn academy-mes-btn-main',
       disabled: busy,
       onclick: analyze,
-    }, [icon('fa-wand-magic-sparkles'), el('span', { text: view.analyzed ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze })]),
-    view.analyzed
+    }, [icon('fa-wand-magic-sparkles'), el('span', { text: view.analyzed || view.draft ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze })]),
+    view.analyzed && !view.draft
       ? el('button', {
         type: 'button',
         class: 'menu_button academy-mes-btn',

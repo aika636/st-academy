@@ -44,6 +44,7 @@ import { parseMarker, MARKER_RE } from './parse-marker.mjs';
 import { readTime } from './time-source.mjs';
 import { addGrade, setDebt, REJECT_UNKNOWN_VALUE } from './gradebook.mjs';
 import { mark, inferMissed, shouldInfer, countsAttendance } from './attendance.mjs';
+import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
 import {
@@ -75,6 +76,20 @@ export const SKIP_POLICIES = ['attend', 'absent', 'ask'];
 export function skipPolicyOf(preset) {
   const raw = preset && preset.attendance && preset.attendance.skipPolicy;
   return SKIP_POLICIES.includes(raw) ? raw : 'attend';
+}
+
+/** С какого прыжка датой (в днях) пропущенное — монтаж, а не прогул. */
+export const MONTAGE_DAYS = 2;
+
+/**
+ * Политика ведомости для прыжка без явной промотки. Ход внутри дня и переход
+ * на следующий — сцена: пара, которая прошла без героини, — прогул. Прыжок
+ * через два дня и дальше — монтаж: пропущенное считается по политике пресета
+ * (`skipPolicyOf`), как при явной промотке.
+ */
+export function jumpPolicyOf(preset, fromDay, toDay) {
+  const days = isDayStr(fromDay) && isDayStr(toDay) ? dayDiff(fromDay, toDay) : 0;
+  return days >= MONTAGE_DAYS ? skipPolicyOf(preset) : 'absent';
 }
 
 /** Обычный потолок прыжка датой — тот же, что у `time.setAbsolute`. */
@@ -341,10 +356,12 @@ export function applyResponse(state, text, preset, opts = {}) {
   // Телефонный ход ведомость не трогает вовсе: ни выведенных прогулов, ни
   // выведенного присутствия. Переписка — пауза, а не пара (9.2). Явные `skip=`
   // из метки выше при этом остались: их модель сказала словами, а не временем.
-  // Промотка обходит ведомость по политике пресета (`skipPolicy`, 3.4).
+  // Промотка обходит ведомость по политике пресета (`skipPolicy`, 3.4) — и
+  // явная (cue Enhance-Gen), и молчаливая: прыжок датой через несколько дней
+  // («минувшие четыре дня пронеслись») — монтаж, а не прогул (`jumpPolicyOf`).
   const sweep = sweepAttendance(
     s, fromDay, fromPos, opts.phoneTurn ? null : moveRes.unit, preset,
-    { policy: skip ? skip.policy : 'absent' },
+    { policy: skip ? skip.policy : jumpPolicyOf(preset, fromDay, s.calendar.day) },
   );
   s = sweep.state;
   out.missed = sweep.missed;
@@ -468,6 +485,12 @@ export function applyResponse(state, text, preset, opts = {}) {
     s = r.state;
     if (r.applied) out.debug.applied.push({ kind: 'grade', subjectId: ev.subjectId, value: ev.value });
     else out.notes.push(r.reason);
+  }
+
+  for (const event of parsed.events.filter((entry) => entry.kind === 'completion')) {
+    const completed = applyAcademicCompletion(s, event, preset);
+    s = completed.state;
+    if (completed.applied) out.debug.applied.push({ ...event, subjectIds: completed.subjectIds });
   }
 
   if (opts.exam) {
@@ -605,7 +628,7 @@ export function resolveHeldJump(state, preset, accept = true) {
   // Прыжок, придержанный из промотки (он вышел за её потолок или перешагнул
   // контрольное), после «принять» обходит ведомость по той же политике, что
   // и промотка в потолке: человек выбирал промотку, а не прогул (9.2, 3.4).
-  const policy = held.skipPolicy && SKIP_POLICIES.includes(held.skipPolicy) ? held.skipPolicy : 'absent';
+  const policy = held.skipPolicy && SKIP_POLICIES.includes(held.skipPolicy) ? held.skipPolicy : skipPolicyOf(preset);
   const swept = sweepAndSettle(s, fromDay, fromPos, 'absolute', preset, { policy });
   // И то, что календарь заводит сам: сессия, закрытая или открытая прыжком.
   s = calendarEvents(swept.state, preset).state;
@@ -1013,7 +1036,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
         s.calendar.heldJump = { ...r.held, matched: hit.matched, source: who, via };
         // Придержанный из промотки прыжок помнит её политику посещаемости:
         // «принять» обойдёт ведомость так же, как обошла бы промотка в потолке.
-        if (opts.skip) s.calendar.heldJump.skipPolicy = opts.skip.policy;
+        s.calendar.heldJump.skipPolicy = opts.skip ? opts.skip.policy : skipPolicyOf(preset);
         held = s.calendar.heldJump;
         applied.push({ kind: 'time-held', source: who, via, day: r.held.day, jump: r.held.jump });
       }

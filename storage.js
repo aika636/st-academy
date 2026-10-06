@@ -433,6 +433,17 @@ export function readLedger(raw) {
       mode: e.mode === 'late' ? 'late' : 'live',
       receipts: Array.isArray(e.receipts) ? e.receipts.map((r) => (r && typeof r === 'object' ? r : null)) : null,
       summary: typeof e.summary === 'string' ? e.summary.slice(0, 300) : '',
+      // Черновик не участвует в расчётах до явного сохранения игроком.
+      draft: e.draft && Array.isArray(e.draft.tokens) ? {
+        tokens: e.draft.tokens.filter((t) => typeof t === 'string' && t),
+        summary: typeof e.draft.summary === 'string' ? e.draft.summary.slice(0, 300) : '',
+      } : null,
+      previousAnalysis: e.previousAnalysis && typeof e.previousAnalysis === 'object'
+        && (e.previousAnalysis.tokens === null || Array.isArray(e.previousAnalysis.tokens)) ? {
+          tokens: Array.isArray(e.previousAnalysis.tokens)
+            ? e.previousAnalysis.tokens.filter((t) => typeof t === 'string' && t) : null,
+          summary: typeof e.previousAnalysis.summary === 'string' ? e.previousAnalysis.summary.slice(0, 300) : '',
+        } : null,
     });
   }
   return out.slice(-LEDGER_SIZE);

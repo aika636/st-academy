@@ -17,7 +17,7 @@ import {
   awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams, EXAM_RULES, examRule,
 } from './core/exams.mjs';
 import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent } from './core/analysis.mjs';
-import { applyCorrection, revertCorrection, receiptOf } from './core/corrections.mjs';
+import { applyCorrection, revertCorrection, receiptOf, completionReceipt } from './core/corrections.mjs';
 import { MARKER_RE, stripMarker } from './core/parse-marker.mjs';
 import {
   cloneState, createState, defaultStartDay, isDay, joinSentences, normalizePortrait,
@@ -1402,15 +1402,38 @@ function turnRows(before, after, exam) {
 
 function recordLedger(mark, before, after, { marker = false, exam = null } = {}) {
   const prev = ledgerEntry(mark);
+  const tokens = prev && Array.isArray(prev.tokens) ? prev.tokens : null;
+  const oldLast = (before.journal || []).at(-1);
+  const journal = after.journal || [];
+  const boundary = oldLast ? journal.findLastIndex((row) => JSON.stringify(row) === JSON.stringify(oldLast)) : -1;
+  const relations = journal.slice(boundary + 1).filter((row) => row.kind === 'rel' && Number.isFinite(row.data?.from) && Number.isFinite(row.data?.to));
+  const applied = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'rel');
+  const receipts = tokens && tokens.map((token) => {
+    const ev = tokenEvent(token, lexiconOf(before, ctx()));
+    if (ev?.kind === 'rel') {
+      const at = applied.findIndex((item) => item.teacherId === ev.teacherId && item.delta === ev.delta);
+      const info = at >= 0 ? applied.splice(at, 1)[0] : null;
+      if (info?.damped) return { kind: 'rel', teacherId: ev.teacherId, applied: 0 };
+      const index = relations.findIndex((row) => row.data.teacherId === ev.teacherId && row.data.delta === ev.delta);
+      const row = index >= 0 ? relations.splice(index, 1)[0] : null;
+      return { kind: 'rel', teacherId: ev.teacherId, applied: row ? row.data.to - row.data.from : 0 };
+    }
+    if (ev?.kind === 'completion') {
+      const row = journal.slice(boundary + 1).find((item) => item.data?.completion === ev.scope && item.data?.value === ev.value);
+      const ids = row?.data?.subjectIds || [];
+      return completionReceipt(before, after, ids);
+    }
+    return receiptOf(ev, after.calendar?.day || '');
+  });
   putLedger({
     ...(prev || {}),
     stamp: mark,
     rows: turnRows(before, after, exam),
     day: (after.calendar && after.calendar.day) || '',
     time: (after.calendar && after.calendar.time) || '',
-    tokens: prev && Array.isArray(prev.tokens) ? prev.tokens : null,
+    tokens,
     mode: 'live',
-    receipts: null,
+    receipts,
     marker,
     at: Date.now(),
   });
@@ -1456,15 +1479,17 @@ function panelView(mesId) {
   const uncounted = !entry && !turn && countable(mesId, chat);
   const lexicon = lexiconOf(live.state, ctx());
   const tokens = entry && Array.isArray(entry.tokens) ? entry.tokens : null;
+  const draft = entry && entry.draft;
   return {
     date: entry ? formatDate(entry.day) : '',
     time: entry ? entry.time : '',
     rows: entry ? entry.rows : [],
     analyzed: Boolean(tokens),
-    summary: (entry && entry.summary) || '',
-    tokens: (tokens || []).map((t) => {
+    draft: Boolean(draft),
+    summary: (draft ? draft.summary : entry && entry.summary) || '',
+    tokens: ((draft ? draft.tokens : tokens) || []).map((t) => {
       const ev = tokenEvent(t, lexicon);
-      return { text: tokenText(t, lexicon), kind: ev ? ev.kind : 'other' };
+      return { text: tokenText(t, lexicon), kind: ev ? (ev.kind === 'completion' ? 'grade' : ev.kind) : 'other' };
     }),
     marker: entry ? entry.marker : null,
     // Как лягут выводы: пересчётом последнего ответа или поправкой к старому.
@@ -1489,8 +1514,7 @@ async function analyzeMessage(mesId) {
   if (!live.state || !live.state.started || !eligible(message)) return { ok: false, error: 'Здесь нечего разбирать.' };
   const text = String(message.mes || '');
   const mark = stamp(text);
-  // Непосчитанный последний ответ сперва считается — как если бы событие пришло.
-  if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
+  // Разбор только готовит черновик: даже непосчитанный ответ не меняет мир.
   const turn = liveTurnOf(mesId, chat);
   if (live.analyzing.has(mark)) return { ok: false, error: PANEL_TEXT.analyzing };
 
@@ -1535,7 +1559,10 @@ async function analyzeMessage(mesId) {
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
     if (parsed.rejected.length) console.info(`[${MODULE}] секретарь: отвергнуто`, parsed.rejected);
-    await writeAnalysis(mesId, parsed.tokens, parsed.summary);
+    putLedger({
+      ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
+      stamp: mark, draft: { tokens: parsed.tokens, summary: parsed.summary }, at: Date.now(),
+    });
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
   } catch (err) {
     console.error(`[${MODULE}] разбор ответа упал:`, err);
@@ -1610,13 +1637,62 @@ async function writeAnalysis(mesId, tokens, summary) {
   return { ok: true };
 }
 
+/** Применение происходит только по явной кнопке, к текущему тексту ответа. */
+async function saveAnalysis(mesId) {
+  const chat = chatOf();
+  const message = chat[mesId];
+  if (!eligible(message)) return { ok: false };
+  const mark = stamp(String(message.mes || ''));
+  const entry = ledgerEntry(mark);
+  if (!entry || !entry.draft || live.analyzing.has(mark)) return { ok: false };
+  const { tokens, summary } = entry.draft;
+  const previousAnalysis = { tokens: entry.tokens || null, summary: entry.summary || '' };
+  const epoch = live.epoch;
+  live.analyzing.add(mark);
+  renderPanels();
+  try {
+    if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
+    if (live.epoch !== epoch || stamp(String(chatOf()[mesId]?.mes || '')) !== mark) return { ok: false };
+    const result = await writeAnalysis(mesId, tokens, summary);
+    if (result.ok && live.epoch === epoch) putLedger({ ...ledgerEntry(mark), draft: null, previousAnalysis });
+    return result;
+  } finally {
+    live.analyzing.delete(mark);
+    renderPanels();
+  }
+}
+
+function discardAnalysis(mesId) {
+  const message = chatOf()[mesId];
+  if (!eligible(message)) return { ok: false };
+  const mark = stamp(String(message.mes || ''));
+  const entry = ledgerEntry(mark);
+  if (entry && !live.analyzing.has(mark)) putLedger({ ...entry, draft: null });
+  renderPanels();
+  return { ok: true };
+}
+
+async function undoAnalysis(mesId) {
+  const message = chatOf()[mesId];
+  if (!eligible(message)) return { ok: false };
+  const mark = stamp(String(message.mes || ''));
+  if (live.analyzing.has(mark)) return { ok: false };
+  const entry = entryOf(mark, liveTurnOf(mesId, chatOf()));
+  if (entry && entry.draft) return discardAnalysis(mesId);
+  const previous = entry && entry.previousAnalysis;
+  const result = await writeAnalysis(mesId, previous ? previous.tokens : null, previous ? previous.summary : '');
+  if (result.ok) putLedger({ ...ledgerEntry(mark), previousAnalysis: null });
+  renderPanels();
+  return result;
+}
+
 /** Шаги снятия прежних выводов записи: по квитанциям, а без них — по токенам. */
 function undoCorrections(entry) {
   if (!entry || !Array.isArray(entry.tokens)) return [];
   const lexicon = lexiconOf(live.state, ctx());
   const steps = [];
   for (let i = entry.tokens.length - 1; i >= 0; i -= 1) {
-    const receipt = entry.mode === 'late' && Array.isArray(entry.receipts) && entry.receipts[i]
+    const receipt = Array.isArray(entry.receipts) && entry.receipts[i]
       ? entry.receipts[i]
       : receiptOf(tokenEvent(entry.tokens[i], lexicon), entry.day);
     if (receipt) steps.push((s) => revertCorrection(s, receipt, live.preset));
@@ -1658,6 +1734,12 @@ async function editAnalysis(mesId, change) {
   const mark = stamp(String(message.mes || ''));
   const entry = entryOf(mark, liveTurnOf(mesId, chat));
   live.analysisErrors.delete(mark);
+  if (entry && entry.draft) {
+    const tokens = change([...entry.draft.tokens]);
+    putLedger({ ...entry, draft: tokens === null ? null : { ...entry.draft, tokens } });
+    renderPanels();
+    return { ok: true };
+  }
   return writeAnalysis(mesId, change(entry && Array.isArray(entry.tokens) ? entry.tokens : null));
 }
 
@@ -1697,8 +1779,10 @@ function panelDiagnosis() {
 const panelHost = {
   panelFor: (mesId) => panelView(mesId),
   analyze: (mesId) => analyzeMessage(mesId),
+  saveAnalysis: (mesId) => saveAnalysis(mesId),
+  discardAnalysis: (mesId) => discardAnalysis(mesId),
   dropToken: (mesId, index) => editAnalysis(mesId, (list) => (list || []).filter((_, i) => i !== index)),
-  clearAnalysis: (mesId) => editAnalysis(mesId, () => null),
+  clearAnalysis: (mesId) => undoAnalysis(mesId),
 };
 
 let panelTimer = null;

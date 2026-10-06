@@ -14,6 +14,7 @@ import { examMode, scheduleExams } from '../core/exams.mjs';
 import { applyResponse, manualTime, resolveHeldJump, sitExam, MODES } from '../core/engine.mjs';
 
 const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const strictPreset = { ...preset, attendance: { ...preset.attendance, skipPolicy: 'absent' } };
 
 // Этот файл проверяет сшивку, а не модули ядра: они уже проверены поимённо.
 // Половина тестов — повтор сценариев `test/semester.test.mjs` через
@@ -64,13 +65,13 @@ const tape = (...values) => {
 };
 
 /** Прогнать ленту ответов через сшивку. */
-function run(state, feed, common = {}) {
+function run(state, feed, common = {}, p = preset) {
   let s = state;
   const steps = [];
   for (const item of feed) {
     const text = typeof item === 'string' ? item : item.text;
     const opts = { ...common, ...(typeof item === 'string' ? {} : item) };
-    const r = applyResponse(s, text, preset, opts);
+    const r = applyResponse(s, text, p, opts);
     assert.deepEqual(validateState(r.state, preset).errors, [], 'состояние остаётся валидным');
     s = r.state;
     steps.push(r);
@@ -106,6 +107,7 @@ test('состояние на входе не мутируется ни одно
 });
 
 test('очередь инжектов снимается с возвращённого состояния, а не с чужого', () => {
+  const preset = strictPreset;
   let s = semester(DAY_TWO);
   s.reputation.value = 3;
   const r = applyResponse(s, `Скандал.\n${marker('t=+1 day')}`, preset);
@@ -564,7 +566,7 @@ test('прогульщица: тот же исход и те же пороги �
 
   const feed = [];
   for (let d = 0; d < 4; d += 1) feed.push(`Она снова не пошла.\n${marker('t=+1 day')}`);
-  const { state: after, steps } = run(s, feed);
+  const { state: after, steps } = run(s, feed, {}, strictPreset);
   s = after;
 
   const att = totalStats(s);
@@ -670,6 +672,7 @@ test('принятый прыжок в сессию её открывает — 
 });
 
 test('прыжок дальше горизонта не даёт ни одного прогула, ближний — даёт', () => {
+  const preset = strictPreset;
   const s = semester(DAY_TWO);
   const horizon = preset.attendance.inferHorizonDays;
 
@@ -782,6 +785,7 @@ function foundedOn(startDay) {
 const MONDAY = '2025-09-01'; // 1 сентября 2025 — понедельник, как в живом прогоне
 
 test('первый ответ в семестре не приносит прогулов за день заведения', () => {
+  const preset = strictPreset;
   const s = foundedOn(MONDAY);
   const r = applyResponse(s, '📅 2 сентября 2025, 09:00\nОна проснулась в общежитии.', preset);
 
@@ -799,6 +803,7 @@ test('первый ответ в семестре не приносит прог
 });
 
 test('семестр заводят посреди дня: ни прогулов, ни присутствия за эти сутки', () => {
+  const preset = strictPreset;
   // Анкету заполняют днём, а `termStart` — дата, а не момент. Обе половины
   // ведомости за эти сутки одинаково выдуманы, поэтому не пишется ни одна.
   const s = foundedOn(MONDAY);
@@ -818,6 +823,7 @@ test('семестр заводят посреди дня: ни прогулов
 });
 
 test('семестр заведён в выходной: правило держится на дате, а не на фазе', () => {
+  const preset = strictPreset;
   const saturday = '2025-09-06';
   const s = foundedOn(saturday);
   assert.equal(phaseOf(preset, s, saturday), 'weekend');
@@ -833,6 +839,7 @@ test('семестр заведён в выходной: правило держ
 });
 
 test('прыжок сразу через неделю: день заведения не считается, остальные — считаются', () => {
+  const preset = strictPreset;
   const s = foundedOn(MONDAY);
   const r = applyResponse(s, `Неделя прошла как в тумане.\n${marker('t=+7 day')}`, preset);
 

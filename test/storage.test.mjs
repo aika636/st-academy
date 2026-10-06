@@ -10,6 +10,7 @@ import {
   EXPORT_FORMAT, EXPORT_FORMAT_VERSION, buildExport, exportFilename, exportState,
   readExport, importState, stateSummary,
   TURNS_KEY, TURNS_FORMAT, TURN_HISTORY, readTurns, loadTurns, saveTurns,
+  readLedger, loadLedger, saveLedger,
 } from '../storage.js';
 import { SCHEMA_VERSION, createState } from '../core/state.mjs';
 
@@ -30,6 +31,43 @@ function fakeContext(over = {}) {
 }
 
 const good = () => createState(preset, { startDay: '2024-09-02' });
+
+test('analysis drafts and previous accepted analysis survive reload separately from saved tokens', () => {
+  const ctx = fakeContext();
+  const entry = { stamp: 'reply', tokens: ['rel=teacher:minor+'], summary: 'Saved',
+    draft: { tokens: ['grade=math:5'], summary: 'Candidate' },
+    previousAnalysis: { tokens: null, summary: '' } };
+  saveLedger(ctx, [entry]);
+  const restored = loadLedger(fakeContext({ chatMetadata: JSON.parse(JSON.stringify(ctx.chatMetadata)) }))[0];
+  assert.deepEqual(restored.tokens, entry.tokens);
+  assert.deepEqual(restored.draft, entry.draft);
+  assert.deepEqual(restored.previousAnalysis, entry.previousAnalysis);
+  saveLedger(ctx, [{ ...restored, draft: null }]);
+  assert.equal(loadLedger(ctx)[0].draft, null);
+  assert.deepEqual(loadLedger(ctx)[0].tokens, entry.tokens);
+  assert.equal(ctx.chatMetadata[KEY], undefined, 'draft persistence does not create or mutate Academy state');
+});
+
+test('invalid drafts are discarded and old ledger entries have no drafts', () => {
+  const list = [
+    { stamp: 'old' },
+    { stamp: 'bad', draft: { tokens: 'grade=math:5' }, previousAnalysis: { tokens: 42 } },
+    { stamp: 'filter', draft: { tokens: [null, '', 'grade=math:5', 42], summary: 1 } },
+  ];
+  const restored = readLedger({ v: 1, list });
+  assert.equal(restored[0].draft, null);
+  assert.equal(restored[1].draft, null);
+  assert.equal(restored[1].previousAnalysis, null);
+  assert.deepEqual(restored[2].draft, { tokens: ['grade=math:5'], summary: '' });
+});
+
+test('turn reload preserves accumulated teacher relations instead of preset defaults', () => {
+  const ctx = fakeContext();
+  const before = createState(preset, { startDay: '2024-09-02', teachers: [{ id: 'teacher', name: 'Teacher', relation: 4 }] });
+  saveTurns(ctx, [{ mesId: 3, stamp: 'reply', before }]);
+  const reloaded = loadTurns(fakeContext({ chatMetadata: JSON.parse(JSON.stringify(ctx.chatMetadata)) }), preset);
+  assert.equal(reloaded[0].before.teachers[0].relation, 4);
+});
 
 // --- выбор ветки миграции ----------------------------------------------------
 

@@ -31,7 +31,7 @@ import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
-export const ANALYSIS_KINDS = ['grade', 'rel', 'attendance'];
+export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance'];
 
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
@@ -39,7 +39,7 @@ export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
 const SYSTEM = [
   'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку и списки предметов и преподавателей.',
   'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось с героиней. Ничего не додумываешь.',
-  'Отвечаешь ровно одной строкой служебной метки и больше ничем.',
+  'Отвечаешь строкой служебной метки, затем строкой «Кратко:» с объяснением.',
 ].join(' ');
 
 /**
@@ -67,6 +67,8 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   lines.push('Предметы (id — название — преподаватель):', ...subjects);
   lines.push('Преподаватели (id — имя):', ...teachers);
   if (values.length) lines.push(`Оценки пишутся одним из значений: ${values.join(', ')}.`);
+  const debts = (state.subjects || []).filter((subject) => subject.debt);
+  lines.push(`Текущие хвосты: ${debts.length ? debts.map((subject) => subject.id).join(', ') : 'нет'}.`);
   // Старый ответ разбирается поправкой (`core/corrections`): сегодняшнее
   // контрольное к нему не относится.
   const exams = input.exams === false ? [] : todaysExamLines(state, preset);
@@ -76,14 +78,19 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   lines.push('');
   const said = clip(input.userText, ANALYSIS_LIMITS.user);
   if (said) lines.push('Реплика игрока перед ответом:', '"""', said, '"""', '');
-  lines.push('Ответ рассказчика:', '"""', clip(input.reply, ANALYSIS_LIMITS.reply), '"""', '');
+  lines.push('Ответ рассказчика:', '"""', clipAnalysisReply(input.reply), '"""', '');
   lines.push(
     'Запиши, что случилось, одной строкой вида:',
     '<!-- [ACADEMY grade=предмет:оценка rel=преподаватель:minor+:повод skip=предмет late=предмет] -->',
     'Правила:',
     `- grade — только если ${heroine} получила оценку, сдала или не сдала зачёт или экзамен. Оценки другим людям не пишутся.`,
+    '- Прочитай весь фрагмент: учебный итог может быть фоном, воспоминанием о прошедших днях или репликой собеседника, даже если главная сцена бытовая или романтическая.',
+    '- Явный итог «все экзамены/зачёты сданы» записывай completion=all:оценка; «все хвосты закрыты» — completion=debts:оценка; сдан конкретный предмет — completion=id:оценка. Обычная оценка за ответ у доски остаётся grade. Не дублируй completion обычными grade по тем же предметам.',
+    '- «Ты все зачёты на отлично сдала», «все хвосты были сданы на высший балл», «сдала все хвосты до единого; в зачётке отметки отлично» — состоявшийся учебный итог, а не отсутствие событий. Для «отлично»/«высший балл» возьми высшую оценку из шкалы. Без точной оценки используй проходное «зачёт», если оно есть в шкале; не выдумывай числовой балл.',
+    '- completion=all допустим только при явно сказанном «все» об экзаменах/зачётах героини. Желание, будущий план, отрицание («ещё не сдала все») или достижения другого персонажа не означают завершение. Не угадывай предмет по неназванному преподавателю; не добавляй оценки остальным предметам за один удачный ответ.',
     `- rel — если отношение преподавателя к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
     `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
+    '- skip/late только при прямом факте пропуска/опоздания героини. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.',
     '- Время и дату не пиши.',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
     '- Если ничего из этого не случилось — пустая метка <!-- [ACADEMY] -->.',
@@ -139,6 +146,7 @@ export function parseAnalysis(raw, lexicon) {
 export function tokenOf(ev) {
   if (!ev || !ANALYSIS_KINDS.includes(ev.kind)) return null;
   if (ev.kind === 'grade') return `grade=${ev.subjectId}:${ev.value}`;
+  if (ev.kind === 'completion') return `completion=${ev.scope}:${ev.value}`;
   if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'late' : 'skip'}=${ev.subjectId}`;
   const sign = ev.delta < 0 ? '-' : '+';
   const strength = ev.impact ? `${ev.impact}${sign}` : `${sign}${Math.abs(ev.delta)}`;
@@ -190,6 +198,7 @@ export function tokenText(token, lexicon) {
     return (s && s.name) || id;
   };
   if (ev.kind === 'grade') return `оценка: ${subject(ev.subjectId)} — ${ev.value}`;
+  if (ev.kind === 'completion') return `Сданы ${ev.scope === 'all' ? 'все зачёты и экзамены' : ev.scope === 'debts' ? 'все текущие хвосты' : subject(ev.scope)}: ${ev.value}`;
   if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'опоздание' : 'прогул'}: ${subject(ev.subjectId)}`;
   if (ev.kind === 'rel') {
     const t = (lexicon.teachers || []).find((x) => x.id === ev.teacherId);
@@ -208,6 +217,23 @@ export function tokenEvent(token, lexicon) {
 
 function str(v) {
   return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Держим начало и финал длинного поста, а учебные абзацы — с любого места.
+ * Это выбор текста для модели, не автоматическое присвоение оценок по словам.
+ */
+export function clipAnalysisReply(text, limit = ANALYSIS_LIMITS.reply) {
+  const source = str(text);
+  if (source.length <= limit) return source;
+  const separator = '\n[… часть текста опущена …]\n';
+  const budget = Math.max(0, limit - separator.length * 3);
+  const edge = Math.floor(budget / 4);
+  const middle = source.slice(edge, source.length - edge);
+  const relevant = middle.split(/\n\s*\n|(?<=[.!?])\s+/u)
+    .filter((part) => /экзамен|зач[её]т|хвост|оценк|отметк|профессор|преподавател|прогул|опозда|сдал|сдан|сдач|exam|grade|passed/iu.test(part))
+    .join('\n');
+  return [source.slice(0, edge), relevant.slice(0, budget - edge * 2), source.slice(-edge)]
+    .filter(Boolean).join(separator);
 }
 
 /** Длинный текст режется с начала: конец ответа — то, чем сцена кончилась. */

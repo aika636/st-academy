@@ -26,6 +26,23 @@ import { cloneState, findSubject, pushJournal } from './state.mjs';
 import { addGrade } from './gradebook.mjs';
 import { mark } from './attendance.mjs';
 import { changeRelation } from './relations.mjs';
+import { applyAcademicCompletion } from './academic-completion.mjs';
+
+/** Remember only the academic fields changed by a summary, leaving later play intact. */
+export function completionReceipt(before, after, subjectIds) {
+  const subjects = (before.subjects || []).filter((s) => subjectIds.includes(s.id)).map((s) => {
+    const updated = findSubject(after, s.id);
+    return { subjectId: s.id, prev: { debt: s.debt, debtReason: s.debtReason },
+      after: { debt: updated.debt, debtReason: updated.debtReason },
+      grades: updated.grades.slice(s.grades.length).map((g, offset) => ({ index: s.grades.length + offset, grade: { ...g } })) };
+  });
+  const exams = (before.exams?.items || []).flatMap((item) => {
+    const updated = after.exams?.items.find((x) => x.id === item.id);
+    return subjectIds.includes(item.subjectId) && updated && JSON.stringify(item) !== JSON.stringify(updated)
+      ? [{ id: item.id, before: { ...item }, after: { ...updated } }] : [];
+  });
+  return { kind: 'completion', subjects, exams };
+}
 
 /**
  * Применить событие разбора (`parseMarker`) к нынешнему состоянию.
@@ -39,6 +56,14 @@ import { changeRelation } from './relations.mjs';
 export function applyCorrection(state, ev, preset, opts = {}) {
   const day = opts.day || (state.calendar && state.calendar.day) || '';
   if (!ev) return { state, receipt: null };
+
+  if (ev.kind === 'completion') {
+    const base = cloneState(state);
+    base.calendar.day = day;
+    const result = applyAcademicCompletion(base, ev, preset);
+    result.state.calendar = { ...state.calendar };
+    return { state: result.state, receipt: completionReceipt(state, result.state, result.subjectIds) };
+  }
 
   if (ev.kind === 'grade') {
     const subject = findSubject(state, ev.subjectId);
@@ -81,6 +106,33 @@ export function applyCorrection(state, ev, preset, opts = {}) {
 export function revertCorrection(state, receipt, preset) {
   if (!receipt || typeof receipt !== 'object') return state;
   let next = cloneState(state);
+
+  if (receipt.kind === 'completion') {
+    for (const entry of receipt.subjects || []) {
+      const subject = findSubject(next, entry.subjectId);
+      if (!subject) continue;
+      const laterGrades = entry.grades.length && subject.grades.length > Math.max(...entry.grades.map((g) => g.index)) + 1;
+      for (const added of [...entry.grades].reverse()) {
+        if (JSON.stringify(subject.grades[added.index]) === JSON.stringify(added.grade)) subject.grades.splice(added.index, 1);
+      }
+      // A later failure or manual debt repair owns the current debt flag.
+      if (!laterGrades && subject.debt === entry.after.debt && subject.debtReason === entry.after.debtReason) {
+        subject.debt = entry.prev.debt;
+        if (entry.prev.debtReason === undefined) delete subject.debtReason;
+        else subject.debtReason = entry.prev.debtReason;
+      }
+    }
+    for (const entry of receipt.exams || []) {
+      const item = next.exams?.items.find((x) => x.id === entry.id);
+      if (!item || JSON.stringify(item) !== JSON.stringify(entry.after)) continue;
+      for (const key of new Set([...Object.keys(entry.before), ...Object.keys(entry.after)])) {
+        if (JSON.stringify(item[key]) !== JSON.stringify(entry.after[key])) continue;
+        if (key in entry.before) item[key] = entry.before[key];
+        else delete item[key];
+      }
+    }
+    return next;
+  }
 
   if (receipt.kind === 'grade') {
     const subject = findSubject(next, receipt.subjectId);

@@ -307,6 +307,145 @@ const grades = (tavern, id) => stateOf(tavern).subjects.find((x) => x.id === id)
 const actions = (tavern) => tavern.seam.host.actions;
 const ledger = (tavern) => tavern.chatMetadata.academy_ledger.list;
 
+test('draft: generation and discard preserve established teacher relations and all state', async () => {
+  const tavern = await boot({
+    edit: (s) => { s.teachers[0].relation = 3; s.teachers[1].relation = -2; },
+    answer: '<!-- [ACADEMY grade=chemistry:5 rel=petrova:minor+] -->',
+  });
+  const id = await reply(tavern, 'A new scene.');
+  const before = structuredClone(stateOf(tavern));
+  assert.equal((await actions(tavern).analyzeMessage(id)).ok, true);
+  assert.deepEqual(stateOf(tavern), before);
+  assert.equal(tavern.seam.panel.panelFor(id).draft, true);
+  assert.equal((await tavern.seam.panel.discardAnalysis(id)).ok, true);
+  assert.deepEqual(stateOf(tavern), before);
+  assert.equal(tavern.seam.panel.panelFor(id).draft, false);
+});
+
+for (const old of [false, true]) {
+  test(`draft: reanalysis and undo restore preceding accepted result (${old ? 'old' : 'latest'} message)`, async () => {
+    const tavern = await boot({
+      edit: (s) => { s.teachers[0].relation = 2; },
+      answer: '<!-- [ACADEMY grade=chemistry:5 rel=petrova:minor+:first] -->',
+    });
+    const id = await reply(tavern, 'First scene.');
+    if (old) await reply(tavern, 'Later scene.');
+    await actions(tavern).analyzeMessage(id);
+    assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+    const accepted = structuredClone(stateOf(tavern));
+    const acceptedTokens = structuredClone(tavern.seam.panel.panelFor(id).tokens);
+    tavern.answer = '<!-- [ACADEMY grade=chemistry:4 rel=petrova:minor-:second] -->';
+    await actions(tavern).analyzeMessage(id);
+    assert.deepEqual(stateOf(tavern), accepted, 'new generation stays a draft');
+    await tavern.seam.panel.discardAnalysis(id);
+    assert.deepEqual(stateOf(tavern), accepted, 'discard keeps accepted results');
+    await actions(tavern).analyzeMessage(id);
+    assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+    assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
+    assert.equal((await tavern.seam.panel.clearAnalysis(id)).ok, true);
+    assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
+    assert.equal(stateOf(tavern).teachers[0].relation, accepted.teachers[0].relation);
+    assert.deepEqual(tavern.seam.panel.panelFor(id).tokens, acceptedTokens);
+  });
+}
+
+for (const how of ['удаление', 'свайп']) {
+  test(`сохранённый разбор, затем ${how} ответа: отношения возвращаются к прошлому значению, а не к умолчанию`, async () => {
+    const tavern = await boot({
+      edit: (s) => { s.teachers[0].relation = 3; },
+      answer: '<!-- [ACADEMY rel=petrova:major+:спасла опыт] -->',
+    });
+    await reply(tavern, 'Первая сцена.');
+    const earned = stateOf(tavern).teachers[0].relation;
+    const id = await reply(tavern, 'Петрова в восторге от опыта.');
+    await actions(tavern).analyzeMessage(id);
+    assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+    assert.ok(stateOf(tavern).teachers[0].relation > earned, 'разбор лёг');
+
+    if (how === 'удаление') {
+      tavern.chat.splice(id - 1, 2);
+      await tavern.eventSource.emit('message_deleted', tavern.chat.length);
+    } else {
+      const m = tavern.chat[id];
+      m.swipe_id = 1;
+      await tavern.eventSource.emit('message_swiped', id);
+      m.swipes.push('Другой вариант.');
+      m.mes = 'Другой вариант.';
+      await tavern.eventSource.emit('message_received', id, 'swipe');
+    }
+    assert.equal(stateOf(tavern).teachers[0].relation, earned);
+  });
+}
+
+test('draft: persists through storage reload and can then be accepted', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
+  const id = await reply(tavern, 'Scene awaiting approval.');
+  const before = structuredClone(stateOf(tavern));
+  await actions(tavern).analyzeMessage(id);
+  const stored = JSON.parse(JSON.stringify(tavern.chatMetadata));
+  assert.deepEqual(readLedger(stored.academy_ledger).at(-1).draft.tokens, ['grade=chemistry:5']);
+  tavern.chatMetadata = stored;
+  tavern.seam.live.ledger = [];
+  await tavern.eventSource.emit('chat_id_changed');
+  assert.equal(tavern.seam.panel.panelFor(id).draft, true);
+  assert.deepEqual(stateOf(tavern), before);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+  assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
+});
+
+test('draft: swipe cannot save conclusions belonging to a different answer', async () => {
+  const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
+  const id = await reply(tavern, 'First answer.');
+  await actions(tavern).analyzeMessage(id);
+  const m = tavern.chat[id];
+  m.swipe_id = 1;
+  await tavern.eventSource.emit('message_swiped', id);
+  m.swipes.push('Replacement answer.');
+  m.mes = m.swipes[1];
+  await tavern.eventSource.emit('message_received', id, 'swipe');
+  const before = structuredClone(stateOf(tavern));
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, false);
+  assert.deepEqual(stateOf(tavern), before);
+  assert.deepEqual(grades(tavern, 'chemistry'), []);
+});
+
+test('accepted analysis: later undo reverses actual relation change at the scale ceiling', async () => {
+  const tavern = await boot({
+    edit: (s) => { s.teachers[0].relation = 4; },
+    answer: '<!-- [ACADEMY rel=petrova:major+:help] -->',
+  });
+  const id = await reply(tavern, 'Teacher warms to the heroine.');
+  await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+  assert.equal(stateOf(tavern).teachers[0].relation, 5);
+  await reply(tavern, 'Later unrelated scene.');
+  assert.equal((await tavern.seam.panel.clearAnalysis(id)).ok, true);
+  assert.equal(stateOf(tavern).teachers[0].relation, 4, 'undo actual +1, not requested +2');
+});
+
+test('accepted completion: later undo restores academic data and keeps unrelated newer grades', async () => {
+  const tavern = await boot({
+    edit: (s) => {
+      s.subjects[0].debt = true;
+      s.subjects[0].debtReason = 'attendance';
+      s.subjects[0].grades.push({ value: '2', day: s.calendar.day, source: 'manual' });
+    },
+    answer: '<!-- [ACADEMY completion=debts:5] -->',
+  });
+  const id = await reply(tavern, 'The heroine cleared every debt with excellent marks.');
+  const chemistryBefore = structuredClone(stateOf(tavern).subjects[0]);
+  await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
+  assert.equal(stateOf(tavern).subjects[0].debt, false);
+  assert.deepEqual(grades(tavern, 'chemistry'), ['2', '5']);
+  await reply(tavern, 'Later physics answer. <!-- [ACADEMY grade=physics:4] -->');
+  const physicsAfter = structuredClone(stateOf(tavern).subjects[1]);
+  assert.deepEqual(grades(tavern, 'physics'), ['4']);
+  assert.equal((await tavern.seam.panel.clearAnalysis(id)).ok, true);
+  assert.deepEqual(stateOf(tavern).subjects[0], chemistryBefore);
+  assert.deepEqual(stateOf(tavern).subjects[1], physicsAfter);
+});
+
 test('сквозной: метки нет — «разобрать» записывает пятёрку, повторный разбор не удваивает', async () => {
   const tavern = await boot({ answer: '<!-- [ACADEMY grade=химия:5 rel=petrova:minor+:блестящий ответ] -->' });
   const id = await reply(tavern, 'Петрова кивает: «Отлично, пять». Время идёт дальше.');
@@ -315,12 +454,14 @@ test('сквозной: метки нет — «разобрать» запис�
 
   const res = await actions(tavern).analyzeMessage(id);
   assert.equal(res.ok, true, res.error);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
   assert.equal(stateOf(tavern).teachers.find((t) => t.id === 'petrova').relation, rel0 + 1);
   assert.equal(tavern.asked.length, 1);
   assert.ok(tavern.asked[0].prompt.includes('Отлично, пять'), 'секретарь читал сам ответ');
 
   await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['5'], 'пересчёт от снимка, а не поверх');
 
   const entry = ledger(tavern).at(-1);
@@ -334,6 +475,7 @@ test('сквозной: разбор главнее метки рассказч�
   const id = await reply(tavern, 'Сцена. <!-- [ACADEMY grade=chemistry:3] -->');
   assert.deepEqual(grades(tavern, 'chemistry'), ['3']);
   await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
 });
 
@@ -341,6 +483,7 @@ test('сквозной: вычеркнуть вывод и вернуть мет
   const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5 skip=history] -->' });
   const id = await reply(tavern, 'Сцена. <!-- [ACADEMY grade=chemistry:3] -->');
   await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   const { live } = tavern.seam;
   const histSkips = () => stateOf(tavern).attendance.records.filter((r) => r.subjectId === 'history' && r.status === 'skip').length;
   assert.equal(histSkips(), 1);
@@ -376,6 +519,7 @@ test('сквозной: старый ответ получает поправк�
   assert.equal(view0.live, false, 'не последний — поправка');
   const res = await actions(tavern).analyzeMessage(first);
   assert.equal(res.ok, true, res.error);
+  assert.equal((await tavern.seam.panel.saveAnalysis(first)).ok, true);
   assert.ok(tavern.asked[0].prompt.includes('Первая сцена.'));
   assert.ok(!/Сегодня по расписанию/.test(tavern.asked[0].prompt), 'сегодняшнее контрольное к старому ответу не относится');
   const chem = () => stateOf(tavern).subjects.find((x) => x.id === 'chemistry').grades;
@@ -411,8 +555,10 @@ test('сквозной: повторный разбор старого отве�
   const first = await reply(tavern, 'Первая сцена.');
   await reply(tavern, 'Вторая сцена.');
   await actions(tavern).analyzeMessage(first);
+  assert.equal((await tavern.seam.panel.saveAnalysis(first)).ok, true);
   tavern.answer = '<!-- [ACADEMY grade=chemistry:4] -->';
   await actions(tavern).analyzeMessage(first);
+  assert.equal((await tavern.seam.panel.saveAnalysis(first)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
 });
 
@@ -429,6 +575,7 @@ test('сквозной: свайп забывает разбор, возврат
   const tavern = await boot({ answer: '<!-- [ACADEMY grade=chemistry:5] -->' });
   const id = await reply(tavern, 'Первый вариант.');
   await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
 
   const m = tavern.chat[id];
@@ -464,6 +611,7 @@ test('сквозной: «сюжет» — зачёт сдан в сцене, к
 
   const id = await reply(tavern, 'Аня сдаёт зачёт по химии, Петрова ставит «зачтено».');
   await actions(tavern).analyzeMessage(id);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   const done = stateOf(tavern).exams.items.filter((i) => i.outcome);
   assert.equal(done.length, 1);
   assert.equal(done[0].subjectId, 'chemistry');
@@ -492,6 +640,7 @@ test('сквозной: сосед молча дописал текст отве
 
   const res = await actions(tavern).analyzeMessage(id);
   assert.equal(res.ok, true, res.error);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['5']);
   assert.equal(tavern.seam.panel.panelFor(id).analyzed, true);
   assert.match(tavern.seam.host.panelDiagnosis(), /последний ход — #\d+, текст совпадает/);
@@ -513,6 +662,7 @@ test('сквозной: последний ответ, которого Акад
 
   const res = await actions(tavern).analyzeMessage(id);
   assert.equal(res.ok, true, res.error);
+  assert.equal((await tavern.seam.panel.saveAnalysis(id)).ok, true);
   assert.deepEqual(grades(tavern, 'chemistry'), ['4']);
   assert.equal(tavern.seam.live.turns.at(-1).mesId, id, 'ответ стал ходом');
   assert.equal(tavern.seam.panel.panelFor(id).uncounted, false);
