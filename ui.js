@@ -42,7 +42,7 @@
 import { emptySurvey, isPortrait, labelFor, PLACE_MAX, validateState } from './core/state.mjs';
 import { currentPeriod, dayPlan, nextPeriod } from './core/schedule.mjs';
 import { debts, overallScore, subjectScore } from './core/gradebook.mjs';
-import { reasonText, relationLabel } from './core/relations.mjs';
+import { reasonText, relationLabel, relationOf } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { dayOfWeek, isStalled, parseDay, phaseOf, termAt, termsOf, weekIndex } from './core/time.mjs';
 import {
@@ -781,8 +781,9 @@ export function gradebookView(state, preset) {
       name: s.name,
       teacher: teacher ? teacher.name : '',
       teacherId: teacher ? teacher.id : null,
-      // Ярлык, не число: `relationLabel` берёт таблицу из пресета.
+      // Ярлык словом и число шкалы отдельно: «недоволен» и «−3».
       relation: teacher ? relationLabel(state, teacher.id, preset) : '',
+      score: teacher ? relationScore(state, teacher.id) : '',
       grades: (score.grades || []).map((g) => g.value),
       average: score.average,
       averageText: formatScore(score.average),
@@ -871,15 +872,23 @@ function examsTermLine(state, preset, mode, U) {
 }
 
 /**
+ * Число отношения для панели строкой со знаком: «+2», «−3», «0». Владелица
+ * попросила число открыть (06.10): слово одно на целый отрезок шкалы, и сдвиг
+ * внутри него не видно. В промпт и лорбук по-прежнему уходит только слово.
+ */
+export function relationScore(state, teacherId) {
+  const n = Number(relationOf(state, teacherId));
+  if (!Number.isFinite(n)) return '';
+  return n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '0';
+}
+
+/**
  * Вкладка «Люди» (3.9, 3.4). Преподаватели, их предмет, черты и отношение к
  * студентке; ниже — репутация заведения и предметы, у которых преподавателя нет.
  *
- * Жёсткое правило плана (`:296-297`, `:322`): **отношение выходит наружу словом**.
- * Поэтому здесь нет `relationOf` — модуль числа отношения не запрашивает вовсе,
- * и просочиться ему неоткуда: ни в текст, ни в подсказку, ни в data-атрибут.
- * История сдвигов — по той же причине не «−1 за опоздание», а переход ярлыка
- * «ровно → недоволен»: она восстанавливается из журнала (`kind: 'rel'`, поля
- * `data.from`/`data.to`) той же таблицей `preset.relations.labels`, которой
+ * Отношение — ярлык и число (`relationScore`); прежнее правило «только словом»
+ * владелица сняла 06.10. История сдвигов — переход ярлыка «ровно → недоволен»:
+ * она восстанавливается из журнала (`kind: 'rel'`, поля `data.from`/`data.to`) той же таблицей `preset.relations.labels`, которой
  * пользуется `relationLabel`. Записи, где ярлык не менялся, отбрасываются: это
  * и есть значимое событие по `core/relations.mjs`, остальное — шум.
  *
@@ -928,6 +937,7 @@ export function peopleView(state, preset) {
       subjects: own,
       subjectsText: own.length ? own.join(', ') : U.subjectsNone,
       relation: relationLabel(state, t.id, preset),
+      score: relationScore(state, t.id),
       history: shifts,
       historyText: shifts.length ? '' : U.relationNoHistory,
       // Портрет (9.7A п.15): адрес, который дал человек, и только годный —
@@ -2573,7 +2583,7 @@ function renderGradebook(host, view, preset) {
       el('div', { class: 'academy-td academy-td-teacher' }, [
         el('span', { text: s.teacher || '—' }),
         // Отношение — словом из пресета. Числа наружу не идут (3.3).
-        s.relation ? el('span', { class: 'academy-relation', text: s.relation }) : null,
+        s.relation ? el('span', { class: 'academy-relation', text: s.score ? `${s.relation} · ${s.score}` : s.relation }) : null,
       ]),
       el('div', { class: 'academy-td academy-td-grades' }, [
         el('span', { class: 'academy-grades', text: s.grades.length ? s.grades.join(' ') : '—' }),
@@ -2644,7 +2654,7 @@ function renderPeople(host, view, preset) {
           t.portrait ? portraitThumb(t, X) : null,
           el('span', { class: 'academy-subject', text: t.name }),
           // Ярлык, не число: `peopleView` числа отношения не знает вовсе.
-          el('span', { class: 'academy-relation', text: t.relation }),
+          el('span', { class: 'academy-relation', text: t.score ? `${t.relation} · ${t.score}` : t.relation }),
           portraitEditor(host, t, X),
         ]),
         el('div', { class: 'academy-td academy-td-person' }, [

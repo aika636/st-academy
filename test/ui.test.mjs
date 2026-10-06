@@ -468,37 +468,20 @@ test('«Люди»: у преподавателя видны предмет, ч�
   assert.ok(preset.relations.labels.some((l) => l.label === petrova.relation));
 });
 
-test('«Люди»: числа отношения на экран не выходят ни под каким видом', () => {
-  // Отношение уводится в самый край шкалы: если число где-то течёт, оно течёт
-  // именно здесь, а не на нуле, где «0» легко спутать со случайностью.
+test('«Люди»: число отношения видно рядом со словом — со знаком, по краю шкалы', () => {
+  // Правило «только словом» владелица сняла 06.10: слово одно на целый отрезок
+  // шкалы, и сдвиг внутри него без числа не видно.
   let state = started();
   for (let i = 0; i < 5; i += 1) {
     state = changeRelation(state, { teacherId: 'petrova', delta: -1, reason: 'прогул' }, preset).state;
   }
   const value = state.teachers.find((t) => t.id === 'petrova').relation;
-  assert.equal(value, preset.relations.min, 'внутри число всё-таки есть — иначе проверка вырождена');
+  assert.equal(value, preset.relations.min);
 
-  const view = peopleView(state, preset);
-  const petrova = view.teachers.find((t) => t.id === 'petrova');
-  assert.equal(petrova.relation, 'ненавидит');
-
-  // 1. Ни одного числового листа во всём поддереве: числу негде спрятаться ни в
-  //    подсказке, ни в data-атрибуте — отрисовка берёт поля отсюда и только отсюда.
-  (function noNumbers(node, path) {
-    if (Array.isArray(node)) { node.forEach((v, i) => noNumbers(v, `${path}[${i}]`)); return; }
-    if (node && typeof node === 'object') {
-      for (const [k, v] of Object.entries(node)) noNumbers(v, `${path}.${k}`);
-      return;
-    }
-    assert.notEqual(typeof node, 'number', `число в ${path}: ${node}`);
-  }(view.teachers, 'teachers'));
-
-  // 2. И ни одна строка экрана не является числом шкалы отношений.
-  const scale = [];
-  for (let n = preset.relations.min; n <= preset.relations.max; n += 1) scale.push(String(n));
-  for (const s of peopleStrings(view)) {
-    assert.equal(scale.includes(String(s).trim()), false, `строка «${s}» — это число отношения`);
-  }
+  const petrova = peopleView(state, preset).teachers.find((t) => t.id === 'petrova');
+  assert.equal(petrova.relation, 'ненавидит', 'слово осталось');
+  assert.equal(petrova.score, `−${-value}`, 'число со знаком минус, а не дефисом');
+  assert.equal(peopleView(started(), preset).teachers.find((t) => t.id === 'petrova').score, '0');
 });
 
 test('«Люди»: история — переходы ярлыка словами, ровные сдвиги в неё не попадают', () => {
