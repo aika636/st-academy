@@ -503,6 +503,21 @@ export function validateState(state, preset) {
   if (!Array.isArray(state.journal)) bad('нет журнала');
   if (!Array.isArray(state.pending)) bad('нет очереди одноразовых инжектов');
 
+  // Свои события чата (`core/holidays.mjs`) и память о прозвучавших поводах
+  // необязательны: у старого состояния их нет. Но если есть — форма строгая,
+  // панель и промпт печатают их как есть.
+  if (state.events !== undefined) {
+    if (!Array.isArray(state.events)) bad('свои события — не список');
+    else {
+      for (const e of state.events) {
+        if (!e || typeof e !== 'object' || typeof e.name !== 'string' || !e.name.trim()) bad('своё событие без названия');
+        else if (!isDay(e.from)) bad(`событие «${e.name}»: день «${e.from}» не в форме ГГГГ-ММ-ДД`);
+        else if (e.to !== undefined && e.to !== null && (!isDay(e.to) || e.to < e.from)) bad(`событие «${e.name}»: конец раньше начала`);
+      }
+    }
+  }
+  if (state.holidayHooks !== undefined && !Array.isArray(state.holidayHooks)) bad('поводы праздников — не список');
+
   return { ok: errors.length === 0, errors };
 }
 

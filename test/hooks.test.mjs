@@ -250,9 +250,9 @@ test('seed: шов `live.examRng` сильнее seed — прогону ест�
 
 // --- 2. вехи: тост, звук, «по миру» (9.4.2, 9.4.3) ----------------------------
 
-const milestoneToasts = () => toasts.filter(([, , title]) => title === 'Веха').map(([, text]) => text);
+const milestoneToasts = () => toasts.filter(([, , title]) => title === 'Достижение').map(([, text]) => text);
 
-test('вехи: первая высшая оценка — один тост «Веха» и одно событие; свайп того же не повторяет', async () => {
+test('вехи: первая высшая оценка — один тост «Достижение» и одно событие; свайп того же не повторяет', async () => {
   const tavern = await withSemester({ day: '2024-09-03' });
   const id = await reply(tavern, `Пара. ${marker('t=+1 grade=chemistry:5')}`);
   assert.deepEqual(milestoneToasts(), ['Первая пятёрка: аналитическая химия']);

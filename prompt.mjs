@@ -35,6 +35,7 @@ import { relationLabel } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { examMode, publicView } from './core/exams.mjs';
 import { upcomingEvents } from './core/upcoming.mjs';
+import { holidayBackground } from './core/holidays.mjs';
 
 /**
  * Слова и шаблоны по умолчанию — ДАННЫЕ, а не логика: каждое поле перекрывается
@@ -88,6 +89,16 @@ export const DEFAULT_LABELS = {
   nearExamSubject: '{when} — {what}: {subject}',
   nearAnnounce: '{when} объявят итог: {subject}',
   nearGlue: '; ',
+
+  /**
+   * Праздники и мероприятия (`core/holidays.mjs`): фон, а не задание. Когда —
+   * словом, как у ближних событий; дальше недели — «скоро».
+   */
+  holidayNow: 'сегодня {name} — {note}',
+  holidayNowBare: 'сегодня {name}',
+  holidayAhead: '{when} {name} — {note}',
+  holidayAheadBare: '{when} {name}',
+  holidaySoon: 'скоро',
 };
 
 /**
@@ -176,6 +187,9 @@ export function statusLine(state, preset) {
  * Сегменты строки в порядке значимости — он же порядок слов.
  *
  * 1. день и неделя — без них всё остальное висит в воздухе;
+ * 1½. праздник — фон дня: «сегодня Зимний бал», «в пятницу ярмарка — все
+ *    ищут пару» (`core/holidays.mjs`). Сразу за днём, потому что окрашивает
+ *    весь день; чисел в нём нет;
  * 2. что идёт сейчас — то, что модель отыгрывает прямо в этом ответе;
  * 3. сессия — остаток и несданное, тон меняется целиком (3.5);
  * 4. хвосты — то, что висит и требует действий;
@@ -192,6 +206,7 @@ function segmentsOf(state, preset, L) {
   const out = [];
 
   out.push({ id: 'day', text: daySegment(state, preset, L) });
+  out.push({ id: 'holiday', text: holidaySegment(state, preset, L) });
   out.push({ id: 'schedule', text: mode.active ? '' : scheduleSegment(state, preset, L) });
 
   if (mode.active) {
@@ -314,6 +329,23 @@ function nearSegment(state, preset, L) {
     } else if (ev.kind === 'announce') {
       parts.push(fill(L.nearAnnounce, { when, subject: subjectName(state, ev.subjectId) }));
     }
+  }
+  return parts.join(L.nearGlue);
+}
+
+/**
+ * Фон праздника: «сегодня Зимний бал — вечером бал, днём суета» или «в пятницу
+ * Зимний бал — все ищут пару». Что и когда — решает `core/holidays.mjs`.
+ */
+function holidaySegment(state, preset, L) {
+  const day = state.calendar && state.calendar.day;
+  if (!day) return '';
+  const bg = holidayBackground(preset, day, state);
+  const parts = bg.now.map((h) => fill(h.today ? L.holidayNow : L.holidayNowBare, { name: h.name, note: h.today }));
+  if (bg.ahead) {
+    const { holiday: h, days } = bg.ahead;
+    const when = days > 6 ? L.holidaySoon : nearWhen({ days, day: bg.ahead.day }, L);
+    if (when) parts.push(fill(h.buzz ? L.holidayAhead : L.holidayAheadBare, { when, name: h.name, note: h.buzz }));
   }
   return parts.join(L.nearGlue);
 }

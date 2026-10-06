@@ -67,7 +67,11 @@ export const USER_PRESETS_MAX = 20;
  * Встроенные пресеты — файлы в папке расширения. Список здесь, а не в
  * `index.js`: по нему же решается, чей `id` занят и на что откатываться.
  */
-export const BUILTIN_PRESETS = ['ru-university', 'jp-highschool', 'magic-academy'];
+export const BUILTIN_PRESETS = [
+  'ru-university', 'ru-school', 'jp-highschool', 'magic-academy', 'us-college', 'us-highschool',
+  'dark-academia',
+  'cadet-academy', 'space-academy', 'hero-academy', 'xianxia-sect', 'cn-highschool',
+];
 
 /** Основа по умолчанию и то, на что откатывается чат с исчезнувшим пресетом. */
 export const DEFAULT_BASE = 'ru-university';
@@ -129,7 +133,7 @@ const SAFE_TAGS = new Set(['code', 'b', 'i', 'em', 'strong', 'u', 'br']);
  * либо основы (решение 3). Не названная здесь секция сливается на два уровня:
  * это словари (`phrases.milestones.*`, `prompts.plan.*`, `ui.phases.*`).
  */
-const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0 };
+const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0, holidays: 0 };
 
 const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
@@ -319,6 +323,27 @@ function checkCalendar(cal) {
     e.push(...checkTerm({ start: cal.termStart, studyWeeks: cal.studyWeeks, examWeeks: cal.examWeeks }, 'calendar'));
   }
   if (cal.vacations !== undefined && !Array.isArray(cal.vacations)) e.push('calendar.vacations: нужен список');
+  return e;
+}
+
+/**
+ * Праздники (`core/holidays.mjs`): необязательный список. Битая запись — не
+ * молчаливый пропуск, а претензия: человек, собирающий пресет, должен узнать,
+ * что его бал не наступит никогда.
+ */
+function checkHolidays(list) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) return ['holidays: нужен список'];
+  const e = [];
+  if (list.length > 40) e.push('holidays: больше сорока праздников');
+  list.slice(0, 40).forEach((h, i) => {
+    const where = `holidays[${i + 1}]`;
+    if (!isPlain(h)) { e.push(`${where}: не объект`); return; }
+    if (typeof h.name !== 'string' || !h.name.trim()) e.push(`${where}.name: нет названия`);
+    if (!isMD(h.from)) e.push(`${where}.from: начало в виде ММ-ДД`);
+    if (h.to !== undefined && !isMD(h.to)) e.push(`${where}.to: конец в виде ММ-ДД`);
+    if (h.lead !== undefined && (!isInt(h.lead) || h.lead < 0 || h.lead > 14)) e.push(`${where}.lead: за сколько дней — целое от 0 до 14`);
+  });
   return e;
 }
 
@@ -608,6 +633,7 @@ export function normalizePreset(raw, opts = {}) {
     ...checkWeek(preset.week),
     ...checkBells(preset.bells, preset.week),
     ...checkCalendar(preset.calendar),
+    ...checkHolidays(preset.holidays),
     ...checkGrades(preset.grades),
     ...checkExams(preset.exams),
     ...checkScale(preset.relations, 'relations'),

@@ -25,11 +25,12 @@ import {
 } from './core/state.mjs';
 import { readTime } from './core/time-source.mjs';
 import { readDiceRoll, readTimeSkip, readPhoneTurn } from './core/cues.mjs';
-import { diffMilestones, milestoneName, milestones } from './core/milestones.mjs';
+import { diffMilestones, milestoneName, milestones, recordTally } from './core/milestones.mjs';
 import { stopList, filterPeople } from './core/stop-names.mjs';
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump } from './core/engine.mjs';
 import { alignToGrid } from './core/time.mjs';
+import { addEvent, removeEvent, armHolidayHooks } from './core/holidays.mjs';
 import {
   BUILTIN_PRESETS, DEFAULT_BASE, USER_PRESETS_MAX, freeId, freeName, normalizePreset,
   presetEnvelope, presetFilename, presetSummary, readPresetFile,
@@ -413,7 +414,32 @@ function reloadState() {
  * открытии чата был бы шумом.
  */
 function primeMilestones() {
-  live.shownMilestones = new Set(worldMilestones(live.state).map((m) => m.id));
+  const list = worldMilestones(live.state);
+  live.shownMilestones = new Set(list.map((m) => m.id));
+  // Чат, открытый впервые после появления счёта «во всех историях», приносит
+  // туда то, что заработал раньше.
+  tallyMilestones(list);
+}
+
+/**
+ * Счёт «во всех историях» (вкладка «Достижения»): в скольких чатах вид вехи
+ * получен хоть раз. Живёт в настройках расширения — они общие для всех чатов.
+ * Пишется только при деле: `recordTally` возвращает тот же объект, если нового
+ * нет, а таверна переписывает `settings.json` целиком при каждом сохранении.
+ */
+function tallyMilestones(list) {
+  if (!list || !list.length) return;
+  try {
+    const chat = currentChatId();
+    if (!chat) return;
+    const settings = storage.loadSettings(ctx());
+    const before = settings.achievementTally;
+    const today = new Date().toISOString().slice(0, 10);
+    const after = recordTally(before, chat, list, today);
+    if (after !== before) storage.saveSettings({ achievementTally: after }, ctx());
+  } catch (err) {
+    console.warn(`[${MODULE}] счёт достижений не записан:`, err);
+  }
 }
 
 /**
@@ -894,6 +920,7 @@ function noticeMilestones(before, after) {
   const added = diffMilestones(worldMilestones(before), worldMilestones(after)).added
     .filter((m) => !live.shownMilestones.has(m.id));
   if (!added.length) return;
+  tallyMilestones(added);
   const X = extraLabels(live.preset);
   for (const m of added) {
     live.shownMilestones.add(m.id);
@@ -2389,6 +2416,31 @@ const host = {
     },
 
     /**
+     * Своё событие чата (`core/holidays.mjs`): «вечеринка у Миражи в субботу».
+     * Живёт в состоянии, поэтому откатывается вместе с ним; фон и разовый повод
+     * у него те же, что у праздников пресета.
+     */
+    async addEvent(raw = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const res = addEvent(cloneState(live.state), raw);
+      if (!res.ok) return res;
+      await commit(res.state);
+      setInjects({});
+      refreshPanel();
+      return { ok: true, id: res.event.id };
+    },
+
+    async removeEvent(id) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const res = removeEvent(cloneState(live.state), id);
+      if (!res.ok) return res;
+      await commit(res.state);
+      setInjects({});
+      refreshPanel();
+      return { ok: true };
+    },
+
+    /**
      * Ручной ремонт календаря. Панель говорит по-человечески — «на пару вперёд»,
      * «на день назад», — а `engine.manualTime` понимает `{unit, n}`; перевод
      * живёт здесь, чтобы ни ядро, ни панель не знали чужого словаря.
@@ -2411,8 +2463,11 @@ const host = {
       if (!res.applied) return { ok: false, error: res.reason || 'календарь не сдвинулся' };
       const before = live.state;
       // Объявление итогов, до которого дошёл сдвиг, — сразу в факт следующего
-      // ответа (9.4.3), а не ходом позже.
-      await commit(armPending(res.state));
+      // ответа (9.4.3), а не ходом позже. Туда же — разовый повод праздника,
+      // в день которого привёл ремонт.
+      const moved = cloneState(res.state);
+      armHolidayHooks(moved, live.preset);
+      await commit(armPending(moved));
       setInjects({});
       noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();

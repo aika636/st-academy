@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { BUILTIN_PRESETS } from '../core/preset.mjs';
 
 // Это прогон `index.js` целиком — того самого файла, который в живой таверне
 // сшивает события с ядром. Таверны здесь нет, вместо неё подделка: контекст с
@@ -1125,7 +1126,7 @@ test('пресет виден списком, выбирается и перер
 
   const list = seam.host.getPresets();
   assert.equal(list.active, 'ru-university');
-  assert.deepEqual(list.list.map((p) => p.id), ['ru-university', 'jp-highschool', 'magic-academy']);
+  assert.deepEqual(list.list.map((p) => p.id), BUILTIN_PRESETS);
   // Имена — из самих пресетов, а не из кода: слова заведения в код не едут.
   assert.equal(list.list.find((p) => p.id === 'jp-highschool').name,
     loadPresetFile('jp-highschool').displayName);
@@ -1207,7 +1208,7 @@ test('вид настроек собирает лорбук и пресеты и
   assert.ok(view.lorebook.boundLine.includes(host.getLorebook().name), 'панель называет лорбук и чат');
   assert.match(view.lorebook.measureLine, /примерно/, 'замер подан прикидкой, а не точным числом');
   assert.equal(view.lorebook.explain, '', 'объяснять нечего: лорбук на месте');
-  assert.equal(view.presets.list.length, 3);
+  assert.equal(view.presets.list.length, BUILTIN_PRESETS.length);
   assert.equal(view.presets.drift, '', 'состояние и пресет сходятся');
 
   // Вызов без четвёртого аргумента — так зовут старые тесты и \`commands.js\`.

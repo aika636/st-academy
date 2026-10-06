@@ -47,6 +47,7 @@ import { mark, inferMissed, shouldInfer, countsAttendance } from './attendance.m
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
+import { armHolidayHooks } from './holidays.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
   examTermIndex, examSessionEnded, closeExamSession, isPassing, examScore,
@@ -515,6 +516,11 @@ export function applyResponse(state, text, preset, opts = {}) {
   }
 
   // --- (6) одноразовые инжекты ---------------------------------------------
+  // Праздник, который идёт сегодня, взводит свой разовый повод — один раз за
+  // наступление (`holidays.armHolidayHooks`). Здесь, а не на смене дня: день
+  // мог смениться ручным ремонтом или промоткой, и повод прозвучит со
+  // следующим ответом, а не потеряется.
+  armHolidayHooks(s, preset);
   out.injects = takePending(s);
   out.state = s;
   out.debug.notes = out.notes;

@@ -50,7 +50,10 @@ import { dayOfWeek, isStalled, parseDay, phaseOf, termAt, termsOf, weekIndex } f
 import {
   awaitingAnnouncement, examMode, datedExams, examRule, gradeInfo, isPassing, publicView,
 } from './core/exams.mjs';
-import { milestones, milestoneName } from './core/milestones.mjs';
+import {
+  KINDS, isSecretKind, milestoneCatalog, milestoneHint, milestoneName, milestoneTitle, milestones,
+} from './core/milestones.mjs';
+import { EVENT_TEXT_MAX, eventsOf, holidaysAhead, holidaysOn } from './core/holidays.mjs';
 import { slugify } from './core/plan-gen.mjs';
 import { PRESET_MAX_BYTES } from './core/preset.mjs';
 // Единственный импорт мимо `core/`: чистое правило «куда уйдёт запрос». Панель
@@ -89,11 +92,15 @@ export const EXAM_RULE_VIEW = [
   { id: 'dice', label: 'Кубик', hint: 'бросок против сложности, если сцена исход не назвала' },
 ];
 
-/** Четыре вкладки плана (3.9). Порядок — как в перечислении там же. */
+/**
+ * Вкладки плана (3.9) и «Достижения» — страница вех, которые раньше жили
+ * мелким блоком под зачёткой и тостом, а потом терялись.
+ */
 export const TABS = [
   { id: 'today', label: 'Сегодня' },
   { id: 'gradebook', label: 'Зачётка' },
   { id: 'people', label: 'Люди' },
+  { id: 'achievements', label: 'Достижения' },
   { id: 'settings', label: 'Настройки' },
 ];
 
@@ -107,7 +114,8 @@ export const DEBUG_TAB = { id: 'debug', label: 'Отладка' };
 
 /** Иконки вкладок (Font Awesome 6 из таверны) — по id, ярлыки остаются пресету. */
 export const TAB_ICONS = {
-  today: 'fa-sun', gradebook: 'fa-book-open', people: 'fa-users', settings: 'fa-gear', debug: 'fa-bug',
+  today: 'fa-sun', gradebook: 'fa-book-open', people: 'fa-users', achievements: 'fa-trophy',
+  settings: 'fa-gear', debug: 'fa-bug',
 };
 
 /**
@@ -253,7 +261,7 @@ export const DEFAULT_UI = {
   traitsNone: 'черты не заданы',
   subjectsNone: 'предметов не ведёт',
   relationTitle: 'Отношение',
-  relationHistoryTitle: 'Помнит',
+  relationHistoryTitle: 'Запомнилось',
   relationNoHistory: 'отношение ещё не менялось',
   relationShift: '{from} → {to}',
   orphanSubjectsTitle: 'Предметы без преподавателя',
@@ -262,6 +270,7 @@ export const DEFAULT_UI = {
   tabToday: 'Сегодня',
   tabGradebook: 'Зачётка',
   tabPeople: 'Люди',
+  tabAchievements: 'Достижения',
   tabSettings: 'Настройки',
 
   // --- настройки: учебный план ----------------------------------------------
@@ -453,7 +462,11 @@ export function fill(template, vars) {
 export function tabsFor(preset, settings) {
   const U = uiLabels(preset);
   const label = {
-    today: U.tabToday, gradebook: U.tabGradebook, people: U.tabPeople, settings: U.tabSettings,
+    today: U.tabToday,
+    gradebook: U.tabGradebook,
+    people: U.tabPeople,
+    achievements: U.tabAchievements,
+    settings: U.tabSettings,
   };
   const tabs = TABS.map((t) => ({ ...t, label: label[t.id] || t.label }));
   return settings && settings.debug === true ? [...tabs, { ...DEBUG_TAB }] : tabs;
@@ -765,6 +778,8 @@ export function todayView(state, preset) {
     // Число броска и DC в счёт шести чисел не идут — это сама запись события,
     // как оценки в зачётке, а не сводная метрика.
     exams: examResultsToday(state, preset),
+    holidays: holidaysView(state, preset),
+    ownEvents: ownEventsView(state),
     numbers: capped.shown,
     droppedNumbers: capped.dropped,
   };
@@ -1662,16 +1677,50 @@ const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
  * места и в школе, и в вузе, а магической академии — перекрыть.
  */
 export const EXTRA_UI = {
-  // --- вехи (9.4.2) -----------------------------------------------------------
-  // «Вехи», а не «ачивки»: рядом может стоять Collection Vault со своими
-  // достижениями (план 9.4.2), и два слова про одно путали бы человека.
-  milestonesTitle: 'Вехи',
-  milestonesNone: 'Вех пока нет.',
+  // --- достижения (9.4.2) -----------------------------------------------------
+  // В коде они по-прежнему «вехи» (`core/milestones.mjs`), на экране —
+  // «достижения»: владелица зовёт их так, и отдельная вкладка с этим словом
+  // понятнее, чем блок «Вехи» под зачёткой, которого никто не замечал.
+  milestonesTitle: 'Достижения',
+  milestonesNone: 'Достижений пока нет.',
   milestoneNoDate: '—',
-  milestoneToastTitle: 'Веха',
-  soundSection: 'Вехи',
-  soundToggle: 'Короткий звук, когда появляется новая веха',
-  soundNote: 'Звук синтезируется браузером, без файлов. Выключено по умолчанию: расширение не шумит, пока его об этом не попросили. Всплывашка с названием вехи приходит и без звука.',
+  milestoneToastTitle: 'Достижение',
+  achEarnedTitle: 'В этой истории',
+  achEarnedCount: 'получено {got} из {total}',
+  achEarnedNone: 'Пока ничего — всё впереди.',
+  achCatalogTitle: 'Все достижения',
+  achSecretName: '???',
+  achSecretHint: 'Тайное достижение: откроется, когда случится.',
+  achSecretMark: 'тайное',
+  achGlobalTitle: 'Во всех историях',
+  achGlobalLine: 'историй: {n}',
+  achGlobalNone: 'Ни в одной истории пока ничего не получено.',
+  achGlobalNote: 'Счёт общий для всех чатов. Достижение, которое забрал свайп, здесь остаётся: в этой истории оно уже случалось.',
+  // --- праздники и мероприятия на «Сегодня» (`core/holidays.mjs`) ------------
+  holidaysTitle: 'Праздники и события',
+  holidayNowLine: 'сегодня',
+  holidayInDays: 'через {n} дн.',
+  holidayTomorrow: 'завтра',
+  holidayOwnMark: 'своё',
+  eventsSummary: 'Своё событие',
+  eventsNote: 'Вечеринка, свидание, концерт — то, чего нет в календаре заведения. За несколько дней до события оно слышно фоном, а в его день модель один раз получает повод.',
+  eventName: 'Название',
+  eventNamePlaceholder: 'вечеринка у Миражи',
+  eventFrom: 'День',
+  eventTo: 'До (необязательно)',
+  eventBuzz: 'Фон до события (необязательно)',
+  eventBuzzPlaceholder: 'все спорят, кого позовут',
+  eventHook: 'Повод в его день (необязательно)',
+  eventHookPlaceholder: 'Мираж при всех зовёт героиню танцевать',
+  eventAdd: 'Добавить',
+  eventAdded: 'Событие добавлено.',
+  eventRemove: 'Убрать',
+  eventRemoved: 'Событие убрано.',
+  eventsListTitle: 'Свои события',
+  eventPast: 'прошло',
+  soundSection: 'Достижения',
+  soundToggle: 'Короткий звук, когда появляется новое достижение',
+  soundNote: 'Звук синтезируется браузером, без файлов. Выключено по умолчанию: расширение не шумит, пока его об этом не попросили. Всплывашка с названием достижения приходит и без звука.',
   soundTry: 'Послушать',
   soundTried: 'Если звука не было — браузер ещё не разрешил странице звук: нажмите в чате что-нибудь и попробуйте снова.',
 
@@ -1849,6 +1898,94 @@ export function milestonesView(state, preset) {
     when: m.when || null,
     whenLine: m.when ? formatDate(m.when) : X.milestoneNoDate,
   }));
+}
+
+/**
+ * Вкладка «Достижения»: три части.
+ *
+ * - **В этой истории** — вехи героини этого чата с датой (то, что раньше было
+ *   блоком «Вехи» в зачётке);
+ * - **Все достижения** — каталог всех видов: полученные отмечены, неполученные
+ *   с подсказкой «как получить», тайные — «???», пока не случились;
+ * - **Во всех историях** — счёт из настроек расширения (`core/milestones.recordTally`):
+ *   в скольких чатах вид получен хоть раз.
+ *
+ * @param {Object} state
+ * @param {Object} preset
+ * @param {Object} [tally]  `settings.achievementTally`
+ */
+export function achievementsView(state, preset, tally = {}) {
+  const X = extraLabels(preset);
+  const health = stateHealth(state, preset);
+  const earned = health.kind === 'ok' ? milestonesView(state, preset) : [];
+  const catalog = milestoneCatalog(earned).map((c) => {
+    const got = c.earned.length > 0;
+    const hidden = c.secret && !got;
+    return {
+      kind: c.kind,
+      secret: c.secret,
+      got,
+      count: c.earned.length,
+      title: hidden ? X.achSecretName : milestoneTitle(c.kind, preset),
+      hint: hidden ? X.achSecretHint : milestoneHint(c.kind, preset),
+    };
+  });
+  const t = tally && typeof tally === 'object' ? tally : {};
+  const global = KINDS
+    .map((kind) => ({ kind, n: Array.isArray(t[kind] && t[kind].chats) ? t[kind].chats.length : 0 }))
+    .filter((g) => g.n > 0)
+    .sort((a, b) => b.n - a.n || KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind))
+    .map((g) => ({ ...g, title: milestoneTitle(g.kind, preset), line: fill(X.achGlobalLine, { n: g.n }) }));
+  return {
+    kind: 'ok',
+    started: health.kind === 'ok',
+    earned: earned.map((m) => ({ ...m, secret: isSecretKind(m.kind) })),
+    countLine: fill(X.achEarnedCount, { got: catalog.filter((c) => c.got).length, total: catalog.length }),
+    catalog,
+    global,
+  };
+}
+
+/**
+ * Праздники для «Сегодня»: что идёт сегодня и что впереди в пределах двух
+ * недель, не больше трёх строк. В промпт уходит меньше (`prompt.mjs`,
+ * `holidaySegment`): там фон по `lead` праздника, здесь — календарь для глаз.
+ */
+export function holidaysView(state, preset) {
+  const X = extraLabels(preset);
+  const day = state && state.calendar && state.calendar.day;
+  if (!day) return [];
+  const now = holidaysOn(preset, day, state).map((h) => ({
+    id: h.id, name: h.name, about: h.about, note: h.today, whenLine: X.holidayNowLine, days: 0, own: h.dated,
+  }));
+  const ahead = holidaysAhead(preset, day, 14, state).map((a) => ({
+    id: a.holiday.id,
+    name: a.holiday.name,
+    about: a.holiday.about,
+    note: a.days <= a.holiday.lead ? a.holiday.buzz : '',
+    whenLine: a.days === 1 ? X.holidayTomorrow : `${fill(X.holidayInDays, { n: a.days })} · ${formatDate(a.day)}`,
+    days: a.days,
+    own: a.holiday.dated,
+  }));
+  return [...now, ...ahead].slice(0, 3);
+}
+
+/**
+ * Свои события чата для списка под блоком праздников: все, какие есть, от
+ * ближних к дальним, с датой словами — чтобы их можно было и увидеть, и убрать,
+ * даже если до них больше двух недель.
+ */
+export function ownEventsView(state) {
+  return eventsOf(state)
+    .slice()
+    .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      dateLine: e.to !== e.from ? `${formatDate(e.from)} — ${formatDate(e.to)}` : formatDate(e.from),
+      hook: e.hook,
+      past: Boolean(state && state.calendar && state.calendar.day > e.to),
+    }));
 }
 
 // --- вид для соседей: `window.AcademyAPI` (9.4.8, 9.7B) -----------------------
@@ -2421,6 +2558,11 @@ function renderToday(host, view, preset) {
 
   if (view.heldJump) box.append(heldJumpBlock(host, view, U));
 
+  const X = extraLabels(preset);
+  const holidays = holidaysBlock(view.holidays, X);
+  if (holidays) box.append(holidays);
+  box.append(ownEventsBlock(host, view, X));
+
   // Ремонтный инструмент, а не главная кнопка (3.2): спрятан в свёрнутый блок.
   box.append(manualTimeBlock(host, view, U));
   return box;
@@ -2630,26 +2772,143 @@ function renderGradebook(host, view, preset) {
       el('span', { text: view.awaiting.map((a) => a.text).join('; ') }),
     ]));
   }
-  box.append(milestonesBlock(view.milestones || [], X));
   return box;
 }
 
-/**
- * Блок «Вехи» (9.4.2) в зачётке: название словами пресета и дата. Стоит под
- * таблицей предметов, а не отдельной вкладкой: вех за семестр — единицы, и
- * шестая вкладка на телефоне стоила бы дороже, чем они весят (3.9).
- */
-function milestonesBlock(list, X) {
-  return el('div', { class: 'academy-milestones' }, [
-    el('div', { class: 'academy-card-title', text: X.milestonesTitle }),
-    list.length
-      ? el('ul', { class: 'academy-milestone-list' }, list.map((m) => el('li', {
-        class: 'academy-milestone', dataset: { milestone: m.id },
+// --- вкладка «Достижения» ---------------------------------------------------
+
+function renderAchievements(host, view, preset) {
+  const X = extraLabels(preset);
+  const box = el('div', { class: 'academy-achievements' });
+
+  box.append(el('div', { class: 'academy-milestones' }, [
+    el('div', { class: 'academy-card-title', text: X.achEarnedTitle }),
+    el('div', { class: 'academy-note', text: view.countLine }),
+    view.earned.length
+      ? el('ul', { class: 'academy-milestone-list' }, view.earned.map((m) => el('li', {
+        class: m.secret ? 'academy-milestone academy-milestone-secret' : 'academy-milestone',
+        dataset: { milestone: m.id },
       }, [
         el('span', { class: 'academy-milestone-name', text: m.name }),
         el('span', { class: 'academy-shift-day', text: m.whenLine }),
       ])))
-      : el('div', { class: 'academy-teacher', text: X.milestonesNone }),
+      : el('div', { class: 'academy-teacher', text: X.achEarnedNone }),
+  ]));
+
+  box.append(el('div', { class: 'academy-milestones academy-ach-catalog' }, [
+    el('div', { class: 'academy-card-title', text: X.achCatalogTitle }),
+    el('ul', { class: 'academy-milestone-list' }, view.catalog.map((c) => el('li', {
+      class: ['academy-ach', c.got ? 'academy-ach-got' : 'academy-ach-locked', c.secret ? 'academy-ach-secret' : '']
+        .filter(Boolean).join(' '),
+      dataset: { kind: c.kind },
+    }, [
+      el('i', {
+        class: `fa-solid ${c.got ? 'fa-trophy' : (c.secret ? 'fa-question' : 'fa-lock')} academy-ach-icon`,
+        'aria-hidden': 'true',
+      }),
+      el('span', { class: 'academy-ach-text' }, [
+        el('span', { class: 'academy-milestone-name', text: c.title }),
+        el('span', { class: 'academy-ach-hint', text: c.hint }),
+      ]),
+      c.secret && c.got ? el('span', { class: 'academy-shift-day', text: X.achSecretMark }) : null,
+    ]))),
+  ]));
+
+  box.append(el('div', { class: 'academy-milestones academy-ach-global' }, [
+    el('div', { class: 'academy-card-title', text: X.achGlobalTitle }),
+    view.global.length
+      ? el('ul', { class: 'academy-milestone-list' }, view.global.map((g) => el('li', {
+        class: 'academy-milestone', dataset: { kind: g.kind },
+      }, [
+        el('span', { class: 'academy-milestone-name', text: g.title }),
+        el('span', { class: 'academy-shift-day', text: g.line }),
+      ])))
+      : el('div', { class: 'academy-teacher', text: X.achGlobalNone }),
+    el('div', { class: 'academy-note', text: X.achGlobalNote }),
+  ]));
+  return box;
+}
+
+/**
+ * Свои события чата: список с кнопкой «убрать» и форма добавления, свёрнутые
+ * в один блок — на «Сегодня» главное расписание, а не форма.
+ */
+function ownEventsBlock(host, view, X) {
+  const status = el('div', { class: 'academy-status' });
+  const max = EVENT_TEXT_MAX;
+  const name = el('input', { type: 'text', class: 'text_pole academy-input', maxlength: String(max.name), placeholder: X.eventNamePlaceholder });
+  const from = el('input', { type: 'date', class: 'text_pole academy-input', value: view.day || '' });
+  const to = el('input', { type: 'date', class: 'text_pole academy-input' });
+  const buzz = el('input', { type: 'text', class: 'text_pole academy-input', maxlength: String(max.buzz), placeholder: X.eventBuzzPlaceholder });
+  const hook = el('textarea', { class: 'text_pole academy-input', rows: '2', maxlength: String(max.hook), placeholder: X.eventHookPlaceholder });
+
+  const list = view.ownEvents || [];
+  const items = list.length
+    ? el('div', { class: 'academy-own-events' }, [
+      el('div', { class: 'academy-card-title', text: X.eventsListTitle }),
+      el('ul', { class: 'academy-milestone-list' }, list.map((e) => el('li', {
+        class: e.past ? 'academy-holiday academy-ach-locked' : 'academy-holiday',
+        dataset: { event: e.id },
+      }, [
+        el('span', { class: 'academy-ach-text' }, [
+          el('span', { class: 'academy-milestone-name', text: e.name }),
+          el('span', { class: 'academy-ach-hint', text: e.past ? `${e.dateLine} · ${X.eventPast}` : e.dateLine }),
+        ]),
+        el('div', {
+          class: 'menu_button academy-btn',
+          text: X.eventRemove,
+          onclick: (ev) => runAction(ev.currentTarget, status, () => call(host, 'removeEvent', e.id), X.eventRemoved)
+            .then(() => renderPanel(host)),
+        }),
+      ]))),
+    ])
+    : null;
+
+  return el('details', { class: 'academy-repair academy-events-form' }, [
+    el('summary', { text: X.eventsSummary }),
+    el('div', { class: 'academy-repair-body' }, [
+      el('p', { class: 'academy-note', text: X.eventsNote }),
+      items,
+      el('label', { class: 'academy-field' }, [el('span', { text: X.eventName }), name]),
+      el('div', { class: 'academy-row' }, [
+        el('label', { class: 'academy-field' }, [el('span', { text: X.eventFrom }), from]),
+        el('label', { class: 'academy-field' }, [el('span', { text: X.eventTo }), to]),
+      ]),
+      el('label', { class: 'academy-field' }, [el('span', { text: X.eventBuzz }), buzz]),
+      el('label', { class: 'academy-field' }, [el('span', { text: X.eventHook }), hook]),
+      el('div', { class: 'academy-row academy-row-buttons' }, [
+        el('div', {
+          class: 'menu_button academy-btn',
+          text: X.eventAdd,
+          onclick: (ev) => runAction(ev.currentTarget, status, () => call(host, 'addEvent', {
+            name: name.value,
+            from: from.value,
+            to: to.value || undefined,
+            buzz: buzz.value,
+            hook: hook.value,
+          }), X.eventAdded).then((res) => { if (res && res.ok) renderPanel(host); }),
+        }),
+      ]),
+      status,
+    ]),
+  ]);
+}
+
+/** Блок «Праздники и события» на «Сегодня»: пусто — блока нет. */
+function holidaysBlock(list, X) {
+  if (!list || !list.length) return null;
+  return el('div', { class: 'academy-holidays' }, [
+    el('div', { class: 'academy-card-title', text: X.holidaysTitle }),
+    el('ul', { class: 'academy-milestone-list' }, list.map((h) => el('li', {
+      class: h.days === 0 ? 'academy-holiday academy-holiday-now' : 'academy-holiday',
+      dataset: { holiday: h.id },
+    }, [
+      el('span', { class: 'academy-ach-text' }, [
+        el('span', { class: 'academy-milestone-name', text: h.name }),
+        h.note || h.about ? el('span', { class: 'academy-ach-hint', text: h.note || h.about }) : null,
+      ]),
+      el('span', { class: 'academy-shift-day', text: h.own ? `${h.whenLine} · ${X.holidayOwnMark}` : h.whenLine }),
+    ]))),
   ]);
 }
 
@@ -4528,6 +4787,9 @@ export function renderPanel(host) {
     const state = safe(() => h.getState(), null);
     if (mounted.tab === 'gradebook') body.append(renderGradebook(h, gradebookView(state, preset), preset));
     else if (mounted.tab === 'people') body.append(renderPeople(h, peopleView(state, preset), preset));
+    else if (mounted.tab === 'achievements') {
+      body.append(renderAchievements(h, achievementsView(state, preset, settings.achievementTally), preset));
+    }
     else if (mounted.tab === 'debug') {
       body.append(renderDebug(h, debugView(safe(() => h.getDebug(), null), state, preset, settings)));
     } else if (mounted.tab === 'settings') body.append(renderSettings(h));

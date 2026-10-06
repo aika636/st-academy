@@ -963,6 +963,66 @@
   overflow-wrap: anywhere;
 }
 
+/* Вкладка «Достижения»: три блока, каталог — иконка, название и подсказка. */
+.academy-achievements {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.academy-ach-catalog .academy-milestone-list,
+.academy-holidays .academy-milestone-list {
+  list-style: none;
+  padding-left: 0;
+  gap: 6px;
+}
+
+.academy-ach,
+.academy-holiday {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.academy-ach-icon {
+  width: 1.2em;
+  margin-top: 0.2em;
+  text-align: center;
+  flex: none;
+}
+
+.academy-ach-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.academy-ach-hint {
+  font-size: 0.85em;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.academy-ach-locked {
+  opacity: 0.55;
+}
+
+.academy-ach-got .academy-ach-icon {
+  color: var(--SmartThemeQuoteColor, currentColor);
+}
+
+/* Праздники на «Сегодня»: название, фон словами, когда — справа. */
+.academy-holidays {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.academy-holiday-now .academy-milestone-name {
+  font-weight: 600;
+}
+
 /* Портрет наставника (9.7A п.15): маленький квадрат в карточке, полный — окном. */
 .academy-portrait {
   display: inline-flex;

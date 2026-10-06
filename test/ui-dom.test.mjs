@@ -1002,16 +1002,20 @@ test('«Люди»: должность под именем, «любит» ст�
   api.destroy();
 });
 
-test('«Зачётка»: блок «Вехи» с названием и датой', () => {
+test('«Достижения»: полученное с датой, каталог с тайными и счёт во всех историях', () => {
   const s = {
     ...started,
     subjects: [{ ...started.subjects[0], grades: [{ value: '5', day: '2024-09-02' }] }],
   };
-  const { api, node } = mount(fakeHost(s, {}, LOREBOOK_FULL));
-  const texts = allTexts(openTab(node, 'gradebook'));
-  assert.ok(texts.includes('Вехи'));
+  const tally = { firstTop: { chats: ['a', 'b'], first: '2026-10-06' } };
+  const { api, node } = mount(fakeHost(s, { achievementTally: tally }, LOREBOOK_FULL));
+  const texts = allTexts(openTab(node, 'achievements'));
+  assert.ok(texts.includes('В этой истории'));
   assert.ok(texts.includes('Первая пятёрка: аналитическая химия'), texts.join(' | '));
   assert.ok(texts.includes('понедельник, 2 сентября'));
+  assert.ok(texts.includes('Все достижения'));
+  assert.ok(texts.includes('???'), 'тайное неполученное не раскрыто');
+  assert.ok(texts.includes('историй: 2'), texts.join(' | '));
   api.destroy();
 });
 

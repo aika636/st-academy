@@ -47,8 +47,18 @@ import { gradeInfo, isDatedExam, fill } from './exams.mjs';
  */
 export const KINDS = [
   'firstTop', 'cleanWeek', 'debtCleared', 'cleanSession', 'autoPass', 'brilliant',
-  'favorite', 'nemesis', 'onTheEdge',
+  'retakeWin', 'favorite', 'nemesis', 'onTheEdge', 'firstSkip', 'ghost', 'critFail',
 ];
+
+/**
+ * Тайные вехи: пока не получена, в каталоге видно только «???». Это вехи, о
+ * которых смешнее узнать по факту, — первый прогул, провал века, — и те, что
+ * звучат как подсказка «сделай плохо».
+ */
+export const SECRET_KINDS = ['nemesis', 'onTheEdge', 'firstSkip', 'ghost', 'critFail'];
+
+/** Сколько прогулов делают героиню «призраком аудитории». */
+export const GHOST_SKIPS = 10;
 
 /**
  * Запасные названия — словами русского вуза, как умолчания фраз в `exams.mjs`.
@@ -70,6 +80,52 @@ export const DEFAULT_NAMES = {
   favorite: 'Любимица: {teacher}',
   nemesis: '{teacher} её не выносит',
   onTheEdge: 'На волоске от отчисления',
+  retakeWin: 'Со второй попытки: {subject}',
+  firstSkip: 'Первый прогул: {subject}',
+  ghost: 'Призрак аудитории',
+  critFail: 'Провал века: {subject}',
+};
+
+/**
+ * Название вехи без подробностей — для каталога и для счёта «во всех
+ * историях», где предмета и наставника нет. Пресет перекрывает блоком
+ * `phrases.milestoneTitles`.
+ */
+export const DEFAULT_TITLES = {
+  firstTop: 'Первая высшая оценка',
+  cleanWeek: 'Неделя без прогулов',
+  debtCleared: 'Хвост закрыт',
+  cleanSession: 'Сессия без пересдач',
+  autoPass: 'Автомат',
+  brilliant: 'Блестящая сдача',
+  retakeWin: 'Со второй попытки',
+  favorite: 'Любимица преподавателя',
+  nemesis: 'Заклятый враг',
+  onTheEdge: 'На волоске от отчисления',
+  firstSkip: 'Первый прогул',
+  ghost: 'Призрак аудитории',
+  critFail: 'Провал века',
+};
+
+/**
+ * Как получить — подсказка в каталоге под неполученной вехой. У тайных
+ * подсказка видна только после получения. Пресет перекрывает блоком
+ * `phrases.milestoneHints`.
+ */
+export const DEFAULT_HINTS = {
+  firstTop: 'Получить высшую оценку по любому предмету.',
+  cleanWeek: 'Проучиться целую неделю без единого прогула.',
+  debtCleared: 'Закрыть хвост: сдать то, что было завалено.',
+  cleanSession: 'Сдать всю сессию с первой попытки.',
+  autoPass: 'Получить оценку автоматом, без экзамена.',
+  brilliant: 'Сдать экзамен блестяще — на критическом успехе.',
+  retakeWin: 'Сдать экзамен со второй попытки или позже.',
+  favorite: 'Стать любимицей преподавателя.',
+  nemesis: 'Довести преподавателя до того, что он тебя не выносит.',
+  onTheEdge: 'Получить предупреждение об отчислении.',
+  firstSkip: 'Впервые прогулять занятие.',
+  ghost: 'Набрать десять прогулов.',
+  critFail: 'Провалить экзамен с треском — на критической неудаче.',
 };
 
 /**
@@ -101,8 +157,12 @@ export function milestones(state, preset) {
     ...cleanSessions(state, preset),
     fromRolls(state, 'autoPass', (r) => r.tier === 'auto'),
     fromRolls(state, 'brilliant', (r) => r.tier === 'critSuccess'),
+    retakeWin(state, preset),
     ...relationZones(state, preset),
     onTheEdge(state, preset),
+    firstSkip(state),
+    ghost(state),
+    fromRolls(state, 'critFail', (r) => r.tier === 'critFail'),
   ].filter(Boolean);
 
   const rank = (m) => KINDS.indexOf(m.kind);
@@ -148,6 +208,75 @@ export function milestoneName(m, state, preset) {
     value: (info && info.label) || (m.value !== undefined ? String(m.value) : ''),
     n: Number.isFinite(m.term) ? String(m.term + 1) : '',
   }).trim();
+}
+
+/** Название вехи без подробностей (каталог, счёт «во всех историях»). */
+export function milestoneTitle(kind, preset) {
+  const own = (preset && preset.phrases && preset.phrases.milestoneTitles) || {};
+  return fill(own[kind] || DEFAULT_TITLES[kind] || kind, (preset && preset.vocab) || {}).trim();
+}
+
+/** Подсказка «как получить». */
+export function milestoneHint(kind, preset) {
+  const own = (preset && preset.phrases && preset.phrases.milestoneHints) || {};
+  return fill(own[kind] || DEFAULT_HINTS[kind] || '', (preset && preset.vocab) || {}).trim();
+}
+
+/** Тайная ли веха. */
+export const isSecretKind = (kind) => SECRET_KINDS.includes(kind);
+
+/**
+ * Каталог (страница достижений): каждый вид — полученный или нет, тайный или
+ * нет, со всеми полученными экземплярами (у «любимицы» их может быть несколько
+ * — по наставнику). Порядок — `KINDS`.
+ *
+ * @param {Milestone[]} earned  то, что вернул `milestones()`
+ * @returns {{kind: string, secret: boolean, earned: Milestone[]}[]}
+ */
+export function milestoneCatalog(earned) {
+  const list = Array.isArray(earned) ? earned : [];
+  return KINDS.map((kind) => ({
+    kind,
+    secret: isSecretKind(kind),
+    earned: list.filter((m) => m && m.kind === kind),
+  }));
+}
+
+/** Сколько чатов помнит счёт «во всех историях» на одну веху. */
+export const TALLY_CHATS_MAX = 200;
+
+/**
+ * Счёт «во всех историях»: в скольких чатах веха получена хоть раз.
+ *
+ * Живёт в настройках расширения (общих для всех чатов), а не в состоянии чата:
+ * `{ [kind]: { chats: [ключ чата], first: 'ГГГГ-ММ-ДД' } }`. Функция чистая —
+ * возвращает новый счёт или тот же объект, если записывать нечего, чтобы
+ * вызывающий сохранял настройки только при деле.
+ *
+ * Отзыва здесь нет, и это сознательно: свайп, забравший веху у чата, не
+ * отменяет того, что в этой истории она уже случалась. Счёт — память игрока, а
+ * не состояние героини.
+ *
+ * @param {Object} tally   прежний счёт
+ * @param {string} chatKey ключ чата; пустой — ничего не пишется
+ * @param {Milestone[]} list вехи чата
+ * @param {string} today   настоящая дата `ГГГГ-ММ-ДД` (не игровая)
+ * @returns {Object}
+ */
+export function recordTally(tally, chatKey, list, today) {
+  const base = tally && typeof tally === 'object' && !Array.isArray(tally) ? tally : {};
+  if (!chatKey || !Array.isArray(list) || !list.length) return base;
+  let out = base;
+  for (const kind of new Set(list.map((m) => m && m.kind).filter((k) => KINDS.includes(k)))) {
+    const cur = base[kind] && Array.isArray(base[kind].chats) ? base[kind] : { chats: [], first: null };
+    if (cur.chats.includes(chatKey)) continue;
+    if (out === base) out = { ...base };
+    out[kind] = {
+      chats: [...cur.chats, chatKey].slice(-TALLY_CHATS_MAX),
+      first: cur.first || today || null,
+    };
+  }
+  return out;
 }
 
 // --- вехи по одной ----------------------------------------------------------
@@ -397,6 +526,48 @@ function onTheEdge(state, preset) {
       && e.data.from > warnAt && e.data.to <= warnAt)
     : null;
   return { id: 'onTheEdge', kind: 'onTheEdge', when };
+}
+
+/**
+ * Со второй попытки — первое событие контрольной, сданное проходно, когда
+ * попыток было больше одной. Версия модели учитывается как есть: состояние —
+ * то, что случилось в сцене.
+ */
+function retakeWin(state, preset) {
+  let best = null;
+  for (const item of (state.exams && state.exams.items) || []) {
+    if (!(Number(item.attempts) > 1)) continue;
+    const info = item.outcome !== null && item.outcome !== undefined && item.outcome !== ''
+      ? gradeInfo(preset, item.outcome) : null;
+    if (!info || !info.pass) continue;
+    const rolls = Array.isArray(item.rolls) ? item.rolls : [];
+    const last = rolls.length ? rolls[rolls.length - 1] : null;
+    const when = (last && last.day) || item.day || null;
+    if (!best || (when && (!best.when || when < best.when))) {
+      best = { id: 'retakeWin', kind: 'retakeWin', when, subjectId: item.subjectId };
+    }
+  }
+  return best;
+}
+
+/** Прогулы ведомости по порядку дней. */
+function skipsInOrder(state) {
+  return ((state.attendance && state.attendance.records) || [])
+    .filter((r) => r && r.status === 'skip' && r.day)
+    .slice()
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+/** Первый прогул — по ведомости, которая из состояния не удаляется. */
+function firstSkip(state) {
+  const first = skipsInOrder(state)[0];
+  return first ? { id: 'firstSkip', kind: 'firstSkip', when: first.day, subjectId: first.subjectId } : null;
+}
+
+/** Призрак аудитории — `GHOST_SKIPS` прогулов за всё время; дата — день последнего из них. */
+function ghost(state) {
+  const list = skipsInOrder(state);
+  return list.length >= GHOST_SKIPS ? { id: 'ghost', kind: 'ghost', when: list[GHOST_SKIPS - 1].day } : null;
 }
 
 // --- мелочи -----------------------------------------------------------------

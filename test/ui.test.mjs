@@ -423,10 +423,11 @@ test('склонение «ответ / ответа / ответов»', () => 
     ['ответ', 'ответа', 'ответов', 'ответов', 'ответов', 'ответ', 'ответа', 'ответов', 'ответ']);
 });
 
-test('вкладки — четыре из плана, в том же порядке', () => {
-  // `plan-academy.md:486-491`: «Сегодня», «Зачётка», «Люди», «Настройки».
-  assert.deepEqual(TABS.map((t) => t.id), ['today', 'gradebook', 'people', 'settings']);
-  assert.deepEqual(tabsFor(preset).map((t) => t.id), ['today', 'gradebook', 'people', 'settings']);
+test('вкладки — четыре из плана и «Достижения», в том же порядке', () => {
+  // `plan-academy.md:486-491`: «Сегодня», «Зачётка», «Люди», «Настройки»; «Достижения» — перед настройками.
+  const ids = ['today', 'gradebook', 'people', 'achievements', 'settings'];
+  assert.deepEqual(TABS.map((t) => t.id), ids);
+  assert.deepEqual(tabsFor(preset).map((t) => t.id), ids);
 });
 
 test('пятая вкладка есть только при включённой отладке', () => {
@@ -439,8 +440,8 @@ test('пятая вкладка есть только при включённо�
   assert.equal(tabsFor(preset, { debug: 'да' }).some((t) => t.id === 'debug'), false);
 
   const on = tabsFor(preset, { debug: true });
-  assert.deepEqual(on.map((t) => t.id), ['today', 'gradebook', 'people', 'settings', 'debug']);
-  assert.equal(on[4].label, DEBUG_TAB.label);
+  assert.deepEqual(on.map((t) => t.id), ['today', 'gradebook', 'people', 'achievements', 'settings', 'debug']);
+  assert.equal(on[5].label, DEBUG_TAB.label);
 });
 
 // --- 8а. Вкладка «Люди» (3.9, 3.4) -------------------------------------------

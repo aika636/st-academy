@@ -394,7 +394,8 @@ test('слова проводки и доктора — механизма: ни
   const flat = (o) => Object.values(o).flatMap((v) => (v && typeof v === 'object' ? flat(v) : [String(v)]));
   for (const text of [...flat(EXTRA_UI), ...flat(DOCTOR_TEXT)]) {
     assert.equal(forbidden.test(text), false, `слово заведения: ${text}`);
-    assert.equal(/ачивк|достижени|achievement/i.test(text), false, text);
+    // «Достижения» — слово вкладки, его выбрала владелица; жаргон «ачивки» — нет.
+    assert.equal(/ачивк|achievement/i.test(text), false, text);
   }
   for (const key of Object.keys(EXTRA_UI)) assert.equal(key in DEBUG_TEXT, false, key);
 });

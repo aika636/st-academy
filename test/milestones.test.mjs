@@ -18,7 +18,12 @@ import { changeRelation } from '../core/relations.mjs';
 import { changeReputation } from '../core/reputation.mjs';
 import { scheduleExams } from '../core/exams.mjs';
 import { sitExam } from '../core/engine.mjs';
-import { milestones, diffMilestones, milestoneName, KINDS, DEFAULT_NAMES } from '../core/milestones.mjs';
+import {
+  milestones, diffMilestones, milestoneName, KINDS, DEFAULT_NAMES, DEFAULT_TITLES, DEFAULT_HINTS,
+  SECRET_KINDS, GHOST_SKIPS, milestoneCatalog, milestoneTitle, milestoneHint, recordTally,
+} from '../core/milestones.mjs';
+import { BUILTIN_PRESETS } from '../core/preset.mjs';
+import { achievementsView } from '../ui.js';
 import { significantEvents, buildEntries, CHRONICLE_MILESTONES } from '../core/lorebook.mjs';
 
 const load = (file) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${file}`, import.meta.url)), 'utf8'));
@@ -335,4 +340,78 @@ test('обычная оценка и явка хроники по-прежнем
   s = setDebt(s, 'physics', true, RU);
   pushJournal(s, { kind: 'debug', text: '', data: {} }, RU);
   assert.deepEqual(significantEvents(s, RU), []);
+});
+
+// --- новые вехи, каталог и счёт «во всех историях» ------------------------------
+
+test('со второй попытки и провал века — по экзамену', () => {
+  let s = inSession();
+  const first = sitExam(s, RU, { rng: die(1) });
+  s = first.state;
+  assert.ok(!ids(s).includes('critFail'), 'простой провал — не «провал века»');
+  // Крит-провал — строка истории бросков с этим уровнем.
+  const crit = cloneState(s);
+  crit.exams.items[0].rolls = [{ day: '2024-12-24', tier: 'critFail', value: '2' }];
+  assert.ok(ids(crit).includes('critFail'));
+  s.calendar.day = '2024-12-26';
+  s = sitExam(s, RU, { rng: die(20), examId: first.exam.examId }).state;
+  assert.ok(ids(s).includes('retakeWin'));
+});
+
+test('первый прогул и призрак аудитории — по ведомости', () => {
+  let s = semester();
+  s = day(s, '2024-09-02', 'skip');
+  assert.ok(ids(s).includes('firstSkip'));
+  assert.ok(!ids(s).includes('ghost'));
+  for (let i = 3; i < 3 + GHOST_SKIPS; i += 1) s = day(s, `2024-09-${String(i).padStart(2, '0')}`, 'skip');
+  assert.ok(ids(s).includes('ghost'));
+});
+
+test('каталог: все виды, тайные помечены, полученные с экземплярами', () => {
+  const cat = milestoneCatalog([{ id: 'firstTop', kind: 'firstTop' }, { id: 'favorite:a', kind: 'favorite' }, { id: 'favorite:b', kind: 'favorite' }]);
+  assert.deepEqual(cat.map((c) => c.kind), KINDS);
+  assert.equal(cat.find((c) => c.kind === 'favorite').earned.length, 2);
+  assert.deepEqual(cat.filter((c) => c.secret).map((c) => c.kind), SECRET_KINDS);
+  assert.deepEqual(Object.keys(DEFAULT_TITLES).sort(), [...KINDS].sort());
+  assert.deepEqual(Object.keys(DEFAULT_HINTS).sort(), [...KINDS].sort());
+});
+
+test('каждый встроенный пресет называет все вехи, их заголовки и подсказки', () => {
+  for (const id of BUILTIN_PRESETS) {
+    const p = load(`${id}.json`);
+    for (const dict of ['milestones', 'milestoneTitles', 'milestoneHints']) {
+      const own = (p.phrases && p.phrases[dict]) || {};
+      const missing = KINDS.filter((k) => !(typeof own[k] === 'string' && own[k].trim()));
+      assert.deepEqual(missing, [], `${id}: phrases.${dict} без ${missing.join(', ')}`);
+    }
+    assert.ok(milestoneTitle('firstTop', p) && milestoneHint('firstTop', p));
+  }
+});
+
+test('счёт во всех историях: чат считается один раз, без нового — тот же объект', () => {
+  const list = [{ kind: 'firstTop' }, { kind: 'favorite' }, { kind: 'favorite' }];
+  const a = recordTally({}, 'chat-1', list, '2026-10-06');
+  assert.deepEqual(a.firstTop, { chats: ['chat-1'], first: '2026-10-06' });
+  assert.deepEqual(a.favorite.chats, ['chat-1']);
+  assert.equal(recordTally(a, 'chat-1', list, '2026-10-07'), a, 'повтор ничего не пишет');
+  const b = recordTally(a, 'chat-2', [{ kind: 'firstTop' }], '2026-10-07');
+  assert.deepEqual(b.firstTop, { chats: ['chat-1', 'chat-2'], first: '2026-10-06' });
+  assert.equal(recordTally(a, '', list, 'x'), a, 'без чата — ничего');
+  assert.deepEqual(recordTally(null, 'c', [{ kind: 'чужое' }], 'x'), {});
+});
+
+test('вкладка «Достижения»: тайное скрыто до получения, счёт по убыванию', () => {
+  let s = semester();
+  s = day(s, '2024-09-02', 'skip');
+  const tally = { firstTop: { chats: ['a'] }, ghost: { chats: ['a', 'b', 'c'] } };
+  const v = achievementsView(s, RU, tally);
+  const skip = v.catalog.find((c) => c.kind === 'firstSkip');
+  assert.equal(skip.got, true);
+  assert.notEqual(skip.title, '???', 'полученное тайное раскрыто');
+  const critFail = v.catalog.find((c) => c.kind === 'critFail');
+  assert.equal(critFail.title, '???');
+  assert.deepEqual(v.global.map((g) => [g.kind, g.n]), [['ghost', 3], ['firstTop', 1]]);
+  assert.ok(v.earned.find((m) => m.kind === 'firstSkip').secret);
+  assert.deepEqual(achievementsView(null, RU).earned, [], 'без семестра — пусто, но каталог есть');
+  assert.equal(achievementsView(null, RU).catalog.length, KINDS.length);
 });
