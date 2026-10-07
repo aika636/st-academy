@@ -1230,6 +1230,60 @@ test('«Поток»: ветка под постом свёрнута после
   assert.ok(react, 'строка значков под постом');
   await click(react);
   assert.deepEqual(sent, [['m#1', react.dataset.emoji]]);
+
+  // Кружки: маска — значок по смыслу ника, человек — инициалы на цвете.
+  body = node.querySelector('.academy-body');
+  const mask = findNode(body, (n) => /academy-ava-mask/.test(n.className));
+  assert.equal(mask.textContent, '😈');
+  const vera = findNode(body, (n) => /academy-ava-person/.test(n.className));
+  assert.match(vera.attrs.style, /background-color: hsl\(/);
+  assert.equal(vera.children[0].textContent, 'ВС');
+  // Значки под ответом — свои, компактные, и тоже переключаются.
+  const small = findNode(body, (n) => /academy-feed-reacts-small/.test(n.className));
+  assert.ok(small, 'строка значков под ответом');
+  const replyReact = findNode(small, (n) => /academy-feed-react\b/.test(n.className) && n.listeners.click);
+  await click(replyReact);
+  assert.deepEqual(sent[1], ['m^1', replyReact.dataset.emoji]);
+  api.destroy();
+});
+
+test('«Люди»: «Выбрать фото» открывает файл и шлёт его хосту, «Убрать фото» — пустой путь', async () => {
+  const s = {
+    ...started,
+    classmates: [{ id: 'vera', name: 'Вера Соколова', relation: 0, source: 'manual', locked: true, portrait: '/user/images/academy/vera_1.jpg' }],
+  };
+  const sent = [];
+  const host = fakeHost(s, {}, LOREBOOK_FULL, {
+    uploadPortrait: async (id, file) => { sent.push(['upload', id, file]); return { ok: true, path: '/user/images/academy/vera_2.jpg' }; },
+    setPortrait: async (id, v) => { sent.push(['set', id, v]); return { ok: true }; },
+  });
+  const { api, node } = mount(host);
+  let body = openTab(node, 'people');
+  const part = findNode(body, (n) => n.dataset === undefined ? false : /academy-people-part/.test(n.className) && /Курс/.test(n.textContent));
+  await click(part);
+  body = node.querySelector('.academy-body');
+  // Кружок однокурсника — с фото поверх инициалов.
+  const ava = findNode(body, (n) => /academy-ava-card/.test(n.className));
+  assert.equal(findNode(ava, (n) => n.tagName === 'IMG').attrs.src, '/user/images/academy/vera_1.jpg');
+
+  const input = findNode(body, (n) => n.tagName === 'INPUT' && n.attrs.type === 'file');
+  assert.equal(input.attrs.accept, 'image/*');
+  let opened = 0;
+  input.click = () => { opened += 1; };
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.photoPick && n.listeners.click));
+  assert.equal(opened, 1, 'кнопка открывает выбор файла');
+  const file = { name: 'p.jpg', type: 'image/jpeg', size: 1000 };
+  input.files = [file];
+  await input.listeners.change[0]({});
+  assert.deepEqual(sent[0], ['upload', 'vera', file]);
+
+  body = node.querySelector('.academy-body');
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.photoRemove && n.listeners.click));
+  assert.deepEqual(sent[1], ['set', 'vera', '']);
+  // Место под «Нарисовать» оставлено, ссылка — свёрнута.
+  assert.ok(findNode(body, (n) => n.dataset && n.dataset.slot === 'draw'));
+  const link = findNode(body, (n) => n.tagName === 'DETAILS' && /academy-photo-link/.test(n.className));
+  assert.equal(link.children[0].textContent, ui.EXTRA_UI.photoLink);
   api.destroy();
 });
 
@@ -1268,4 +1322,71 @@ test('«Люди» и «Сегодня» до начала: таблица бе�
     assert.equal(texts.some((t) => /версия схемы|нет presetId/.test(t)), false);
   }
   api.destroy();
+});
+
+test('«Люди»: «Нарисовать» — «Рисую…» с отменой, превью, «Оставить» ставит портрет; нечем рисовать — подсказка', async () => {
+  const X = ui.EXTRA_UI;
+  const DRAW = {
+    chat: 'chat-1', available: [{ id: 'novel', label: 'NovelAI' }], route: 'novel',
+    models: [{ id: 'nai-diffusion-4-5-full', label: 'NAI 4.5' }], model: 'nai-diffusion-4-5-full',
+    style: 'anime', styles: ['anime', 'realism', 'watercolor'], naiSize: 'portrait', naiSizes: ['portrait', 'square'], hint: '',
+  };
+  const sent = [];
+  let finish = null;
+  const host = fakeHost(started, {}, LOREBOOK_FULL, {
+    drawPortrait: (id, opts) => { sent.push(['draw', id, Boolean(opts && opts.signal)]); return new Promise((r) => { finish = r; }); },
+    setPortrait: async (id, v) => { sent.push(['set', id, v]); return { ok: true }; },
+    setLooks: async (id, v) => { sent.push(['looks', id, v]); return { ok: true }; },
+  });
+  host.getDraw = () => DRAW;
+  const { api, node } = mount(host);
+  let body = openTab(node, 'people');
+  // Часть «Преподаватели» — первая кнопка переключателя (прошлый тест мог уйти на курс).
+  await click(findNode(body, (n) => /academy-people-part/.test(n.className) && n.listeners.click));
+  body = node.querySelector('.academy-body');
+  const slot = findNode(body, (n) => n.dataset && n.dataset.slot === 'draw' && n.dataset.person === 'petrova');
+  assert.ok(slot, 'место под «Нарисовать» у преподавателя');
+  const go = findNode(slot, (n) => n.textContent === X.drawButton && n.listeners.click);
+  assert.ok(go, 'кнопка «Нарисовать»');
+  const pending = click(go);
+  await new Promise((r) => { setTimeout(r, 0); });
+  assert.deepEqual(sent[0], ['draw', 'petrova', true]);
+  assert.equal(slot.children[0].textContent, X.drawBusy);
+  assert.ok(!slot.children[0].listeners.click, '«Рисую…» не нажимается второй раз');
+  assert.equal(slot.children[1].textContent, X.drawCancel);
+
+  finish({ ok: true, path: '/user/images/academy/petrova_2.jpg' });
+  await pending;
+  await new Promise((r) => { setTimeout(r, 0); });
+  body = node.querySelector('.academy-body');
+  const preview = findNode(body, (n) => n.tagName === 'IMG' && /academy-photo-preview/.test(n.className));
+  assert.equal(preview.attrs.src, '/user/images/academy/petrova_2.jpg');
+  assert.equal(sent.some((x) => x[0] === 'set'), false, 'до «Оставить» портрет не меняется');
+  assert.ok(findNode(body, (n) => n.textContent === X.drawAgain && n.listeners.click));
+  assert.ok(findNode(body, (n) => n.textContent === X.drawDrop && n.listeners.click));
+  await click(findNode(body, (n) => n.textContent === X.drawKeep && n.listeners.click));
+  assert.deepEqual(sent.find((x) => x[0] === 'set'), ['set', 'petrova', '/user/images/academy/petrova_2.jpg']);
+
+  // Своё описание внешности — своей кнопкой.
+  body = node.querySelector('.academy-body');
+  const looks = findNode(body, (n) => n.tagName === 'INPUT' && /academy-looks-input/.test(n.className));
+  looks.value = ' рыжая, в очках ';
+  await click(findNode(body, (n) => n.textContent === X.looksSave && n.listeners.click));
+  assert.deepEqual(sent.find((x) => x[0] === 'looks'), ['looks', 'petrova', 'рыжая, в очках']);
+
+  // Настройки: блок «Портреты» с выбором пути, модели, стиля и строкой цены.
+  const texts = allTexts(openTab(node, 'settings'));
+  assert.ok(texts.includes(X.drawSection));
+  assert.ok(texts.includes(X.drawPrice));
+  assert.ok(texts.includes('NAI 4.5'));
+  api.destroy();
+
+  // Нечем рисовать: кнопки нет, подсказка есть, блок настроек — с подсказкой.
+  host.getDraw = () => ({ ...DRAW, chat: 'chat-2', available: [], route: null, models: [], hint: X.drawNoRoute });
+  const second = mount(host);
+  body = openTab(second.node, 'people');
+  assert.equal(findNode(body, (n) => n.textContent === X.drawButton), null);
+  assert.ok(allTexts(body).includes(X.drawNoRoute));
+  assert.ok(allTexts(openTab(second.node, 'settings')).includes(X.drawNoRoute));
+  second.api.destroy();
 });

@@ -995,3 +995,55 @@ export function renderDebugBlock(host, view) {
     el('p', { class: 'academy-note', text: T.hint }),
   ]);
 }
+
+/**
+ * «Портреты» (аватарки, шаг 4): чем рисовать, модель, стиль. Живут в
+ * настройках расширения (`draw`), как звук и лента: привычка человека, а не
+ * факт семестра. В выборе — только пути, у которых в таверне есть ключ или
+ * настроенная генерация (`core/draw.availableRoutes`); ключей тут нет, и
+ * вводить их некуда — рисует сервер таверны её же ключами. Нечем рисовать —
+ * подсказка, что подключить. Хост без `getDraw` — блока нет.
+ */
+export function renderDrawBlock(host, preset, settings) {
+  const info = host && typeof host.getDraw === 'function' ? safe(() => host.getDraw(), null) : null;
+  if (!info) return null;
+  const X = extraLabels(preset);
+  const draw = (settings && settings.draw) || {};
+  const select = (label, options, value, onPick, cls) => {
+    const node = el('select', { class: `text_pole academy-input ${cls}` },
+      options.map((o) => el('option', { value: o.id, text: o.label, selected: o.id === value })));
+    node.value = value;
+    node.addEventListener('change', () => onPick(node.value));
+    return el('label', { class: 'academy-field' }, [el('span', { text: label }), node]);
+  };
+  if (!info.available || !info.available.length) {
+    return section(X.drawSection, [
+      el('p', { class: 'academy-note academy-draw-none', text: info.hint || X.drawNoRoute }),
+      el('p', { class: 'academy-note', text: X.drawKeysNote }),
+    ]);
+  }
+  const children = [
+    select(X.drawRouteField, info.available, info.route,
+      (v) => safe(() => host.setSettings({ draw: { route: v } }), null), 'academy-draw-route'),
+  ];
+  if (info.route === 'tavern') {
+    children.push(el('p', { class: 'academy-note', text: X.drawTavernNote }));
+  } else if (info.models && info.models.length) {
+    children.push(select(X.drawModelField, info.models, info.model,
+      (v) => safe(() => host.setSettings({ draw: { models: { ...(draw.models || {}), [info.route]: v } } }), null),
+      'academy-draw-model'));
+  }
+  children.push(select(X.drawStyleField,
+    (info.styles || []).map((id) => ({ id, label: (X.drawStyles && X.drawStyles[id]) || id })), info.style,
+    (v) => safe(() => host.setSettings({ draw: { style: v } }), null), 'academy-draw-style'));
+  if (info.route === 'novel') {
+    children.push(select(X.drawSizeField,
+      (info.naiSizes || []).map((id) => ({ id, label: (X.drawSizes && X.drawSizes[id]) || id })), info.naiSize,
+      (v) => safe(() => host.setSettings({ draw: { naiSize: v } }), null), 'academy-draw-size'));
+  }
+  children.push(
+    el('p', { class: 'academy-note academy-draw-price', text: X.drawPrice }),
+    el('p', { class: 'academy-note', text: X.drawKeysNote }),
+  );
+  return section(X.drawSection, children);
+}

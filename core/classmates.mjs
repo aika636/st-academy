@@ -13,6 +13,7 @@
 //     club: 'театральный кружок',
 //     relation: -2,
 //     seed: 'завистница',
+//     portrait: '/user/images/academy/sokolova_1759912345678.jpg',
 //     source: 'manual',
 //     locked: true }
 //
@@ -27,6 +28,8 @@
 // - `club` — пока свободный текст; список кружков в пресете появится в шаге 5.
 // - `seed` — роль из пресета (`classmates.seeds`), **только зерно генерации**:
 //   на карточку и в промпт не идёт, в ядре ни одного слова роли.
+// - `portrait` — фото, как у преподавателя: путь от корня таверны или ссылка
+//   http(s) (`portraits.isPortrait`), `data:` — никогда. Необязателен.
 // - `source` — откуда человек: руками, из лорбука, карточки, генерации, сцены.
 // - `locked` — человек правил руками, перегенерация (шаг 5) его не трогает.
 //
@@ -43,6 +46,7 @@
 
 import { HARD_STOPS, STOP_CHAR, normName, stopHit } from './stop-names.mjs';
 import { slugify } from './plan-gen.mjs';
+import { isPortrait, normalizePortrait, normalizeLooks, looksOk } from './portraits.mjs';
 
 /** Связь «с героиней»: так пишется `tie.to`, когда главный человек — она. */
 export const HEROINE = '@heroine';
@@ -164,6 +168,10 @@ export function normalizeClassmate(raw, preset) {
   }
   const tie = normalizeTie(raw.tie);
   if (tie) out.tie = tie;
+  const portrait = normalizePortrait(raw.portrait);
+  if (portrait) out.portrait = portrait;
+  const looks = normalizeLooks(raw.looks);
+  if (looks) out.looks = looks;
   return out;
 }
 
@@ -235,6 +243,10 @@ export function classmateErrors(state) {
       || typeof c.tie.what !== 'string' || c.tie.what.length > CLASSMATE_TEXT_MAX.tie)) {
       errors.push(`однокурсник ${c.id}: связь — не {to, what}`);
     }
+    if (c.portrait !== undefined && c.portrait !== null && !isPortrait(c.portrait)) {
+      errors.push(`однокурсник ${c.id}: портрет — не путь от корня таверны и не ссылка http(s)`);
+    }
+    if (!looksOk(c.looks)) errors.push(`однокурсник ${c.id}: описание внешности — не строка до потолка`);
   }
   if (state.classmates.length > CLASSMATES_MAX) errors.push(`однокурсников ${state.classmates.length}, потолок ${CLASSMATES_MAX}`);
   if (state.classmateCandidates !== undefined && !Array.isArray(state.classmateCandidates)) {
@@ -394,6 +406,11 @@ export function updateClassmate(state, id, patch, preset, opts = {}) {
   const c = (state.classmates || []).find((x) => x.id === id);
   if (!c) return { ok: false, code: 'unknown', error: `однокурсника «${id}» нет` };
   const p = patch && typeof patch === 'object' ? patch : {};
+  const rawPortrait = typeof p.portrait === 'string' ? p.portrait.trim() : '';
+  const portrait = rawPortrait ? normalizePortrait(rawPortrait) : '';
+  if ('portrait' in p && rawPortrait && !portrait) {
+    return { ok: false, code: 'bad-portrait', error: 'не годится адрес фото: нужен путь от корня таверны или ссылка http(s)' };
+  }
   if ('name' in p) {
     const name = oneLine(p.name, CLASSMATE_TEXT_MAX.name);
     if (!name) return { ok: false, code: 'empty', error: 'нет имени' };
@@ -414,6 +431,17 @@ export function updateClassmate(state, id, patch, preset, opts = {}) {
     if (tie && tie.to === id) return { ok: false, code: 'self-tie', error: 'связь с самим собой' };
     if (tie) c.tie = tie;
     else delete c.tie;
+  }
+  // Фото: пусто — убрать; негодный адрес отвергнут ещё до правки (выше).
+  if ('portrait' in p) {
+    if (portrait) c.portrait = portrait;
+    else delete c.portrait;
+  }
+  // Своё описание внешности — для «Нарисовать»; пусто — убрать.
+  if ('looks' in p) {
+    const looks = normalizeLooks(p.looks);
+    if (looks) c.looks = looks;
+    else delete c.looks;
   }
   c.locked = opts.locked === undefined ? true : Boolean(opts.locked);
   return { ok: true };

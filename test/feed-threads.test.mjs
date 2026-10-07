@@ -260,7 +260,10 @@ test('значки: счёт от id и громкости, без модели;
   assert.ok(sum({ id: 'q', loud: 3 }) > sum({ id: 'q', loud: 0 }));
   assert.deepEqual(reactSet({ chan: 'anon' }), REACT_SETS.anon);
   assert.deepEqual(reactSet({ chan: 'chat', loud: 1 }), REACT_SETS.chat);
-  assert.deepEqual(reactCounts({ id: 'r', parent: 'q' }), [], 'у ответа значков нет');
+  // У ответа — два-три значка из набора поста, и скромнее.
+  const reply = reactCounts({ id: 'r', parent: 'q', chan: 'chat', loud: 3 });
+  assert.ok(reply.length >= 2 && reply.length <= 3, JSON.stringify(reply));
+  assert.ok(sum({ id: 'r', parent: 'q', loud: 3 }) < sum({ id: 'r', loud: 3 }), 'ответ тише поста');
 });
 
 test('значок игрока: переключатель, +1 и подсветка; переносится пересчётом и откатывается с лентой', () => {
@@ -274,7 +277,7 @@ test('значок игрока: переключатель, +1 и подсве�
   assert.equal(mine.find((r) => r.emoji === '😱').n, plain.find((r) => r.emoji === '😱').n + 1);
   assert.equal(mine.find((r) => r.emoji === '😱').mine, true);
   assert.equal(toggleReact(live, id, '❤️'), null, 'не из набора поста');
-  assert.equal(toggleReact(live, 'm1^1', '😱'), null, 'у ответа — нельзя');
+  assert.equal(toggleReact(live, 'm1^1', '🍿'), '🍿', 'у ответа — свой значок тоже');
   // Пересчёт того же ответа от снимка «до него» — значок переносится по id.
   const again = carryFeedMarks(live, applyAll(before, SCANDAL).next, 'm1');
   assert.equal(again.feed.items.find((x) => x.id === id).mine, '😱');

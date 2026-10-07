@@ -45,9 +45,11 @@
 //   отношения он не идёт — у записи с ником `who` пустой.
 // - **Значки** под постом (😂 12, 👀 7) считает код, без модели: от id записи,
 //   громкости и числа ответов (`reactCounts`), так что пересчёт и перерисовка
-//   их не меняют. Хранится только значок игрока (`mine`) — украшение: ни
-//   состояние семестра, ни отношения, ни промпт он не трогает; откатывается
-//   вместе с лентой и переносится пересчётом (`carryFeedMarks`).
+//   их не меняют. У ответа в ветке значков меньше и счёт скромнее — первые
+//   три из набора поста (решение 08.10). Хранится только значок игрока
+//   (`mine`, у поста и у ответа) — украшение: ни состояние семестра, ни
+//   отношения, ни промпт он не трогает; откатывается вместе с лентой и
+//   переносится пересчётом (`carryFeedMarks`).
 //
 // Функции правят переданное состояние на месте, как `classmates.addCandidate`:
 // их зовут на рабочей копии вызывающего (`core/scene.mjs`).
@@ -190,8 +192,8 @@ export function normalizeItem(raw) {
     truth: raw.truth === true || raw.truth === false ? raw.truth : null,
     status: STATUSES.includes(raw.status) ? raw.status : 'new',
     read: raw.read === true,
-    // Значок игрока — у поста, не у ответа.
-    mine: !parent && ALL_REACTS.has(raw.mine) ? raw.mine : '',
+    // Значок игрока — у поста и у ответа в ветке (решение 08.10).
+    mine: ALL_REACTS.has(raw.mine) ? raw.mine : '',
     about: (Array.isArray(raw.about) ? raw.about : []).map(str).filter(Boolean).slice(0, 4),
     heroine: raw.heroine === true,
     // Громкость разбора, из которого запись (`loud=`), — по ней авто-режим
@@ -405,12 +407,20 @@ export function threadOf(state, postId) {
   return post ? { post, replies: items.filter((x) => x.parent === post.id) } : null;
 }
 
-/** Набор значков поста — по каналу и тону, детерминированно. */
+/** Сколько значков у ответа в ветке: первые из набора поста. */
+export const REPLY_REACTS = 3;
+
+/**
+ * Набор значков записи — по каналу и тону, детерминированно. У ответа —
+ * первые `REPLY_REACTS` набора по тому же правилу: ветка компактнее поста.
+ * Канал у ответа — его поста (`putReactions`), громкость — своего разбора.
+ */
 export function reactSet(item) {
   if (!item) return REACT_SETS.chat;
-  if (item.chan === 'anon') return REACT_SETS.anon;
-  if ((item.loud ?? 1) >= 2 || /^clash=/.test(item.factRef || '')) return REACT_SETS.drama;
-  return REACT_SETS.chat;
+  const set = item.chan === 'anon' ? REACT_SETS.anon
+    : ((item.loud ?? 1) >= 2 || /^clash=/.test(item.factRef || '')) ? REACT_SETS.drama
+      : REACT_SETS.chat;
+  return item.parent ? set.slice(0, REPLY_REACTS) : set;
 }
 
 /** Сколько значков «стоит» пост по громкости: тихо — горстка, скандал — десятки. */
@@ -419,37 +429,47 @@ const REACT_SCALE = [3, 7, 16, 34];
 /** Веса значков набора: первый — самый частый. */
 const REACT_WEIGHTS = [1, 0.6, 0.4, 0.25];
 
+/** Сколько значков «стоит» ответ в ветке: в разы меньше, чем пост. */
+const REPLY_SCALE = [1, 2, 4, 7];
+
 /**
- * Счёт значков под постом: функция id записи (seed), громкости и числа
+ * Счёт значков под записью: функция id записи (seed), громкости и числа
  * ответов — без модели и без случайности, так что пересчёт ответа и
  * перерисовка дают те же числа. Значок игрока (`mine`) — плюс один и
  * подсветка. Нули не показываются, кроме значка игрока; первые три — от
  * единицы, чтобы строка не пустовала.
  *
- * @param {Object} item пост ленты
- * @param {number} [replies] сколько у него ответов
+ * Ответ в ветке считается так же, но от своего id и скромнее
+ * (`REPLY_SCALE`): три значка из набора поста, от единицы — первые два, так
+ * что под ответом их два или три (решение 08.10).
+ *
+ * @param {Object} item пост или ответ ленты
+ * @param {number} [replies] сколько у поста ответов (у ответа не считается)
  * @returns {Array<{emoji: string, n: number, mine: boolean}>}
  */
 export function reactCounts(item, replies = 0) {
-  if (!item || item.parent) return [];
+  if (!item || !item.id) return [];
+  const reply = Boolean(item.parent);
   const rand = seeded(hash(`${item.id}|react`));
   const loud = Number.isInteger(item.loud) && item.loud >= 0 && item.loud <= 3 ? item.loud : 1;
-  const base = REACT_SCALE[loud] + Math.max(0, Math.min(10, Math.trunc(replies) || 0)) * 2;
+  const base = reply ? REPLY_SCALE[loud]
+    : REACT_SCALE[loud] + Math.max(0, Math.min(10, Math.trunc(replies) || 0)) * 2;
+  const floor = reply ? 2 : 3;
   return reactSet(item).map((emoji, i) => {
     const own = item.mine === emoji;
-    const n = Math.max(i < 3 ? 1 : 0, Math.floor(base * REACT_WEIGHTS[i] * (0.35 + 0.65 * rand()))) + (own ? 1 : 0);
+    const n = Math.max(i < floor ? 1 : 0, Math.floor(base * REACT_WEIGHTS[i] * (0.35 + 0.65 * rand()))) + (own ? 1 : 0);
     return { emoji, n, mine: own };
   }).filter((r) => r.n > 0);
 }
 
 /**
  * Значок игрока — переключатель: тот же значок снимает, другой заменяет.
- * Только у поста и только из его набора.
+ * У поста и у ответа — из набора этой записи (`reactSet`).
  * @returns {?string} значок после нажатия ('' — снят); `null` — нельзя
  */
 export function toggleReact(state, id, emoji) {
   const item = ensureFeed(state).items.find((x) => x.id === id);
-  if (!item || item.parent || !reactSet(item).includes(emoji)) return null;
+  if (!item || !reactSet(item).includes(emoji)) return null;
   item.mine = item.mine === emoji ? '' : emoji;
   return item.mine;
 }
@@ -572,8 +592,8 @@ export function carryFeedMarks(prev, next, src = '') {
       x.read = true;
       changed = true;
     }
-    // Значок игрока — его отметка, как «прочитано».
-    const mine = !x.parent && ALL_REACTS.has(was.mine) ? was.mine : '';
+    // Значок игрока — его отметка, как «прочитано»; у ответа — тоже.
+    const mine = reactSet(x).includes(was.mine) ? was.mine : '';
     if (mine !== x.mine) {
       x.mine = mine;
       changed = true;

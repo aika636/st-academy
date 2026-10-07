@@ -20,6 +20,7 @@
 //    никогда не доедет до уже начатого семестра.
 
 import { normalizeClassmates, normalizeCandidates, classmateErrors } from './classmates.mjs';
+import { isPortrait, normalizePortrait, normalizeLooks, looksOk } from './portraits.mjs';
 
 /**
  * Версия схемы состояния. Растёт при любой несовместимой правке формы.
@@ -335,39 +336,9 @@ export function teacherDetails(raw) {
   return out;
 }
 
-/** Потолок длины адреса портрета. Картинка `data:` сюда не влезет — и не должна. */
-export const PORTRAIT_MAX = 1000;
-
-/**
- * Годится ли строка в портрет (9.7A п.15). Два вида адреса, и оба — то, что
- * браузер таверны откроет сам:
- *
- * - `http://` и `https://` — ссылка наружу;
- * - путь без схемы — от корня таверны (`characters/Анна/портрет.png`,
- *   `/user/images/x.png`): так лежат картинки, загруженные в саму таверну.
- *
- * Всё прочее со схемой отвергается: `javascript:` — очевидно, `data:` — потому
- * что картинка в base64 раздула бы метаданные чата (состояние пишется при
- * каждом ответе), `file:` и `C:\…` — браузер их из таверны не откроет, и
- * человек увидел бы пустую рамку без объяснения. Управляющие символы и
- * переводы строк — признак мусора, а не пути.
- */
-export function isPortrait(v) {
-  if (typeof v !== 'string') return false;
-  const s = v.trim();
-  if (!s || s.length > PORTRAIT_MAX || s !== v) return false;
-  if (/[\u0000-\u001f\u007f]/.test(s)) return false;
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(s);
-  if (!scheme) return !s.startsWith('\\');
-  return /^https?$/i.test(scheme[1]) && /^https?:\/\/[^/\s]/i.test(s);
-}
-
-/** Адрес портрета к форме `isPortrait` или `null` (пусто, мусор, чужая схема). */
-export function normalizePortrait(raw) {
-  if (typeof raw !== 'string') return null;
-  const s = raw.trim();
-  return isPortrait(s) ? s : null;
-}
+// Портрет: проверка адреса живёт в `core/portraits.mjs` рядом с остальным
+// чистым про картинки; отсюда — та же функция, по старому адресу.
+export { PORTRAIT_MAX, isPortrait, normalizePortrait } from './portraits.mjs';
 
 /** Приводит преподавателя к форме `Teacher`. Отношение — из пресета, если не задано. */
 export function normalizeTeacher(raw, preset) {
@@ -383,6 +354,8 @@ export function normalizeTeacher(raw, preset) {
     // Должность, «любит» и тайна — тоже необязательны и без пустых ключей:
     // преподаватель старого семестра не меняется ни на ключ.
     ...teacherDetails(raw),
+    // Своё описание внешности (шаг 4, «Нарисовать») — для промпта рисования.
+    ...(normalizeLooks(raw.looks) ? { looks: normalizeLooks(raw.looks) } : {}),
   };
 }
 
@@ -468,6 +441,7 @@ export function validateState(state, preset) {
           bad(`преподаватель ${t.id}: поле ${key} — не строка до ${max} символов`);
         }
       }
+      if (!looksOk(t.looks)) bad(`преподаватель ${t.id}: описание внешности — не строка до потолка`);
     }
   }
 

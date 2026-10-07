@@ -31,6 +31,7 @@ const SECTION_ICONS = [
   [/вех/i, 'fa-trophy'],
   [/звук/i, 'fa-bell'],
   [/ремонт|поправ/i, 'fa-screwdriver-wrench'],
+  [/портрет/i, 'fa-palette'],
 ];
 
 export function sectionIcon(title) {
@@ -630,6 +631,45 @@ export const EXTRA_UI = {
   portraitOpen: 'Открыть портрет',
   portraitClose: 'Закрыть',
   portraitBroken: 'картинка не открылась — проверьте путь',
+  // Своё фото (решение 08.10, аватарки шаг 2): кнопка открывает галерею или
+  // камеру телефона, ссылка — свёрнута под ней.
+  photoTitle: 'Фото',
+  photoPick: 'Выбрать фото',
+  photoRemove: 'Убрать фото',
+  photoLink: 'или ссылка',
+  photoSaved: 'Фото на месте.',
+  photoRemoved: 'Фото убрано.',
+  photoNone: 'Пока без фото — в кружке инициалы.',
+  photoNote: 'С телефона откроется галерея или камера. Фото уменьшится до 512 точек и ляжет в папку таверны.',
+  // «Нарисовать» (аватарки, шаг 4): кнопка рядом с «Выбрать фото», превью
+  // с выбором, и своё описание внешности для промпта.
+  drawButton: 'Нарисовать',
+  drawBusy: 'Рисую…',
+  drawCancel: 'Отмена',
+  drawCancelled: 'Рисование отменено.',
+  drawKeep: 'Оставить',
+  drawAgain: 'Ещё раз',
+  drawDrop: 'Не надо',
+  drawKept: 'Портрет на месте.',
+  drawDropped: 'Старое фото осталось как было.',
+  drawPreviewNote: 'Так вышло. Старое фото не тронуто, пока не нажато «Оставить».',
+  drawBusyNote: 'Рисует {route}. Обычно 10–60 секунд.',
+  drawNoRoute: 'Чтобы рисовать портреты, подключите генерацию картинок в таверне (NovelAI, OpenAI, Gemini или OpenRouter).',
+  looksField: 'Своё описание внешности (необязательно)',
+  looksHint: 'рыжая, в очках, шрам над бровью',
+  looksSave: 'Запомнить',
+  looksSaved: 'Описание внешности запомнено — пойдёт в рисунок.',
+  looksCleared: 'Описание внешности убрано.',
+  drawSection: 'Портреты',
+  drawRouteField: 'Чем рисовать',
+  drawModelField: 'Модель',
+  drawStyleField: 'Стиль',
+  drawSizeField: 'Размер NovelAI',
+  drawStyles: { anime: 'аниме', realism: 'реализм', watercolor: 'акварель' },
+  drawSizes: { portrait: 'портрет 832×1216', square: 'квадрат 1024×1024' },
+  drawTavernNote: 'Источник, модель, префикс и негатив — из настроек «Генерация изображений» таверны. Академия их не меняет.',
+  drawPrice: 'Цена: рисует только по кнопке; у GPT и Nano Banana каждая картинка платная у провайдера.',
+  drawKeysNote: 'Ключи берутся из таверны (её подключения API) — в Академию их вводить не нужно, и с телефона тоже.',
   // Портрет правится в свёрнутом блоке на вкладке «Люди».
   detailsTitle: 'Детали',
   detailsSave: 'Сохранить',
@@ -813,6 +853,40 @@ export function el(tag, attrs, children) {
 }
 
 export const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); return node; };
+
+/**
+ * Кружок автора (`core/masks.authorAvatar`): значок маски, силуэт анонимки
+ * или человек — фото, а без фото инициалы на цвете от id. Размер — классом:
+ * `feed` у поста, `reply` у ответа и на плашке, `card` у карточки «Люди».
+ * Фото не открылось — остаются инициалы под ним, рамка пустой не бывает.
+ *
+ * @param {Object} av описание кружка
+ * @param {{size?: string, title?: string, onclick?: Function}} [opts]
+ */
+export function avatarNode(av, opts = {}) {
+  if (!av) return null;
+  const size = opts.size || 'feed';
+  if (av.kind !== 'person') {
+    return el('span', {
+      class: `academy-ava academy-ava-${size} academy-ava-mask`,
+      'aria-hidden': 'true',
+      text: av.icon || '👤',
+    });
+  }
+  const node = el('span', {
+    class: `academy-ava academy-ava-${size} academy-ava-person`,
+    style: `background-color: ${av.color}`,
+    title: opts.title || av.name || null,
+    role: opts.onclick ? 'button' : null,
+    onclick: opts.onclick || null,
+  }, [el('span', { class: 'academy-ava-initials', 'aria-hidden': 'true', text: av.initials || '?' })]);
+  if (av.portrait) {
+    const img = el('img', { class: 'academy-ava-img', src: av.portrait, alt: av.name || '', loading: 'lazy' });
+    img.addEventListener('error', () => { img.hidden = true; });
+    node.append(img);
+  }
+  return node;
+}
 
 /**
  * Обёртка над асинхронным действием хоста. Три состояния, которые обязаны быть

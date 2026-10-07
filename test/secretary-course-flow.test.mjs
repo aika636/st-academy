@@ -157,6 +157,8 @@ test('черновик курса: факты и «что говорят» сл�
     'Вера Соколова должна Ане: конспект',
   ]);
   assert.deepEqual(stateOf(tavern), before, 'черновик не трогает мир');
+  // Кружки рядом с именами в «Что говорят»: человек — инициалы, анонимка — силуэт.
+  assert.deepEqual(view.tokens.filter((t) => t.kind === 'react').map((t) => t.avatar.kind === 'person' ? t.avatar.initials : t.avatar.icon), ['МО', '👤', '👤']);
 
   const clash = view.tokens.findIndex((t) => t.text.startsWith('стычка'));
   await tavern.seam.panel.dropToken(id, clash);

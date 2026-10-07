@@ -2497,3 +2497,216 @@
     font-size: clamp(0.85em, 2.6vw, 1em);
   }
 }
+
+/* --- кружки авторов и фото людей (решение 08.10, аватарки шаги 2 и 5) ------- */
+
+/* Кружок: маска — значок, человек — фото или инициалы на цвете от id. Размер
+   постоянный и не сжимается: на 390 пикселях строка переносится, а кружок не
+   превращается в эллипс. */
+.academy-ava {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  line-height: 1;
+  vertical-align: middle;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.academy-ava-feed { width: 32px; height: 32px; font-size: 18px; }
+.academy-ava-reply { width: 24px; height: 24px; font-size: 14px; }
+.academy-ava-mes { width: 22px; height: 22px; font-size: 13px; }
+.academy-ava-card { width: 40px; height: 40px; font-size: 22px; }
+
+.academy-ava-mask {
+  background-color: var(--SmartThemeBlurTintColor, rgba(128, 128, 128, 0.18));
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+}
+
+.academy-ava-person {
+  color: #fff;
+  font-weight: 600;
+}
+
+.academy-ava-person .academy-ava-initials {
+  font-size: 0.62em;
+  letter-spacing: 0.02em;
+}
+
+.academy-ava-mes.academy-ava-person .academy-ava-initials { font-size: 9px; }
+.academy-ava-reply.academy-ava-person .academy-ava-initials { font-size: 10px; }
+.academy-ava-feed.academy-ava-person .academy-ava-initials { font-size: 12px; }
+.academy-ava-card.academy-ava-person .academy-ava-initials { font-size: 15px; }
+
+/* Фото лежит поверх инициалов: не открылось — `hidden`, и видны буквы. */
+.academy-ava-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.academy-ava-img[hidden] {
+  display: none;
+}
+
+/* Миниатюра портрета в карточке — тем же кружком. */
+.academy-portrait-thumb {
+  border-radius: 50%;
+}
+
+/* Шапка поста: кружок по центру строки с именем. */
+.academy-feed-head {
+  align-items: center;
+}
+
+/* Ответ: кружок слева, имя и текст справа переносятся, значки — строкой ниже. */
+.academy-feed-reply {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-feed-reply-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-feed-reply-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Значки под ответом — компактнее, но под палец всё равно от 36px. */
+.academy-feed-reacts-small {
+  gap: 4px;
+  margin-left: 30px;
+}
+
+.academy-panel .academy-feed-reacts-small .academy-feed-react {
+  min-width: 40px;
+  min-height: 36px;
+  padding: 2px 6px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.academy-panel .academy-feed-reacts-small .academy-feed-react-mine {
+  opacity: 1;
+}
+
+/* Плашка «Что говорят»: кружок — первым в строке и не растягивается. */
+.academy-mes-tokens li > span.academy-ava {
+  flex: 0 0 auto;
+}
+
+.academy-mes-tokens li > span.academy-ava + span {
+  flex: 1 1 auto;
+}
+
+/* Карточка однокурсника: кружок по центру строки с именем. */
+.academy-cm-head {
+  align-items: center;
+}
+
+.academy-td-name > .academy-ava {
+  margin-right: 6px;
+}
+
+/* Фото в форме правки: кружок, кнопки строкой с переносом, ссылка свёрнута. */
+.academy-photo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.academy-photo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.academy-photo-caption {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.academy-photo-buttons {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.academy-panel .academy-photo-buttons .academy-btn {
+  min-height: 36px;
+  justify-content: center;
+}
+
+/* Место под «Нарисовать» (шаг 4): пока пустое — не занимает места. */
+.academy-photo-slot:empty {
+  display: none;
+}
+
+.academy-photo-slot {
+  display: contents;
+}
+
+/* «Нарисовать» (шаг 4): превью под кнопками, выбор — строкой под ним. */
+.academy-photo-draw {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-photo-draw:empty {
+  display: none;
+}
+
+.academy-photo-preview {
+  display: block;
+  width: 100%;
+  max-width: 256px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+}
+
+.academy-photo-looks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Поле файла открывается кнопкой; само не видно, но не `display: none` —
+   иначе часть мобильных браузеров не откроет по нему галерею. */
+.academy-photo-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.academy-photo-link > summary {
+  min-height: 36px;
+  padding: 9px 0;
+  box-sizing: border-box;
+  cursor: pointer;
+}

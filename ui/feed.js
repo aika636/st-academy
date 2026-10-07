@@ -17,8 +17,10 @@
 // здесь же, с кнопкой «Убрать».
 //
 // Пост и под ним ветка (решение 08.10): ответы с отступом, после двух —
-// «ещё 3 ответа». Человек из состава — имя жирным, маска — «@ник» курсивом,
-// без портрета: ник не человек. Строка значков (😂 12) — счёт считает код,
+// «ещё 3 ответа». Человек из состава — кружок с фото или инициалами и имя
+// жирным; маска — кружок со значком по смыслу ника (😈 у «школьного беса»,
+// `core/masks.mjs`) и «@ник» курсивом: ник не человек, портрета у него нет.
+// Строка значков (😂 12) — у поста и, поменьше, у ответа: счёт считает код,
 // нажатие ставит свой значок; это украшение, на сюжет оно не влияет.
 //
 // Что показать (`feedView`) — без DOM, проверяется в Node; чем показать
@@ -28,10 +30,11 @@ import {
   CHANNELS, unreadCount, openDeals, normalizeFeed, reactCounts, reactSet, nickWord,
 } from '../core/feed.mjs';
 import { normalizePlot } from '../core/plot.mjs';
+import { authorAvatar } from '../core/masks.mjs';
 import { HEROINE } from '../core/parse-marker.mjs';
 import { dealText } from '../core/scene.mjs';
 import {
-  extraLabels, fill, formatDate, el, runAction, setStatus, call, renderPanel, mounted, safe,
+  extraLabels, fill, formatDate, el, runAction, setStatus, call, renderPanel, mounted, safe, avatarNode,
 } from './common.js';
 
 /** Сколько записей канала показывать: лента длинная, телефон — нет. */
@@ -100,6 +103,12 @@ export function feedView(state, preset, opts = {}) {
     if (x.chan === 'anon') return { who: X.feedAnonWho, nick: false };
     return { who: nameOf(x.who, state, X, opts.heroine), nick: false };
   };
+  // Значки записи — все из набора, со счётом; ноль показывается значком без
+  // числа, чтобы его можно было нажать.
+  const reactsOf = (x, replies = 0) => {
+    const counts = reactCounts(x, replies);
+    return reactSet(x).map((emoji) => counts.find((c) => c.emoji === emoji) || { emoji, n: 0, mine: false });
+  };
   const items = feed.items
     .filter((x) => x.chan === chan && !x.parent)
     .slice(-FEED_SHOWN)
@@ -114,12 +123,13 @@ export function feedView(state, preset, opts = {}) {
       const thread = feed.items.filter((y) => y.parent === x.id);
       // Ветка свёрнута после двух ответов, пока её не раскрыли.
       const unfolded = open.has(x.id) || thread.length <= REPLIES_SHOWN;
-      const counts = reactCounts(x, thread.length);
       const who = fact ? { who: X.feedFromScene, nick: false } : author(x);
       return {
         id: x.id,
         who: who.who,
         nick: who.nick,
+        // Кружок автора: у факта из сцены автора нет — и кружка нет.
+        avatar: fact ? null : authorAvatar(state, x, { heroine: opts.heroine }),
         text: x.text,
         tag,
         rumor: x.rumor,
@@ -129,14 +139,15 @@ export function feedView(state, preset, opts = {}) {
         statusText: statusText(x, X),
         unread: !x.read || fresh.has(x.id),
         canTake: hooksOn && x.status === 'new' && !queued.has(x.id),
-        // Значки набора по тону — все, со счётом; ноль показывается значком
-        // без числа, чтобы его можно было нажать.
-        reacts: reactSet(x).map((emoji) => counts.find((c) => c.emoji === emoji) || { emoji, n: 0, mine: false }),
+        reacts: reactsOf(x, thread.length),
         replies: (unfolded ? thread : thread.slice(0, REPLIES_SHOWN)).map((y) => ({
           id: y.id,
           ...author(y),
+          avatar: authorAvatar(state, y, { heroine: opts.heroine }),
           text: y.text,
           unread: !y.read || fresh.has(y.id),
+          // У ответа значков меньше (`feed.REPLY_REACTS`), свой — тоже можно.
+          reacts: reactsOf(y),
         })),
         repliesTotal: thread.length,
         more: unfolded ? 0 : thread.length - REPLIES_SHOWN,
@@ -250,6 +261,7 @@ function whoNode(it, X) {
 function feedCard(host, it, X) {
   return el('div', { class: it.unread ? 'academy-feed-item academy-feed-unread' : 'academy-feed-item', dataset: { id: it.id } }, [
     el('div', { class: 'academy-feed-head' }, [
+      it.avatar ? avatarNode(it.avatar, { size: 'feed' }) : null,
       whoNode(it, X),
       it.tag ? el('span', { class: it.rumor ? 'academy-feed-tag academy-feed-tag-rumor' : 'academy-feed-tag', text: it.tag }) : null,
       it.dayLine ? el('span', { class: 'academy-feed-day', text: it.dayLine }) : null,
@@ -264,11 +276,14 @@ function feedCard(host, it, X) {
   ]);
 }
 
-/** Строка значков под постом: счёт считает код, нажатие — свой значок. */
-function reactRow(host, it, X) {
+/**
+ * Строка значков под постом или ответом: счёт считает код, нажатие — свой
+ * значок. У ответа строка компактнее (`small`).
+ */
+function reactRow(host, it, X, small = false) {
   if (!it.reacts || !it.reacts.length) return null;
   const status = el('div', { class: 'academy-status' });
-  return el('div', { class: 'academy-feed-reacts', title: X.feedReactHint }, [
+  return el('div', { class: small ? 'academy-feed-reacts academy-feed-reacts-small' : 'academy-feed-reacts', title: X.feedReactHint }, [
     ...it.reacts.map((r) => el('div', {
       class: r.mine ? 'menu_button academy-feed-react academy-feed-react-mine' : 'menu_button academy-feed-react',
       role: 'button',
@@ -303,8 +318,14 @@ function threadBlock(host, it, X) {
       role: 'listitem',
       dataset: { id: a.id },
     }, [
-      whoNode(a, X),
-      el('span', { class: 'academy-feed-text', text: a.text }),
+      el('div', { class: 'academy-feed-reply-line' }, [
+        a.avatar ? avatarNode(a.avatar, { size: 'reply' }) : null,
+        el('div', { class: 'academy-feed-reply-body' }, [
+          whoNode(a, X),
+          el('span', { class: 'academy-feed-text', text: a.text }),
+        ]),
+      ]),
+      reactRow(host, a, X, true),
     ])),
     it.more ? el('div', { class: 'menu_button academy-btn academy-btn-small academy-feed-more', text: it.moreText, onclick: toggle(true) }) : null,
     it.unfolded ? el('div', { class: 'menu_button academy-btn academy-btn-small academy-feed-more', text: X.feedFoldReplies, onclick: toggle(false) }) : null,

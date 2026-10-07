@@ -165,6 +165,29 @@ function icon(name) {
 }
 
 /**
+ * Маленький кружок автора рядом с именем в «Что говорят» — описание даёт хост
+ * (`masks.authorAvatar`): маска — значок, человек — фото или инициалы. Те же
+ * классы, что во вкладке «Поток», размер — `mes`.
+ */
+export function miniAvatar(av) {
+  if (!av) return null;
+  if (av.kind !== 'person') {
+    return el('span', { class: 'academy-ava academy-ava-mes academy-ava-mask', 'aria-hidden': 'true', text: av.icon || '👤' });
+  }
+  const node = el('span', {
+    class: 'academy-ava academy-ava-mes academy-ava-person',
+    style: `background-color: ${av.color}`,
+    'aria-hidden': 'true',
+  }, [el('span', { class: 'academy-ava-initials', text: av.initials || '?' })]);
+  if (av.portrait) {
+    const img = el('img', { class: 'academy-ava-img', src: av.portrait, alt: '', loading: 'lazy' });
+    img.addEventListener('error', () => { img.hidden = true; });
+    node.append(img);
+  }
+  return node;
+}
+
+/**
  * Перерисовать плашки всех ответов, что сейчас в DOM чата.
  *
  * @param {Object} host
@@ -282,6 +305,7 @@ function buildPanel(host, mesId, view) {
 
   const tokens = (view.tokens || []).map((t, index) => ({ ...(typeof t === 'string' ? { text: t, kind: 'other' } : t), index }));
   const tokenRow = (t) => el('li', t.nick ? { class: 'academy-mes-nick', title: PANEL_TEXT.nickHint } : {}, [
+    t.avatar ? miniAvatar(t.avatar) : null,
     el('span', { text: t.text }),
     t.about ? el('span', { class: 'academy-mes-about', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
     t.candidate && host.confirmCandidate ? el('button', {

@@ -57,6 +57,11 @@ import {
   promptDoctorView, todayView, PRESET_TEXT, uiLabels,
 } from './ui.js';
 import { renderMessagePanels, clearMessagePanels, rowText, PANEL_TEXT } from './mes-panel.js';
+import { authorAvatar } from './core/masks.mjs';
+import { savePortraitImage } from './portraits.js';
+import { drawImage, drawInfo, loadTavernModules } from './draw.js';
+import { buildPortraitPrompt } from './core/draw-prompt.mjs';
+import { normalizeLooks } from './core/portraits.mjs';
 import * as storage from './storage.js';
 import * as api from './api.js';
 import * as lorebook from './lorebook.js';
@@ -1755,6 +1760,15 @@ function panelLabels() {
 }
 
 /**
+ * Кружок автора реакции или ответа на плашке — тот же, что в ленте
+ * (`masks.authorAvatar`): маска — значок, человек — фото или инициалы.
+ */
+function tokenAvatar(author) {
+  const c = ctx();
+  return authorAvatar(live.state, author, { heroine: c && c.name1 });
+}
+
+/**
  * Строки разбора для плашки. Факты курса — разделом «Курс», реакции —
  * разделом «Что говорят» при своём факте (`fact` — номер строки факта),
  * новое имя — с кнопкой «в курс», пока кандидат ждёт галочки.
@@ -1766,6 +1780,7 @@ function panelTokens(list, lexicon, entry, isDraft) {
       const fact = r && r.fact ? list.indexOf(r.fact) : -1;
       return {
         text: tokenText(t, lexicon), brief: '', kind: 'react', nick: Boolean(r && r.nick),
+        avatar: r ? tokenAvatar(r) : null,
         ...(fact >= 0 ? { fact, about: tokenText(list[fact], lexicon) } : {}),
       };
     }
@@ -1777,6 +1792,7 @@ function panelTokens(list, lexicon, entry, isDraft) {
       const old = a && a.feed && live.state ? postByRef(live.state, a.feed) : null;
       return {
         text: tokenText(t, lexicon), brief: '', kind: 'reply', nick: Boolean(a && a.nick),
+        avatar: a ? tokenAvatar(a) : null,
         ...(post >= 0 ? { post } : {}),
         ...(old ? { onPost: old.text } : {}),
       };
@@ -2615,6 +2631,13 @@ const host = {
    * Всё про лорбук одним куском (3.7). `suggest` здесь — предложения, которые
    * ждут решения человека: сами в лорбук они не уйдут никогда.
    */
+  /**
+   * «Нарисовать портрет» (шаг 4): чем таверна может рисовать прямо сейчас и
+   * что выбрано в настройках. `chat` — id чата: панель держит незаконченное
+   * рисование у себя и показывает его только в том чате, где его начали.
+   */
+  getDraw: () => ({ ...drawInfo(ctx(), storage.loadSettings(ctx()).draw), chat: currentChatId() }),
+
   getLorebook: () => {
     const s = lorebook.settingsOf(storage.loadSettings(ctx()));
     const report = live.lorebook.report;
@@ -2835,6 +2858,96 @@ const host = {
       await syncLorebook();
       refreshPanel();
       return res;
+    },
+
+    /**
+     * Портрет человека из состава — преподавателя или однокурсника — по id.
+     * `value` — путь от корня таверны или ссылка http(s); пусто — убрать.
+     * Это последний шаг единого пути картинки: файл с телефона
+     * (`uploadPortrait`) и нарисованное генерацией сперва сохраняются в
+     * таверну `portraits.savePortraitImage`, а сюда приходит только путь.
+     * Лорбук не трогается: фото в нём нет.
+     */
+    async setPortrait(personId, value = '') {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const X = extraLabels(live.preset);
+      const raw = String(value == null ? '' : value).trim();
+      const portrait = raw ? normalizePortrait(raw) : '';
+      if (raw && !portrait) return { ok: false, code: 'bad-portrait', error: X.portraitBad };
+      const next = cloneState(live.state);
+      const person = [...(next.teachers || []), ...(next.classmates || [])].find((x) => x && x.id === personId);
+      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      if (portrait) person.portrait = portrait;
+      else delete person.portrait;
+      await commit(next);
+      refreshPanel();
+      return { ok: true, portrait: portrait || '' };
+    },
+
+    /**
+     * «Выбрать фото» на карточке: файл уменьшается в браузере, ложится в
+     * `user/images/academy/` таверны, путь — в портрет (`setPortrait`).
+     * Отказ на любом шаге — строкой под кнопкой, состояние не трогается.
+     */
+    async uploadPortrait(personId, file) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const known = [...(live.state.teachers || []), ...(live.state.classmates || [])].some((x) => x && x.id === personId);
+      if (!known) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      const saved = await savePortraitImage(file, { personId });
+      if (!saved.ok) return saved;
+      const res = await host.actions.setPortrait(personId, saved.path);
+      return res.ok ? { ...res, path: saved.path } : res;
+    },
+
+    /**
+     * «Нарисовать» на карточке: промпт шаблоном из полей человека, картинка —
+     * через провайдера таверны (`draw.js`), файл — в `user/images/academy/`
+     * (или куда положила генерация таверны). Портрет НЕ ставится: сперва
+     * превью, ставит его «Оставить» (`setPortrait`). Чат сменился, пока
+     * рисовалось, — результат никуда не кладётся.
+     *
+     * @param {string} personId
+     * @param {{signal?: AbortSignal}} [opts]
+     */
+    async drawPortrait(personId, opts = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const teacher = (live.state.teachers || []).find((x) => x && x.id === personId);
+      const classmate = teacher ? null : (live.state.classmates || []).find((x) => x && x.id === personId);
+      const person = teacher || classmate;
+      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      const settings = storage.loadSettings(ctx());
+      const subjects = teacher
+        ? (live.state.subjects || []).filter((s) => s && s.teacherId === teacher.id).map((s) => String(s.name || s.id || ''))
+        : [];
+      const prompt = buildPortraitPrompt(person, {
+        kind: teacher ? 'teacher' : 'classmate',
+        subjects,
+        presetId: String((live.preset && live.preset.id) || live.state.presetId || ''),
+        basedOn: String((live.preset && live.preset.basedOn) || ''),
+        style: settings.draw && settings.draw.style,
+      });
+      const op = captureOperation();
+      const res = await drawImage(ctx(), settings.draw, prompt, { personId, signal: opts.signal });
+      if (!res.ok) return res;
+      if (!isCurrent(op)) return chatChanged('рисовался портрет');
+      return { ok: true, path: res.path, route: res.route };
+    },
+
+    /**
+     * Своё описание внешности человека (шаг 4): коротко, для промпта
+     * рисования. Пусто — убрать. Лорбук и промпт чата его не видят.
+     */
+    async setLooks(personId, value = '') {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const person = [...(next.teachers || []), ...(next.classmates || [])].find((x) => x && x.id === personId);
+      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      const looks = normalizeLooks(String(value == null ? '' : value));
+      if (looks) person.looks = looks;
+      else delete person.looks;
+      await commit(next);
+      refreshPanel();
+      return { ok: true, looks };
     },
 
     /**
@@ -3381,6 +3494,9 @@ function markerVisibleRisk() {
 
 async function init() {
   const c = ctx();
+  // Ключи и генерация картинок таверны — для «Нарисовать» (`draw.js`).
+  // Не ждём: панели они нужны не сразу, а промах значит лишь «рисовать нечем».
+  loadTavernModules().catch(() => {});
   // Настройки читаются ПЕРВЫМИ: в них лежит выбранный пресет, и загружать
   // русский вуз, чтобы следом заменить его магической академией, значило бы
   // показать человеку чужую панель на полсекунды при каждой загрузке страницы.

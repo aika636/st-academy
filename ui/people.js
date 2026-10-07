@@ -11,6 +11,9 @@ import {
   setStatus, field, renderEmpty, call, renderPanel,
 } from './common.js';
 import { classmatesView, renderClassmates, scoreText } from './classmates.js';
+import { personAvatar } from '../core/masks.mjs';
+import { avatarNode } from './common.js';
+import { photoEditor, drawPending } from './photo.js';
 
 /** Части вкладки. Какая открыта — `mounted.peoplePart`, по умолчанию преподаватели. */
 export const PEOPLE_PARTS = ['teachers', 'classmates'];
@@ -104,6 +107,10 @@ export function peopleView(state, preset) {
       // Портрет (9.7A п.15): адрес, который дал человек, и только годный —
       // в `<img src>` не уходит ничего, что не прошло `isPortrait`.
       portrait: isPortrait(t.portrait) ? t.portrait : '',
+      // Своё описание внешности — для «Нарисовать».
+      looks: typeof t.looks === 'string' ? t.looks : '',
+      // Кружок: фото, а без него — инициалы на цвете от id (`core/masks`).
+      avatar: personAvatar(t),
     };
   });
 
@@ -188,7 +195,7 @@ export function renderPeople(host, view, preset) {
     box.append(el('div', { class: 'academy-table academy-table-people' },
       view.teachers.map((t) => el('div', { class: 'academy-tr academy-tr-person' }, [
         el('div', { class: 'academy-td academy-td-name' }, [
-          t.portrait ? portraitThumb(t, X) : null,
+          t.portrait ? portraitThumb(t, X) : avatarNode(t.avatar, { size: 'card' }),
           el('span', { class: 'academy-subject', text: t.name }),
           // Ярлык, не число: `peopleView` числа отношения не знает вовсе.
           el('span', { class: 'academy-relation', text: t.score ? `${t.relation} · ${t.score}` : t.relation }),
@@ -294,7 +301,8 @@ function openPortrait(t, X) {
 /**
  * Детали наставника прямо в карточке — свёрнутым блоком: вкладка «Люди» —
  * про людей, и поля правятся там же, где видны. Должность, «любит», тайна,
- * черты и портрет — одной кнопкой. Сохранение — отдельным действием
+ * черты и ссылка на портрет — одной кнопкой; своё фото — блоком «Фото»
+ * (`ui/photo.js`), он сохраняет сразу, без этой кнопки. Сохранение — отдельным действием
  * `setTeacherDetails`, а не через таблицу плана: детали не меняют расписания и
  * не должны его пересобирать. Пустое поле убирает значение.
  *
@@ -337,10 +345,12 @@ function detailsEditor(host, t, X) {
       if (res && res.ok !== false) renderPanel(host);
     },
   });
-  return el('details', { class: 'academy-repair academy-portrait-edit' }, [
+  // Рисование идёт или ждёт «Оставить» — блок раскрыт и после перерисовки.
+  return el('details', { class: 'academy-repair academy-portrait-edit', open: drawPending(t.id) }, [
     el('summary', { text: X.detailsTitle }),
     el('div', { class: 'academy-repair-body' }, [
-      post.node, likes.node, secret.node, traits.node, portrait.node,
+      post.node, likes.node, secret.node, traits.node,
+      photoEditor(host, t, X, portrait.node),
       el('div', { class: 'academy-row academy-row-buttons' }, [save]),
       status,
     ]),

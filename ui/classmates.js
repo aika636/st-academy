@@ -9,9 +9,12 @@
 
 import { CLASSMATE_TEXT_MAX, HEROINE, tieTarget } from '../core/classmates.mjs';
 import { MEMORY_SIZE, relationLabel, relationMemory, relationOf } from '../core/relations.mjs';
+import { personAvatar } from '../core/masks.mjs';
+import { isPortrait } from '../core/portraits.mjs';
 import {
-  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel,
+  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel, avatarNode,
 } from './common.js';
+import { photoEditor, drawPending } from './photo.js';
 
 /** «+2», «−3», «0» — число отношения со знаком; типографский минус, не дефис. */
 export function scoreText(n) {
@@ -76,6 +79,11 @@ export function classmatesView(state, preset) {
       memory,
       memoryText: memory.length ? '' : U.relationNoHistory,
       source: c.source || 'manual',
+      // Фото — как у преподавателя: только годный адрес; кружок без фото —
+      // инициалы на цвете от id.
+      portrait: isPortrait(c.portrait) ? c.portrait : '',
+      looks: typeof c.looks === 'string' ? c.looks : '',
+      avatar: personAvatar(c),
     };
   });
 
@@ -119,6 +127,7 @@ function classmateCard(host, p, view, X) {
     : null);
   return el('div', { class: 'academy-cm-card' }, [
     el('div', { class: 'academy-cm-head' }, [
+      avatarNode(p.avatar, { size: 'card' }),
       el('span', { class: 'academy-subject', text: p.name }),
       el('span', { class: 'academy-relation', text: p.relationText }),
       p.club ? el('span', { class: 'academy-post', text: p.club }) : null,
@@ -168,6 +177,8 @@ function classmateForm(host, p, view, X) {
       .map((o) => el('option', { value: o.value, text: o.label })));
   tieTo.value = (p && p.tieTo) || '';
   const tieWrap = el('label', { class: 'academy-field' }, [el('span', { text: X.cmTie }), tieTo]);
+  // Ссылка на фото — только у того, кто уже есть: файлу нужен id человека.
+  const portrait = p ? input(X.portraitField, p.portrait, X.portraitHint, 0) : null;
 
   const fields = () => ({
     name: String(name.node.value || ''),
@@ -175,6 +186,7 @@ function classmateForm(host, p, view, X) {
     desire: String(desire.node.value || ''),
     problem: String(problem.node.value || ''),
     tie: { to: String(tieTo.value || ''), what: String(tieWhat.node.value || '') },
+    ...(portrait ? { portrait: String(portrait.node.value || '').trim() } : {}),
   });
 
   const save = el('div', {
@@ -183,6 +195,7 @@ function classmateForm(host, p, view, X) {
     onclick: async (e) => {
       const f = fields();
       if (!f.name.trim()) { setStatus(status, 'error', X.cmNameMissing); return; }
+      if (f.portrait && !isPortrait(f.portrait)) { setStatus(status, 'error', X.portraitBad); return; }
       const res = await runAction(e.currentTarget, status,
         () => (p ? call(host, 'updateClassmate', p.id, f) : call(host, 'addClassmate', f)),
         p ? X.cmSaved : X.cmAdded);
@@ -221,10 +234,11 @@ function classmateForm(host, p, view, X) {
     );
   }
 
-  return el('details', { class: 'academy-repair academy-cm-form' }, [
+  return el('details', { class: 'academy-repair academy-cm-form', open: Boolean(p) && drawPending(p.id) }, [
     el('summary', { text: p ? X.cmEdit : X.cmAddTitle }),
     el('div', { class: 'academy-repair-body' }, [
       name.wrap, club.wrap, desire.wrap, tieWrap, tieWhat.wrap, problem.wrap,
+      p ? photoEditor(host, p, X, portrait.wrap) : null,
       el('div', { class: 'academy-row academy-row-buttons' }, [save, remove]),
       ask,
       status,

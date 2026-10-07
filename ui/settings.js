@@ -16,7 +16,7 @@ import {
 } from './common.js';
 import {
   renderApiBlock, renderAnalysisBlock, renderModeBlock, renderPresetBlock, renderLorebookBlock,
-  renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDebugBlock,
+  renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDrawBlock, renderDebugBlock,
 } from './settings-blocks.js';
 
 /** Шесть полей анкеты (3.6). Порядок — как в таблице плана. */
@@ -451,6 +451,10 @@ export function renderSettings(host) {
 
   // --- поток курса: поводы в сюжет (шаг 4) --------------------------------
   box.append(renderFeedBlock(host, preset, settings));
+
+  // --- портреты: «Нарисовать» через провайдеров таверны (аватарки, шаг 4) ---
+  const drawBlock = renderDrawBlock(host, preset, settings);
+  if (drawBlock) box.append(drawBlock);
 
   // --- отладка ------------------------------------------------------------
   box.append(renderDebugBlock(host, view));

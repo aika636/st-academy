@@ -459,6 +459,33 @@ test('портрет: сохраняется с вкладки «Люди», н�
   assert.equal('portrait' in petrova(), false, 'пустое поле убирает портрет');
 });
 
+test('фото: setPortrait ставит путь преподавателю и однокурснику, uploadPortrait отказывает словами', async () => {
+  const tavern = await withSemester({ day: '2024-09-03' });
+  const act = tavern.seam.host.actions;
+  const ok = await act.setPortrait('petrova', '/user/images/academy/petrova_1.jpg');
+  assert.deepEqual(ok, { ok: true, portrait: '/user/images/academy/petrova_1.jpg' });
+  assert.equal(stateOf(tavern).teachers.find((t) => t.id === 'petrova').portrait, '/user/images/academy/petrova_1.jpg');
+  const bad = await act.setPortrait('petrova', 'data:image/png;base64,AAAA');
+  assert.equal(bad.code, 'bad-portrait', 'картинка base64 в состояние не идёт');
+  assert.equal((await act.setPortrait('nobody', '/user/images/academy/x_1.jpg')).ok, false);
+
+  const added = await act.addClassmate({ name: 'Вера Соколова' });
+  assert.equal(added.ok, true);
+  await act.setPortrait(added.id, 'https://example.com/v.png');
+  const vera = () => stateOf(tavern).classmates.find((c) => c.id === added.id);
+  assert.equal(vera().portrait, 'https://example.com/v.png');
+  await act.setPortrait(added.id, '');
+  assert.equal('portrait' in vera(), false, 'пусто — убрать');
+
+  // Не картинка — отказ до таверны, состояние не тронуто.
+  const text = new Blob(['x'], { type: 'text/plain' });
+  const up = await act.uploadPortrait(added.id, text);
+  assert.equal(up.ok, false);
+  assert.match(up.error, /не картинка/);
+  assert.equal('portrait' in vera(), false);
+  assert.equal((await act.uploadPortrait('nobody', text)).ok, false);
+});
+
 test('таблица плана: сохранение на идущем семестре не стирает зачётку и отношения', async () => {
   const tavern = await withSemester({ day: '2024-09-03' });
   await reply(tavern, `Пара. ${marker('t=+1 grade=chemistry:5 rel=petrova:major+')}`);

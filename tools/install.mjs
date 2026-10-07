@@ -27,6 +27,8 @@ const SHIP = [
   'lorebook.js',
   'commands.js',
   'api.js',
+  'portraits.js',
+  'draw.js',
   'prompt.mjs',
   'core',
   'presets',
