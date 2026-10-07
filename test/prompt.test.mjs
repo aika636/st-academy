@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { createState, cloneState } from '../core/state.mjs';
-import { buildSchedule } from '../core/schedule.mjs';
+import { buildSchedule, dayPlan } from '../core/schedule.mjs';
 import { scheduleExams } from '../core/exams.mjs';
 import {
   statusLine, markerInstruction, injectBlock, buildPrompt, countNumbers, DEFAULT_LABELS,
@@ -86,7 +86,7 @@ test('репутация появляется словом, когда съез�
   const s = scene();
   s.reputation.value = preset.reputation.warnAt;
   const line = statusLine(s, preset);
-  assert.ok(line.endsWith('Под угрозой отчисления.'), line);
+  assert.ok(line.endsWith('Репутация: под угрозой отчисления.'), line);
   assert.equal(line.includes(String(preset.reputation.warnAt)), false, 'число не уходит');
 });
 
@@ -295,3 +295,31 @@ test('чужой пресет меняет и слова, и порядок сл
 });
 
 const cap = (s) => s[0].toUpperCase() + s.slice(1);
+
+// --- живой прогон 07.10: расписание от прежнего пресета ----------------------
+
+test('пар в дне не больше, чем звонков пресета: лишняя пара не висит номером', () => {
+  // Строка расписания осталась от пресета с шестью парами, а у нынешнего их пять.
+  const s = scene();
+  const perDay = preset.week.periodsPerDay;
+  s.schedule = { ...s.schedule, 2: Array.from({ length: perDay + 2 }, (_, i) => SUBJECTS[i % SUBJECTS.length].id) };
+  const plan = dayPlan(s, preset, '2024-09-17');
+  assert.equal(plan.length, perDay);
+  assert.ok(plan.every((p) => p.start), 'у каждой пары есть время');
+});
+
+test('«сегодня:» называет предмет один раз, даже если он стоит в дне дважды', () => {
+  const s = scene();
+  s.calendar.precision = 'date';
+  s.calendar.periodIndex = 2;
+  s.schedule = { ...s.schedule, 2: ['math', 'physics', 'math', 'history'] };
+  const line = statusLine(s, preset);
+  const seg = line.split('. ').find((x) => x.startsWith('Сегодня:')).replace(/\.$/, '');
+  assert.equal(seg, 'Сегодня: высшая математика (сейчас), физика, история', line);
+});
+
+test('репутация — с названием шкалы, не обрывком', () => {
+  const s = scene();
+  s.reputation.value = preset.reputation.warnAt;
+  assert.match(statusLine(s, preset), /Репутация: под угрозой отчисления\.$/);
+});

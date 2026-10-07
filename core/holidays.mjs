@@ -28,7 +28,10 @@
 // Каникулы пресета (`calendar.vacations`) входят в тот же список с `off: true`
 // — после праздников, чтобы бал внутри зимних каникул не вытеснялся ими. Так
 // их приближение видно на панели и в строке состояния, а первый день даёт
-// повод «занятий нет».
+// повод «занятий нет». Праздник и каникулы, которые совпадают и по датам, и по
+// имени («Золотая неделя» в обоих списках, «День благодарения» и «каникулы на
+// День благодарения»), — одно событие: праздник с `off: true` на общий срок
+// (`mergeVacations`). Иначе строка состояния говорила о нём дважды подряд.
 //
 // Рядом с праздниками пресета живут **свои события чата** (`state.events`):
 // та же форма, но с годом — `from`/`to` в виде `ГГГГ-ММ-ДД`. Их заводит
@@ -39,7 +42,7 @@
 // копию состояния движка. Слова строки состояния — в `prompt.mjs`
 // (`DEFAULT_LABELS`), слова повода — здесь, в `DEFAULT_HOOK_PHRASES`.
 
-import { addDays, parseDay } from './time.mjs';
+import { addDays } from './time.mjs';
 import { isDay, pushPending } from './state.mjs';
 
 /** За сколько дней праздник слышен по умолчанию. */
@@ -72,12 +75,16 @@ export const DEFAULT_HOOK_PHRASES = {
 };
 
 const isMD = (v) => typeof v === 'string' && /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v);
-const mdOf = (day) => {
-  const { m, d } = parseDay(day);
-  return m * 100 + d;
-};
 const mdNum = (md) => Number(md.slice(0, 2)) * 100 + Number(md.slice(3, 5));
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
+const capFirst = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
+
+/**
+ * Текст без конечной точки и прочих знаков: `buzz` и `today` в пресетах — то
+ * с точкой, то без, а строка и повод ставят свою пунктуацию сами. Без этого
+ * выходило «…бэнто.. Сегодня» и «руки.;».
+ */
+export const bare = (v) => str(v).replace(/[\s.,;:!?…]+$/u, '');
 
 /**
  * Праздники пресета в чистом виде: без битых записей, с `to` и `lead`.
@@ -106,7 +113,10 @@ export function holidaysOf(preset) {
 
 /**
  * Каникулы пресета (`calendar.vacations`) в той же форме, что праздники, с
- * `off: true`. Названия у них бывают не всегда — тогда просто «каникулы».
+ * `off: true`. Названия у них бывают не всегда — тогда просто «Каникулы».
+ * Название — с заглавной, как у праздников: в пресетах каникулы записаны
+ * строчными («зимние каникулы»), и рядом с «Зимним балом» это смотрелось
+ * опечаткой.
  */
 export function vacationsOf(preset) {
   const raw = preset && preset.calendar && Array.isArray(preset.calendar.vacations) ? preset.calendar.vacations : [];
@@ -114,7 +124,7 @@ export function vacationsOf(preset) {
   raw.slice(0, MAX_HOLIDAYS).forEach((v, i) => {
     if (!v || typeof v !== 'object' || !isMD(v.from) || !isMD(v.to)) return;
     out.push({
-      ...texts({ ...v, name: str(v.name) || 'каникулы' }),
+      ...texts({ ...v, name: capFirst(str(v.name) || 'каникулы') }),
       id: str(v.id) || `vacation-${i + 1}`,
       from: v.from,
       to: v.to,
@@ -160,16 +170,53 @@ function leadOf(h) {
 
 /** Всё сразу: праздники пресета, свои события чата и каникулы — последними. */
 function allOf(preset, state) {
-  return [...holidaysOf(preset), ...eventsOf(state), ...vacationsOf(preset)];
+  const { holidays, vacations } = mergeVacations(holidaysOf(preset), vacationsOf(preset));
+  return [...holidays, ...eventsOf(state), ...vacations];
+}
+
+/**
+ * Праздник и каникулы, совпадающие по датам и по имени, — одно событие:
+ * праздник (его слова, id и `lead`) с `off: true` на общий срок обоих. Бал
+ * внутри зимних каникул не сливается: имена разные, это два события.
+ *
+ * @returns {{holidays: Object[], vacations: Object[], pairs: Array<{holiday: Object, vacation: Object}>}}
+ *   праздники уже слитые, каникулы — оставшиеся, пары — что с чем слилось
+ */
+export function mergeVacations(holidays, vacations) {
+  const out = holidays.slice();
+  const rest = [];
+  const pairs = [];
+  for (const v of vacations) {
+    const i = out.findIndex((h) => !h.dated && sameName(h.name, v.name) && (coversMD(h, v.from) || coversMD(v, h.from)));
+    if (i < 0) { rest.push(v); continue; }
+    const h = out[i];
+    pairs.push({ holiday: holidays[i], vacation: v });
+    out[i] = {
+      ...h,
+      from: coversMD(h, v.from) ? h.from : v.from,
+      to: coversMD(h, v.to) ? h.to : v.to,
+      about: h.about || v.about,
+      buzz: h.buzz || v.buzz,
+      today: h.today || v.today,
+      hook: h.hook || v.hook,
+      off: true,
+    };
+  }
+  return { holidays: out, vacations: rest, pairs };
+}
+
+/** Попадает ли `ММ-ДД` в праздник без года — с переходом через Новый год. */
+function coversMD(h, md) {
+  const x = mdNum(md);
+  const from = mdNum(h.from);
+  const to = mdNum(h.to);
+  return from <= to ? x >= from && x <= to : x >= from || x <= to;
 }
 
 /** Попадает ли день в праздник (у праздника пресета — с переходом через Новый год). */
 function covers(h, day) {
   if (h.dated) return day >= h.from && day <= h.to;
-  const x = mdOf(day);
-  const from = mdNum(h.from);
-  const to = mdNum(h.to);
-  return from <= to ? x >= from && x <= to : x >= from || x <= to;
+  return coversMD(h, day.slice(5));
 }
 
 /** Начинается ли праздник в этот день. */
@@ -208,18 +255,25 @@ export function holidaysAhead(preset, day, horizon = MAX_LEAD, state = null) {
   return out;
 }
 
+/** Сколько праздников одного дня называет строка состояния. */
+export const MAX_PER_DAY = 2;
+
 /**
  * Фон для строки состояния: что идёт сегодня и что слышно впереди.
  *
  * Впереди — только то, до чего дней не больше, чем `lead` самого праздника, и
- * только ближайший: два «академия гудит» подряд читаются как шум.
+ * только ближайший день: два «академия гудит» о разных днях читаются как шум.
+ * Но если в этот день начинаются два события (концерт и бал выпускников), они
+ * оба в `aheadAll` — до `MAX_PER_DAY`; `ahead` — первое из них.
  *
- * @returns {{now: Object[], ahead: ?{holiday: Object, day: string, days: number}}}
+ * @returns {{now: Object[], ahead: ?{holiday: Object, day: string, days: number},
+ *   aheadAll: Array<{holiday: Object, day: string, days: number}>}}
  */
 export function holidayBackground(preset, day, state = null) {
-  const now = holidaysOn(preset, day, state).slice(0, 2);
-  const ahead = holidaysAhead(preset, day, MAX_LEAD, state).find((a) => a.days <= a.holiday.lead) || null;
-  return { now, ahead };
+  const now = holidaysOn(preset, day, state).slice(0, MAX_PER_DAY);
+  const heard = holidaysAhead(preset, day, MAX_LEAD, state).filter((a) => a.days <= a.holiday.lead);
+  const aheadAll = heard.length ? heard.filter((a) => a.day === heard[0].day).slice(0, MAX_PER_DAY) : [];
+  return { now, ahead: aheadAll[0] || null, aheadAll };
 }
 
 /**
@@ -260,7 +314,7 @@ export function holidayEnd(h, day) {
 export function hookText(h, preset) {
   const own = (preset && preset.phrases && preset.phrases.holidays) || {};
   const P = { ...DEFAULT_HOOK_PHRASES, ...own };
-  const vars = { name: h.name, hook: h.hook, note: h.today ? ` — ${h.today}` : '' };
+  const vars = { name: h.name, hook: h.hook, note: bare(h.today) ? ` — ${bare(h.today)}` : '' };
   const template = h.hook ? P.hook : h.off ? P.hookOff : P.hookBare;
   return String(template).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
@@ -282,7 +336,7 @@ export function armHolidayHooks(state, preset) {
   const day = state.calendar.day;
   const fired = Array.isArray(state.holidayHooks) ? state.holidayHooks : [];
   const armed = [];
-  for (const h of holidaysOn(preset, day, state).slice(0, 2)) {
+  for (const h of holidaysOn(preset, day, state).slice(0, MAX_PER_DAY)) {
     const key = occurrenceKey(h, day);
     if (!key || fired.includes(key)) continue;
     pushPending(state, { id: `holiday:${key}`, kind: 'holiday', text: hookText(h, preset) });
@@ -348,26 +402,24 @@ function sameName(a, b) {
   return short.length >= 3 && ` ${long} `.includes(` ${short} `);
 }
 
-/** Насколько далеко от даты ищется уже записанное событие с тем же именем. */
-const SAME_EVENT_WINDOW = 7;
-
 /**
- * Уже известное событие с тем же названием рядом с днём `from`: праздник
- * пресета, каникулы или своё событие чата. Секретарь видит бал в каждом
- * ответе, который о нём упоминает, — записать его надо один раз.
+ * Уже известное событие с тем же названием в те же дни: праздник пресета,
+ * каникулы или своё событие чата. Секретарь видит бал в каждом ответе,
+ * который о нём упоминает, — записать его надо один раз. Сверяются и имя, и
+ * даты: концерт через два дня и концерт через три — разные концерты, и второй
+ * молча пропадать не должен.
  *
+ * @param {string} from первый день события
+ * @param {string} [to] последний; по умолчанию — тот же
  * @returns {?Object} найденное событие или `null`
  */
-export function knownEvent(state, preset, name, from) {
+export function knownEvent(state, preset, name, from, to = from) {
+  const last = isDay(to) && to >= from ? to : from;
   for (const e of eventsOf(state)) {
-    if (!sameName(e.name, name)) continue;
-    const lo = addDays(from, -SAME_EVENT_WINDOW);
-    const hi = addDays(from, SAME_EVENT_WINDOW);
-    if (e.to >= lo && e.from <= hi) return e;
+    if (sameName(e.name, name) && e.to >= from && e.from <= last) return e;
   }
   const others = [...holidaysOf(preset), ...vacationsOf(preset)];
-  for (let n = -SAME_EVENT_WINDOW; n <= SAME_EVENT_WINDOW; n += 1) {
-    const day = addDays(from, n);
+  for (let day = from; day <= last; day = addDays(day, 1)) {
     const hit = others.find((h) => covers(h, day) && sameName(h.name, name));
     if (hit) return hit;
   }
@@ -386,10 +438,30 @@ export function knownEvent(state, preset, name, from) {
  * @returns {{ok: true, state: Object, event: Object} | {ok: false, error: string, duplicate?: Object}}
  */
 export function planEvent(state, preset, ev, day = state && state.calendar && state.calendar.day) {
-  if (!ev || !isDay(day)) return { ok: false, error: 'нет дня сцены' };
-  const from = addDays(day, ev.days);
-  const to = addDays(day, Number.isInteger(ev.until) ? ev.until : ev.days);
-  const dup = knownEvent(state, preset, ev.name, from);
+  const span = eventSpan(ev, day);
+  if (!span) return { ok: false, error: 'нет дня сцены' };
+  const dup = knownEvent(state, preset, ev.name, span.from, span.to);
   if (dup) return { ok: false, error: `«${ev.name}» уже в планах`, duplicate: dup };
-  return addEvent(state, { name: ev.name, from, to });
+  return addEvent(state, { name: ev.name, from: span.from, to: span.to });
 }
+
+/** Дни события разборщика от дня сцены; нет дня — `null`. */
+function eventSpan(ev, day) {
+  if (!ev || !isDay(day)) return null;
+  return { from: addDays(day, ev.days), to: addDays(day, Number.isInteger(ev.until) ? ev.until : ev.days) };
+}
+
+/**
+ * Записал бы `planEvent` это событие или оно уже в планах — для черновика
+ * секретаря, который ещё не сохранён. `except` — id своих событий, которые
+ * положил прежний разбор того же ответа: пересохранение снимет их и положит
+ * заново, так что дублем они не считаются.
+ */
+export function alreadyPlanned(state, preset, ev, day, except = []) {
+  const span = eventSpan(ev, day);
+  if (!span) return false;
+  const skip = new Set(except);
+  const events = (state && Array.isArray(state.events) ? state.events : []).filter((e) => !(e && skip.has(e.id)));
+  return Boolean(knownEvent({ ...state, events }, preset, ev.name, span.from, span.to));
+}
+

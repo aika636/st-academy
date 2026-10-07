@@ -11,7 +11,7 @@ import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenOf }
 import { parseMarker } from '../core/parse-marker.mjs';
 import { applyResponse } from '../core/engine.mjs';
 import { applyCorrection, revertCorrection, receiptOf } from '../core/corrections.mjs';
-import { addEvent, planEvent } from '../core/holidays.mjs';
+import { addEvent, planEvent, alreadyPlanned } from '../core/holidays.mjs';
 import { createState } from '../core/state.mjs';
 import { buildSchedule } from '../core/schedule.mjs';
 
@@ -46,8 +46,11 @@ test('секретарь: несколько событий — нескольк
   const s = semester();
   const res = parseAnalysis('<!-- [ACADEMY event=+3:Бал у Миражи event=+5..+6:ярмарка] -->\nКратко: к учёбе не относится.', lexicon(s));
   assert.deepEqual(res.tokens, ['event=+3:Бал у Миражи', 'event=+5..+6:ярмарка']);
-  assert.equal(tokenText(res.tokens[0], lexicon(s)), 'в планы: Бал у Миражи — через 3 дн.');
-  assert.equal(tokenText(res.tokens[1], lexicon(s)), 'в планы: ярмарка — через 5 дн. (на 2 дн.)');
+  // В разделе «В планы» строка без префикса; в свёрнутой сводке — с ним.
+  assert.equal(tokenText(res.tokens[0], lexicon(s)), 'Бал у Миражи — через 3 дня');
+  assert.equal(tokenText(res.tokens[1], lexicon(s)), 'ярмарка — через 5 дней (2 дня)');
+  assert.equal(tokenText(res.tokens[0], lexicon(s), { brief: true }), 'в планы: Бал у Миражи — через 3 дня');
+  assert.equal(tokenText(res.tokens[0], lexicon(s), { known: true }), 'уже в планах: Бал у Миражи — через 3 дня');
   assert.equal(tokenOf({ kind: 'event', days: 1, until: 1, name: 'кино: премьера' }), 'event=+1:кино премьера', 'двоеточие в названии не ломает токен');
 });
 
@@ -71,8 +74,8 @@ test('движок: события ложатся от дня сцены, пос
   ]);
   assert.ok(out.debug.applied.some((a) => a.kind === 'event' && a.name === 'Бал у Миражи'));
 
-  // Следующий ответ снова говорит о том же бале — второй записи нет.
-  const again = applyResponse(out.state, effectiveText('Бал всё ближе.', ['event=+2:бал у Миражи']), preset, { mode: 'marker' });
+  // Следующий ответ снова говорит о том же бале в тот же день — второй записи нет.
+  const again = applyResponse(out.state, effectiveText('Бал всё ближе.', ['event=+3:бал у Миражи']), preset, { mode: 'marker' });
   assert.equal(again.state.events.length, 2);
   assert.ok(again.debug.applied.some((a) => a.kind === 'event-known'));
 });
@@ -81,7 +84,7 @@ test('без дублей: праздник пресета и каникулы �
   const p = { ...preset, holidays: [{ id: 'ball', name: 'Зимний бал', from: '12-27' }] };
   const s = semester('2026-12-24');
   assert.equal(planEvent(s, p, { name: 'зимний бал', days: 3, until: 3 }).ok, false);
-  assert.equal(planEvent(s, p, { name: 'бал', days: 2, until: 2 }).ok, false, 'короткое имя внутри полного');
+  assert.equal(planEvent(s, p, { name: 'бал', days: 3, until: 3 }).ok, false, 'короткое имя внутри полного');
   assert.equal(planEvent(semester('2026-11-01'), p, { name: 'Ноябрьские', days: 3, until: 3 }).ok, false, 'каникулы пресета');
   assert.equal(planEvent(s, p, { name: 'концерт', days: 1, until: 1 }).ok, true);
 });
@@ -98,5 +101,27 @@ test('поправка к старому ответу: от дня того от
   assert.deepEqual(revertCorrection(r.state, byToken, preset).events, []);
 
   const twice = applyCorrection(r.state, ev, preset, { day: '2026-10-08' });
-  assert.equal(twice.receipt, null, 'второй раз то же событие не ложится');
+  assert.equal(twice.state.events.length, 1, 'второй раз то же событие не ложится');
+  assert.equal(twice.receipt.known, true, 'квитанция говорит «уже в планах»');
+  assert.deepEqual(revertCorrection(twice.state, twice.receipt, preset).events, twice.state.events,
+    'снятие дубля не убирает запись, сделанную раньше');
+});
+
+test('без дублей — по имени и дате: концерт через два дня и через три — разные', () => {
+  const s = addEvent(semester('2026-10-05'), { name: 'Школьный концерт', from: '2026-10-07' }).state;
+  const same = planEvent(s, preset, { name: 'школьный концерт', days: 2, until: 2 });
+  assert.equal(same.ok, false, 'тот же день — дубль');
+  assert.ok(same.duplicate);
+  const other = planEvent(s, preset, { name: 'Школьный концерт', days: 3, until: 3 });
+  assert.equal(other.ok, true, 'другой день — новое событие');
+  assert.equal(other.event.from, '2026-10-08');
+  assert.equal(planEvent(s, preset, { name: 'Школьный концерт', days: 1, until: 3 }).ok, false, 'диапазон задевает записанный день');
+});
+
+test('черновик: «уже в планах» сверяется без своих событий прошлого сохранения', () => {
+  const r = addEvent(semester('2026-10-05'), { name: 'концерт', from: '2026-10-08' });
+  const ev = { kind: 'event', name: 'концерт', days: 3, until: 3 };
+  assert.equal(alreadyPlanned(r.state, preset, ev, '2026-10-05'), true);
+  assert.equal(alreadyPlanned(r.state, preset, ev, '2026-10-05', [r.event.id]), false, 'своё событие — не дубль');
+  assert.equal(alreadyPlanned(r.state, preset, { ...ev, days: 4, until: 4 }, '2026-10-05'), false);
 });

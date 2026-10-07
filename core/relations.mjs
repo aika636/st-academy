@@ -19,6 +19,39 @@
 // описаны у своих функций ниже.
 
 import { cloneState, findTeacher, pushJournal, labelFor, clamp, teacherOfSubject, findSubject } from './state.mjs';
+import { classmateLabels } from './classmates.mjs';
+
+// --- однокурсники (раздел «Сейчас», шаг 2) ---------------------------------------
+//
+// Однокурсник держит отношение к героине на той же шкале и с той же
+// антиинфляцией, что преподаватель (ответ владелицы 07.10). Поэтому всё ниже
+// работает с «человеком» по id: сначала среди преподавателей, потом среди
+// однокурсников (`state.classmates`). Ключ события и журнала по-прежнему
+// `teacherId` — это id человека, кем бы он ни был: так журнал, память «за что»
+// и разбор метки не заводят второго поля. Id у обоих списков в одном
+// пространстве (`classmates.classmateIdOf` обходит занятые).
+//
+// Разница одна — слова. Шкала та же (`relations.min/max`), а ярлыки у
+// однокурсника свои (`classmates.labels` пресета): «любимица» — про учителя.
+
+/** Человек по id: преподаватель или однокурсник; `null` — никого. */
+export function findPerson(state, id) {
+  const t = findTeacher(state, id);
+  if (t) return t;
+  return ((state && state.classmates) || []).find((c) => c && c.id === id) || null;
+}
+
+/** Однокурсник ли это (а не преподаватель и не пустое место). */
+export function isClassmate(state, id) {
+  if (findTeacher(state, id)) return false;
+  return ((state && state.classmates) || []).some((c) => c && c.id === id);
+}
+
+/** Таблица ярлыков для этого человека: у однокурсника своя, у преподавателя — шкалы. */
+export function labelsOf(state, id, preset) {
+  if (isClassmate(state, id)) return classmateLabels(preset);
+  return (preset && preset.relations && preset.relations.labels) || [];
+}
 
 // --- сила словом (9.3.4) ------------------------------------------------------
 //
@@ -244,7 +277,7 @@ export const MEMORY_SIZE = 3;
  *   from: number, to: number, crossed: ?{from: string, to: string}}>}
  */
 export function relationMemory(state, teacherId, preset, limit = MEMORY_SIZE) {
-  const labels = (preset && preset.relations && preset.relations.labels) || [];
+  const labels = labelsOf(state, teacherId, preset);
   const out = [];
   const journal = (state && state.journal) || [];
   for (let i = journal.length - 1; i >= 0 && out.length < limit; i -= 1) {
@@ -315,18 +348,21 @@ export function mergeDeltas(list) {
  * отношения, а не как правило пресета.
  */
 export function relationOf(state, teacherId) {
-  const t = findTeacher(state, teacherId);
-  return t ? t.relation : 0;
-}
-
-/** Ярлык словом по таблице `preset.relations.labels`. Это всё, что видит модель. */
-export function relationLabel(state, teacherId, preset) {
-  const labels = (preset && preset.relations && preset.relations.labels) || [];
-  return labelFor(labels, relationOf(state, teacherId));
+  const t = findPerson(state, teacherId);
+  return t && Number.isFinite(t.relation) ? t.relation : 0;
 }
 
 /**
- * Сдвинуть отношение.
+ * Ярлык словом по таблице пресета (`relations.labels`, у однокурсника —
+ * `classmates.labels`). Это всё, что видит модель.
+ */
+export function relationLabel(state, teacherId, preset) {
+  return labelFor(labelsOf(state, teacherId, preset), relationOf(state, teacherId));
+}
+
+/**
+ * Сдвинуть отношение преподавателя или однокурсника (`teacherId` — id
+ * человека, см. шапку раздела «однокурсники»).
  *
  * @param {Object} state
  * @param {{teacherId: string, delta: number, reason?: string}} ev
@@ -336,7 +372,7 @@ export function relationLabel(state, teacherId, preset) {
 export function changeRelation(state, ev, preset) {
   const next = cloneState(state);
   const teacherId = ev && ev.teacherId;
-  const teacher = findTeacher(next, teacherId);
+  const teacher = findPerson(next, teacherId);
 
   if (!teacher) {
     pushJournal(next, {

@@ -115,17 +115,17 @@ export const DEFAULT_TITLES = {
 export const DEFAULT_HINTS = {
   firstTop: 'Получить высшую оценку по любому предмету.',
   cleanWeek: 'Проучиться целую неделю без единого прогула.',
-  debtCleared: 'Закрыть хвост: сдать то, что было завалено.',
+  debtCleared: 'Пересдать то, что было завалено.',
   cleanSession: 'Сдать всю сессию с первой попытки.',
   autoPass: 'Получить оценку автоматом, без экзамена.',
-  brilliant: 'Сдать экзамен блестяще — на критическом успехе.',
-  retakeWin: 'Сдать экзамен со второй попытки или позже.',
-  favorite: 'Стать любимицей преподавателя.',
+  brilliant: 'Сдать экзамен с огромным запасом: кубик лёг лучше некуда.',
+  retakeWin: 'Завалить экзамен, а потом всё-таки сдать его.',
+  favorite: 'Заслужить самое тёплое отношение преподавателя.',
   nemesis: 'Довести преподавателя до того, что он тебя не выносит.',
   onTheEdge: 'Получить предупреждение об отчислении.',
-  firstSkip: 'Впервые прогулять занятие.',
+  firstSkip: 'Не прийти на занятие без уважительной причины.',
   ghost: 'Набрать десять прогулов.',
-  critFail: 'Провалить экзамен с треском — на критической неудаче.',
+  critFail: 'Провалить экзамен с треском: кубик лёг хуже некуда.',
 };
 
 /**
@@ -228,18 +228,20 @@ export const isSecretKind = (kind) => SECRET_KINDS.includes(kind);
 /**
  * Каталог (страница достижений): каждый вид — полученный или нет, тайный или
  * нет, со всеми полученными экземплярами (у «любимицы» их может быть несколько
- * — по наставнику). Порядок — `KINDS`.
+ * — по наставнику). Сначала полученные, потом остальные; внутри — порядок
+ * `KINDS`: открытое человек ищет глазами первым.
  *
  * @param {Milestone[]} earned  то, что вернул `milestones()`
  * @returns {{kind: string, secret: boolean, earned: Milestone[]}[]}
  */
 export function milestoneCatalog(earned) {
   const list = Array.isArray(earned) ? earned : [];
-  return KINDS.map((kind) => ({
+  const all = KINDS.map((kind) => ({
     kind,
     secret: isSecretKind(kind),
     earned: list.filter((m) => m && m.kind === kind),
   }));
+  return [...all.filter((c) => c.earned.length), ...all.filter((c) => !c.earned.length)];
 }
 
 /** Сколько чатов помнит счёт «во всех историях» на одну веху. */

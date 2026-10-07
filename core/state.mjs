@@ -19,13 +19,17 @@
 //    отдельным аргументом в каждую функцию, которой нужен. Иначе правка пресета
 //    никогда не доедет до уже начатого семестра.
 
+import { normalizeClassmates, normalizeCandidates, classmateErrors } from './classmates.mjs';
+
 /**
  * Версия схемы состояния. Растёт при любой несовместимой правке формы.
  *
  * 2 — у сессии появился номер учебного периода (`exams.term`, `ExamItem.term`),
  *     а id события стало `период:предмет:вид`. Подъём — в `migrate()`.
+ * 3 — у героини появился курс: `classmates` и `classmateCandidates`
+ *     (`core/classmates.mjs`). Подъём — пустые списки, остальное не трогается.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Ключ, под которым состояние лежит в `chat_metadata`. */
 export const METADATA_KEY = 'academy';
@@ -185,8 +189,12 @@ export const METADATA_KEY = 'academy';
  * @property {JournalEntry[]}  journal
  * @property {PendingInject[]} pending
  * @property {Object<string, {delta: number, count: number, day: string}>} [relStreak]
- *   серии одинаковых сдвигов отношения по наставникам — антиинфляция 9.3.5,
- *   `core/relations.mjs`. Поля может не быть: пустая серия.
+ *   серии одинаковых сдвигов отношения по наставникам и однокурсникам —
+ *   антиинфляция 9.3.5, `core/relations.mjs`. Поля может не быть: пустая серия.
+ * @property {Object[]} classmates  курс героини — форма `Classmate` в шапке
+ *   `core/classmates.mjs`: имя, желание, связь, проблема, кружок, отношение
+ * @property {Object[]} classmateCandidates  предложенные, но не подтверждённые
+ *   человеком однокурсники (из сцены, лорбука, карточки)
  */
 
 /** Пустая анкета: шесть полей из таблицы 3.6, все строками. */
@@ -205,6 +213,7 @@ export function emptySurvey() {
  * @param {Subject[]} [opts.subjects]
  * @param {Teacher[]} [opts.teachers]
  * @param {Object<string, string[]>} [opts.schedule]
+ * @param {Object[]} [opts.classmates]
  * @returns {State}
  */
 export function createState(preset, opts = {}) {
@@ -241,6 +250,8 @@ export function createState(preset, opts = {}) {
     exams: { active: false, term: null, items: [] },
     journal: [],
     pending: [],
+    classmates: normalizeClassmates(opts.classmates, preset),
+    classmateCandidates: [],
   };
 }
 
@@ -519,6 +530,10 @@ export function validateState(state, preset) {
   }
   if (state.holidayHooks !== undefined && !Array.isArray(state.holidayHooks)) bad('поводы праздников — не список');
 
+  // Курс (`core/classmates.mjs`): форма, потолки, id не совпадает с
+  // преподавательским — у метки `rel=` одно пространство id на всех людей.
+  for (const m of classmateErrors(state)) bad(m);
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -560,6 +575,11 @@ export function migrate(state, preset) {
   };
   out.journal = Array.isArray(out.journal) ? out.journal : [];
   out.pending = Array.isArray(out.pending) ? out.pending : [];
+  // Схема 3: курса у старого семестра нет — пустые списки, и это не догадка:
+  // однокурсников до этой схемы расширение не знало вовсе. Своего шага
+  // подъёма не нужно — добивка ниже его и делает, и чинит битые записи.
+  out.classmates = normalizeClassmates(out.classmates, preset, { taken: out.teachers.map((t) => t.id) });
+  out.classmateCandidates = normalizeCandidates(out.classmateCandidates, preset);
   return out;
 }
 

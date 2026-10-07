@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   holidaysOf, holidaysOn, holidaysAhead, holidayBackground, holidayDayIndex, DEFAULT_LEAD,
   eventsOf, addEvent, removeEvent, armHolidayHooks, hookText, occurrenceKey, MAX_EVENTS,
+  vacationsOf, mergeVacations,
 } from '../core/holidays.mjs';
 import { applyResponse } from '../core/engine.mjs';
 import { validateState, cloneState } from '../core/state.mjs';
@@ -122,7 +123,7 @@ test('«Сегодня»: блок праздников — сегодня и в
   assert.deepEqual(list.map((h) => h.id), ['ball', 'ny']);
   assert.equal(list[0].whenLine, 'сегодня');
   assert.equal(list[0].note, 'вечером бал');
-  assert.match(list[1].whenLine, /через 4 дн\./);
+  assert.equal(list[1].whenLine, 'через 4 дня — чт, 31 декабря');
   assert.deepEqual(holidaysView(null, preset), []);
 });
 
@@ -252,14 +253,15 @@ test('каникулы: праздник и своё событие с off вы�
 
 test('каникулы пресета видны в блоке праздников и в строке состояния заранее', () => {
   const s = stateOn(ru, '2026-11-02');
-  const ahead = holidaysView(s, ru).find((h) => h.name === 'ноябрьские');
+  const ahead = holidaysView(s, ru).find((h) => h.name === 'Ноябрьские');
   assert.ok(ahead, 'ноябрьские впереди');
   assert.equal(ahead.off, true);
-  assert.match(statusLine(s, ru), /ноябрьские/);
+  assert.equal(ahead.offLine, 'занятий нет', 'пометка отдельной строкой, а не в склейке с датой');
+  assert.match(statusLine(s, ru), /Ноябрьские/);
 
-  const during = holidaysView(stateOn(ru, '2026-11-05'), ru).find((h) => h.name === 'ноябрьские');
+  const during = holidaysView(stateOn(ru, '2026-11-05'), ru).find((h) => h.name === 'Ноябрьские');
   assert.equal(during.days, 0);
-  assert.match(during.note, /занятий нет до/);
+  assert.equal(during.offLine, 'занятий нет до субботы, 7 ноября', 'день недели в родительном');
 });
 
 test('каникулы: повод без своего текста говорит «занятий нет», бал внутри каникул не вытеснен', () => {
@@ -280,4 +282,76 @@ test('валидация: off — только да или нет', () => {
   assert.equal(res.ok, false);
   assert.ok(res.errors.some((e) => e.includes('.off')), res.errors.join('; '));
   assert.equal(normalizePreset({ ...ru, id: 'x', holidays: [{ name: 'x', from: '10-06', off: true }] }, { builtins }).ok, true);
+});
+
+// --- живой прогон 07.10: дубли, пунктуация, два события в день ---------------
+
+test('праздник и каникулы с тем же именем и датами — одно событие с «занятий нет»', () => {
+  const jp = load('jp-highschool');
+  const on = holidaysOn(jp, '2026-05-03').filter((h) => /золотая неделя/i.test(h.name));
+  assert.equal(on.length, 1, 'Золотая неделя одна');
+  assert.equal(on[0].off, true);
+  assert.equal(on[0].id, 'golden-week');
+  assert.equal(holidaysOn(jp, '2026-05-06').some((h) => /золотая/i.test(h.name)), true, 'общий срок — до конца каникул');
+
+  const line = statusLine(stateOn(jp, '2026-05-03'), jp);
+  assert.equal(line.match(/золот/gi).length, 1, line);
+  const s = stateOn(jp, '2026-04-29');
+  assert.equal(armHolidayHooks(s, jp).filter((k) => /golden|vacation/.test(k)).length, 1, 'повод один');
+
+  const us = load('us-highschool');
+  assert.equal(holidaysOn(us, '2026-11-27').length, 1, 'День благодарения и его каникулы — одно');
+  assert.equal(holidaysOn(us, '2026-11-27')[0].name, 'День благодарения');
+});
+
+test('во всех двенадцати пресетах каникулы-двойники праздников слиты', () => {
+  for (const id of BUILTIN_PRESETS) {
+    const p = load(id);
+    const { pairs } = mergeVacations(holidaysOf(p), vacationsOf(p));
+    for (let d = 0; d < 366; d += 1) {
+      const day = new Date(Date.UTC(2026, 0, 1 + d)).toISOString().slice(0, 10);
+      const names = holidaysOn(p, day).map((h) => h.name.toLowerCase());
+      for (const { holiday, vacation } of pairs) {
+        const twins = names.filter((n) => n === vacation.name.toLowerCase() || n === holiday.name.toLowerCase());
+        assert.ok(twins.length <= 1, `${id} ${day}: «${holiday.name}» и «${vacation.name}» показаны дважды`);
+      }
+    }
+  }
+});
+
+test('каникулы — с заглавной, как праздники', () => {
+  assert.deepEqual(vacationsOf(ru).map((v) => v.name), ['Ноябрьские']);
+  assert.equal(vacationsOf({ calendar: { vacations: [{ from: '01-01', to: '01-02' }] } })[0].name, 'Каникулы');
+});
+
+test('пунктуация: точка в конце buzz и today не удваивается', () => {
+  const preset = { ...ru, holidays: [
+    { id: 'a', name: 'Обед', from: '10-07', today: 'все едят бэнто.', buzz: 'ждут.' },
+    { id: 'b', name: 'Танцы', from: '10-09', lead: 3, buzz: 'все держатся за руки.' },
+  ] };
+  const line = statusLine(stateOn(preset, '2026-10-07'), preset);
+  assert.equal(/\.\.|\.;|\.,/.test(line), false, line);
+  assert.match(line, /Сегодня Обед — все едят бэнто\. /, line);
+  assert.match(line, /В пятницу Танцы — все держатся за руки\./, line);
+  const hook = hookText(holidaysOf(preset)[0], preset);
+  assert.equal(hook.includes('..'), false, hook);
+  assert.match(hook, /^Сегодня Обед — все едят бэнто\. Если уместно/);
+});
+
+test('два события в один день: впереди оба, но не больше двух', () => {
+  const preset = { ...ru, holidays: [
+    { id: 'concert', name: 'Концерт', from: '10-09', buzz: 'репетируют' },
+    { id: 'prom', name: 'Бал выпускников', from: '10-09', buzz: 'ищут пару' },
+    { id: 'third', name: 'Ярмарка', from: '10-09' },
+    { id: 'later', name: 'Поход', from: '10-10' },
+  ] };
+  const bg = holidayBackground(preset, '2026-10-07');
+  assert.deepEqual(bg.aheadAll.map((a) => a.holiday.id), ['concert', 'prom']);
+  assert.equal(bg.ahead.holiday.id, 'concert');
+  const line = statusLine(stateOn(preset, '2026-10-07'), preset);
+  assert.match(line, /В пятницу Концерт — репетируют, и Бал выпускников — ищут пару\./, line);
+  assert.equal(/Ярмарка|Поход/.test(line), false, line);
+
+  const today = { ...ru, holidays: [{ id: 'x', name: 'Концерт', from: '10-07' }, { id: 'y', name: 'Бал', from: '10-07' }] };
+  assert.match(statusLine(stateOn(today, '2026-10-07'), today), /Сегодня Концерт и Бал\./);
 });

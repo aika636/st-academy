@@ -1151,7 +1151,7 @@ test('смена пресета на идущем семестре спраши�
   const asked = await tavern.seam.host.actions.setPreset('magic-academy');
   assert.equal(asked.ok, false, 'слова, шкала оценок и виды контрольных поменяются под живым состоянием');
   assert.equal(asked.needsConfirm, true);
-  assert.ok(asked.reasons.some((r) => r.includes('magic-academy')));
+  assert.equal(asked.question.title, 'Сменить пресет на «Магическая академия»?');
   assert.equal(tavern.seam.host.getPreset().id, 'ru-university', 'первый вызов не сменил ничего');
   assert.equal(panel.renders, 0);
 
@@ -1212,8 +1212,10 @@ test('вид настроек собирает лорбук и пресеты и
   assert.equal(view.presets.drift, '', 'состояние и пресет сходятся');
 
   // Вызов без четвёртого аргумента — так зовут старые тесты и \`commands.js\`.
+  // Галочка — из самих настроек, а не из отчёта лорбука: без отчёта она всё
+  // равно стоит, как её поставили (иначе «Лорбук выключен.» висел под ней).
   const bare = settingsView(host.getState(), host.getSettings(), host.getPreset());
-  assert.equal(bare.lorebook.enabled, false);
+  assert.equal(bare.lorebook.enabled, true);
   assert.equal(bare.presets.list.length, 1, 'без списка от хоста виден только активный');
 });
 
@@ -1288,25 +1290,21 @@ test('середина периода: расширение сажает за к
   );
 });
 
-test('предупреждение о смене пресета не начинается со строчной буквы после точки', async () => {
-  // Живьём это читалось так: «Идёт круг. состояние собрано с пресетом
-  // «magic-academy», сейчас активен «ru-university».» Фраза склеивается из
-  // кусков, каждый из которых написан как элемент перечисления, то есть со
-  // строчной; заглавную на швах ставит `core/state.mjs: joinSentences`.
+test('вопрос о смене пресета: названия пресетов, а не id, и с заглавной после точки', async () => {
+  // Живьём это читалось так: «Заменить то, что есть? состояние собрано с
+  // пресетом «jp-highschool»…» — id вместо названия и строчная после вопроса.
   const tavern = await withSemester();
   await tavern.seam.host.actions.setPreset('magic-academy', { confirm: true });
 
   const asked = await tavern.seam.host.actions.setPreset('ru-university');
   assert.equal(asked.needsConfirm, true);
+  assert.equal(asked.question.title, 'Сменить пресет на «Российский вуз»?');
+  assert.match(asked.question.note, /^Предметы, [^ ]+ и оценки останутся\./);
 
   assert.equal(/\.\s+\p{Ll}/u.test(asked.error), false,
     `после точки стоит строчная буква: ${asked.error}`);
-  assert.match(asked.error, /^Идёт круг\. Состояние собрано с пресетом/,
-    `склейка развалилась: ${asked.error}`);
-  // Слово периода при этом по-прежнему из пресета, а не из кода.
-  assert.equal(/Идёт семестр/.test(asked.error), false, asked.error);
-
-  // Тот же кусок отдельным элементом списка остаётся строчным: в перечислении
-  // «Загрузка перезапишет: …; …» заглавная была бы неправильной.
-  assert.match(asked.reasons[0], /^состояние собрано с пресетом/);
+  assert.equal(/ru-university|magic-academy/.test(asked.error), false, `в вопросе id пресета: ${asked.error}`);
+  // Слово людей — из активного пресета, а не из кода.
+  const magic = tavern.seam.host.getPreset();
+  assert.ok(asked.question.note.includes(magic.vocab.teacherPlural), asked.question.note);
 });

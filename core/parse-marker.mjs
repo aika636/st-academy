@@ -31,6 +31,8 @@
  */
 import { impactWeight } from './relations.mjs';
 import { stopList, stopHit, strictest, HARD_STOPS, STOP_USER, STOP_CHAR } from './stop-names.mjs';
+import { sameName } from './classmates.mjs';
+import { slugify } from './plan-gen.mjs';
 
 export const MARKER_RE =
   /<!--\s*\[{0,2}\s*academy\b([\s\S]*?)\]{0,2}\s*-->|\[{1,2}\s*academy\b([^\]\n]*)\]{1,2}/gi;
@@ -47,7 +49,29 @@ const KEY_GROUPS = [
   { kind: 'skip', names: ['skip', 'прогул', 'пропуск'] },
   { kind: 'late', names: ['late', 'опоздание', 'опоздал', 'опоздала'] },
   { kind: 'event', names: ['event', 'событие', 'праздник'] },
+  // Курс (шаг 3, `nabrosok-odnokursniki.md` раздел 3): что секретарь увидел
+  // в сцене про людей. Рассказчик эти ключи не пишет — его инструкция метки не
+  // растёт, — но если напишет сам, разборщик их поймёт.
+  { kind: 'met', names: ['met', 'был', 'была', 'встреча'] },
+  { kind: 'clash', names: ['clash', 'стычка', 'ссора'] },
+  { kind: 'rumor', names: ['rumor', 'слух'] },
+  { kind: 'new', names: ['new', 'новый', 'новая', 'новенький', 'новенькая'] },
+  { kind: 'deal', names: ['deal', 'дело', 'обещание'] },
+  // Закрытое дело — тот же ключ с минусом, как у силы `minor-`: `deal-=…`.
+  { kind: 'deal-', names: ['deal-', 'дело-', 'обещание-'] },
 ];
+
+/** Как метка называет героиню в стычке, слухе и деле. Тот же знак, что у `tie.to` курса. */
+export const HEROINE = '@heroine';
+
+/** Слова, которыми модель зовёт героиню вместо знака. */
+const HEROINE_WORDS = ['@heroine', 'heroine', '@hero', 'героиня', '@героиня'];
+
+/** Потолки свободного текста курса: подпись, а не пересказ. */
+export const SOCIAL_TEXT_MAX = { reason: 60, rumor: 100, deal: 60, name: 60 };
+
+/** Пометки закрытого дела последним полем: `deal=a:b:конспект:закрыто`. */
+const DEAL_CLOSED = /^(?:закрыт[оа]?|закрыли|вернул[аи]?|выполнен[оа]?|done|closed?|-)$/iu;
 
 /**
  * Насколько далеко вперёд метка вправе заводить событие (`event=`): дальше
@@ -171,6 +195,30 @@ export function keepMarkerKinds(text, kinds) {
   });
 }
 
+/**
+ * Все пары `ключ=значение` всех меток текста по порядку — и знакомые, и
+ * выдуманные (`kind: null`). Нужна секретарю (`core/analysis`): реакция
+ * ссылается на факт его номером в метке, а номер модель считает по тому, что
+ * написала, — вместе с ключами, которых разборщик не знает.
+ * @returns {Array<{name: string, kind: ?string, value: string, raw: string}>}
+ */
+export function markerKeys(text) {
+  if (typeof text !== 'string' || !text) return [];
+  const out = [];
+  for (const m of text.matchAll(MARKER_RE)) {
+    const body = m[1] !== undefined ? m[1] : m[2];
+    if (body === undefined) continue;
+    const keys = [...body.matchAll(KEY_RE)].map((k) => ({ name: k[1].toLowerCase(), at: k.index, valueAt: k.index + k[0].length }));
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      const end = i + 1 < keys.length ? keys[i + 1].at : body.length;
+      const value = body.slice(k.valueAt, end).replace(/[,;]\s*$/, '').trim();
+      out.push({ name: k.name, kind: KIND_BY_NAME.get(k.name) || null, value, raw: `${k.name}=${value}` });
+    }
+  }
+  return out;
+}
+
 /** Пары `ключ=значение` блока — те же границы, что у `parseBody`. */
 function markerPairs(body) {
   const keys = [...String(body).matchAll(KEY_RE)].map((k) => ({
@@ -230,6 +278,12 @@ function parseBody(body, ctx, events, rejected) {
       case 'skip':
       case 'late': parseAttendance(value, raw, kind, ctx, events, rejected); break;
       case 'event': parseEvent(value, raw, events, rejected); break;
+      case 'met': parseMet(value, raw, ctx, events, rejected); break;
+      case 'clash': parseClash(value, raw, ctx, events, rejected); break;
+      case 'rumor': parseRumor(value, raw, ctx, events, rejected); break;
+      case 'new': parseNew(value, raw, ctx, events, rejected); break;
+      case 'deal':
+      case 'deal-': parseDeal(value, raw, kind === 'deal-', ctx, events, rejected); break;
       // default не нужен: незнакомый ключ отсеян выше
     }
   }
@@ -359,7 +413,9 @@ function splitReason(value, ctx) {
 function parseRelCore(value, raw, ctx, events, rejected, reason) {
   const at = value.lastIndexOf(':');
   const who = value.slice(0, at).trim();
-  const teacherId = ctx.findTeacher(who);
+  // Человек — преподаватель или однокурсник (шаг 2): у метки одно
+  // пространство id на всех, ключ события по-прежнему `teacherId`.
+  const teacherId = ctx.findPerson(who);
   const hit = strictest([
     ctx.stopHit(who),
     teacherId ? ctx.stopHit(ctx.teacherName(teacherId)) : null,
@@ -445,6 +501,163 @@ function parseEvent(value, raw, events, rejected) {
   events.push({ kind: 'event', days, until: Math.min(until, days + 31), name });
 }
 
+// --- курс: кто был, стычки, слухи, новые имена, дела (шаг 3) -----------------
+//
+// Стороны стычки и дела — id человека (однокурсник или преподаватель) или
+// героиня (`@heroine`). Героиню модель нередко зовёт по имени — имя из
+// стоп-листа здесь не отказ, а она сама. Карточка (бот) стороной не бывает,
+// если такого человека нет в списках: «Рассказчик поссорился» — шум.
+
+/** Сторона: `{id}` или `{error}`. */
+function parseParty(raw, ctx) {
+  const v = String(raw || '').replace(/[[\]()]/g, '').trim();
+  if (!v) return { error: 'пустая сторона' };
+  if (HEROINE_WORDS.includes(norm(v))) return { id: HEROINE };
+  const said = ctx.stopHit(v);
+  if (said && said.kind === STOP_USER) return { id: HEROINE };
+  const id = ctx.findPerson(v);
+  const hit = strictest([said, id ? ctx.stopHit(ctx.teacherName(id)) : null]);
+  if (hit && (HARD_STOPS.includes(hit.kind) || !id)) {
+    return { error: `стоп-лист (${STOP_WORDS[hit.kind] || hit.kind}): «${v}»` };
+  }
+  if (!id) return { error: `неизвестный человек: «${v}»` };
+  return { id };
+}
+
+/**
+ * Человек по слову модели — тем же правилом, что сторона стычки: id из
+ * списков, `@heroine` или `{error}`. Нужна секретарю для автора реакции.
+ */
+export function partyOf(raw, lexicon) {
+  return parseParty(raw, buildContext(lexicon));
+}
+
+/** Свободный хвост: без скобок и подчёркиваний, в одну строку, с потолком. */
+function freeText(parts, max) {
+  return parts.join(':')
+    .replace(/-->|[=[\]<>]/g, ' ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+    .slice(0, max)
+    .trim();
+}
+
+/** `met=sokolova`, `met=sokolova, petrova` — кто был в сцене. Героиня — не «встреча». */
+function parseMet(value, raw, ctx, events, rejected) {
+  for (const part of value.split(/[,;]/)) {
+    if (!part.trim()) continue;
+    const who = parseParty(part, ctx);
+    if (who.error) rejected.push({ raw, reason: who.error });
+    else if (who.id === HEROINE) rejected.push({ raw, reason: 'героиня и так в сцене — met не нужен' });
+    else events.push({ kind: 'met', personId: who.id });
+  }
+}
+
+/** Две стороны в начале значения: стычка и дело. */
+function parsePair(parts, raw, ctx, rejected) {
+  const a = parseParty(parts[0], ctx);
+  const b = parseParty(parts[1], ctx);
+  const bad = a.error || b.error;
+  if (bad) {
+    rejected.push({ raw, reason: bad });
+    return null;
+  }
+  if (a.id === b.id) {
+    rejected.push({ raw, reason: 'обе стороны — один человек' });
+    return null;
+  }
+  return { a: a.id, b: b.id };
+}
+
+/** `clash=a:b:повод` — стычка двоих; повод необязателен. */
+function parseClash(value, raw, ctx, events, rejected) {
+  const parts = value.split(':');
+  if (parts.length < 2) {
+    rejected.push({ raw, reason: 'ожидается clash=кто:с кем:повод' });
+    return;
+  }
+  const pair = parsePair(parts, raw, ctx, rejected);
+  if (!pair) return;
+  const reason = freeText(parts.slice(2), SOCIAL_TEXT_MAX.reason);
+  events.push({ kind: 'clash', ...pair, ...(reason ? { reason } : {}) });
+}
+
+/**
+ * `rumor=о_ком:что` — в сцене прозвучал слух. Факт здесь — то, что его
+ * пустили, а не то, что он правда.
+ */
+function parseRumor(value, raw, ctx, events, rejected) {
+  const at = value.indexOf(':');
+  if (at < 0) {
+    rejected.push({ raw, reason: 'ожидается rumor=о ком:что говорят' });
+    return;
+  }
+  const about = parseParty(value.slice(0, at), ctx);
+  if (about.error) {
+    rejected.push({ raw, reason: about.error });
+    return;
+  }
+  const text = freeText([value.slice(at + 1)], SOCIAL_TEXT_MAX.rumor);
+  if (!text) {
+    rejected.push({ raw, reason: 'у слуха нет содержания' });
+    return;
+  }
+  events.push({ kind: 'rumor', about: about.id, text });
+}
+
+/**
+ * `new=Глеб Орлов` — незнакомое имя, будущий кандидат в курс. Уже знакомый
+ * однокурсник — это просто «был в сцене»; преподаватель, героиня, бот и
+ * заведение — отказ.
+ */
+function parseNew(value, raw, ctx, events, rejected) {
+  const name = freeText([value], SOCIAL_TEXT_MAX.name).replace(/[:;,.!?]+$/, '').trim();
+  const words = name.split(' ').filter(Boolean);
+  if (!name || !/\p{L}{2}/u.test(name) || words.length > 4 || /\d/.test(name)) {
+    rejected.push({ raw, reason: `не похоже на имя: «${value.trim()}»` });
+    return;
+  }
+  const hit = ctx.stopHit(name);
+  if (hit) {
+    rejected.push({ raw, reason: `стоп-лист (${STOP_WORDS[hit.kind] || hit.kind}): «${name}»` });
+    return;
+  }
+  const classmate = ctx.findClassmate(name);
+  if (classmate) {
+    events.push({ kind: 'met', personId: classmate });
+    return;
+  }
+  if (ctx.findPerson(name)) {
+    rejected.push({ raw, reason: `«${name}» уже есть среди людей академии` });
+    return;
+  }
+  events.push({ kind: 'new', name });
+}
+
+/**
+ * `deal=sokolova:@heroine:конспект` — между двумя открыто дело: обещание,
+ * долг, общий проект. Закрыто — `deal-=…` или последним полем `:закрыто`.
+ * Порядок сторон — кто кому: первая обещала второй.
+ */
+function parseDeal(value, raw, closedKey, ctx, events, rejected) {
+  const parts = value.split(':');
+  let closed = closedKey;
+  if (parts.length > 3 && DEAL_CLOSED.test(parts[parts.length - 1].trim())) {
+    closed = true;
+    parts.pop();
+  }
+  if (parts.length < 3) {
+    rejected.push({ raw, reason: 'ожидается deal=кто:кому:что' });
+    return;
+  }
+  const pair = parsePair(parts, raw, ctx, rejected);
+  if (!pair) return;
+  const what = freeText(parts.slice(2), SOCIAL_TEXT_MAX.deal);
+  if (!what) {
+    rejected.push({ raw, reason: 'у дела нет содержания' });
+    return;
+  }
+  events.push({ kind: 'deal', ...pair, what, closed });
+}
+
 /** `skip=предмет`, `late=предмет` — ключи посещаемости из 3.4. */
 function parseAttendance(value, raw, kind, ctx, events, rejected) {
   const subjectId = ctx.findSubject(value);
@@ -477,6 +690,12 @@ function buildContext(preset) {
 
   const subjects = pick(p.subjects, inner.subjects);
   const teachers = pick(p.teachers, inner.teachers);
+  // Курс (шаг 2): движок кладёт однокурсников прямо в `teachers`
+  // (`classmates.markerPeople`), секретарь — отдельным списком. Люди — оба
+  // списка без повторов id.
+  const classmates = pick(p.classmates, inner.classmates).filter((c) => c && c.id);
+  const people = [...teachers];
+  for (const c of classmates) if (!people.some((x) => x && x.id === c.id)) people.push(c);
   const grades = (p.grades && p.grades.values ? p.grades : inner.grades) || {};
 
   const graded = new Map();
@@ -506,8 +725,12 @@ function buildContext(preset) {
   return {
     findSubject: (raw) => byIdOrName(subjects, raw),
     findTeacher: (raw) => byIdOrName(teachers, raw),
+    // Людей модель зовёт как придётся: «sokolova» при id `vera-sokolova`,
+    // «Соколовой», «В. Соколова». Точное — первым, мягкое — если точного нет.
+    findPerson: (raw) => byIdOrName(people, raw) || softPerson(people, raw),
+    findClassmate: (raw) => byIdOrName(classmates, raw),
     teacherName: (id) => {
-      const t = teachers.find((x) => x && x.id === id);
+      const t = people.find((x) => x && x.id === id);
       return t ? (t.name || t.id) : '';
     },
     impactWeight: (level) => impactWeight(scaleOwner, level),
@@ -545,6 +768,55 @@ function byIdOrName(list, raw) {
     return false;
   });
   return hits.length === 1 ? hits[0].id : null;
+}
+
+/**
+ * Мягкий поиск человека — когда ни id, ни имя целиком не совпали. По
+ * порядку: часть id («sokolova» → `vera-sokolova`), латиница по имени
+ * («sokolova» → «Соколова»), инициалы и часть имени (`classmates.sameName`),
+ * падеж («Соколовой», «Веры» → «Вера Соколова»). На каждом шаге — только если
+ * подходит ровно один человек: двусмысленное по-прежнему отвергается, и
+ * секретарь видит это на плашке строкой «Не разобрано».
+ */
+function softPerson(list, raw) {
+  const key = norm(raw);
+  if (!key) return null;
+  const words = key.split(/[\s-]+/).filter(Boolean);
+  if (!words.length) return null;
+  const unique = (test) => {
+    const hits = list.filter((it) => it && it.id && test(it));
+    return hits.length === 1 ? hits[0].id : null;
+  };
+  const byId = unique((it) => contiguous(words, norm(it.id).split(/[\s-]+/)));
+  if (byId) return byId;
+  if (/^[a-z0-9\s-]+$/.test(key)) {
+    const byLatin = unique((it) => contiguous(words, slugify(it.name || '').split('-')));
+    if (byLatin) return byLatin;
+  }
+  const byName = unique((it) => sameName(it.name, raw));
+  if (byName) return byName;
+  return unique((it) => {
+    const name = norm(it.name || '').split(' ');
+    return words.every((w) => name.some((n) => sameStem(w, n)));
+  });
+}
+
+/** Слова `words` идут подряд где-то в `parts`. */
+function contiguous(words, parts) {
+  for (let i = 0; i + words.length <= parts.length; i++) {
+    if (words.every((w, k) => parts[i + k] === w)) return true;
+  }
+  return false;
+}
+
+/** Одно слово в другом падеже: «Соколовой» и «Соколова», «Веры» и «Вера». */
+function sameStem(a, b) {
+  if (a === b) return true;
+  if (!/^[а-я]{3,}$/.test(a) || !/^[а-я]{3,}$/.test(b)) return false;
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let n = 0;
+  while (n < a.length && n < b.length && a[n] === b[n]) n++;
+  return n >= Math.max(3, Math.min(a.length, b.length) - 2);
 }
 
 function signed(sign, digits) {

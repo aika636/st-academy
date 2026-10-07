@@ -48,6 +48,7 @@ import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
 import { armHolidayHooks, planEvent } from './holidays.mjs';
+import { markerPeople } from './classmates.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
   examTermIndex, examSessionEnded, closeExamSession, isPassing, examScore,
@@ -306,7 +307,9 @@ export function applyResponse(state, text, preset, opts = {}) {
   const lexicon = {
     ...preset,
     subjects: s.subjects,
-    teachers: s.teachers,
+    // `rel=` двигает и однокурсников (шаг 2): разборщик ищет id и имя по
+    // преподавателям, за ними — по курсу.
+    teachers: markerPeople(s),
     survey: s.survey,
     names: opts.names && typeof opts.names === 'object' ? opts.names : null,
   };
@@ -524,7 +527,7 @@ export function applyResponse(state, text, preset, opts = {}) {
     if (planned.ok) {
       s = planned.state;
       out.debug.applied.push({ kind: 'event', id: planned.event.id, name: planned.event.name, from: planned.event.from });
-    } else {
+    } else if (planned.duplicate) {
       out.debug.applied.push({ kind: 'event-known', name: ev.name });
     }
   }

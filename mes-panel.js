@@ -38,24 +38,50 @@ export const PANEL_TEXT = {
   correction: 'поправка',
   summary: 'Кратко',
   lookingFor: 'Что ищет секретарь',
-  lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает только то, что случилось с героиней, а праздники и события на две недели вперёд — в планы. Время не трогает.',
+  lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает то, что случилось с героиней и людьми вокруг неё, а праздники и события на две недели вперёд — в планы. Время не трогает.',
   events: 'Изменилось в Академии',
   empty: '—',
   correctionNote: 'Это не последний ответ: выводы лягут поправкой — датой этого ответа, поверх нынешнего состояния.',
-  liveNote: 'Последний ответ: выводы лягут пересчётом, как будто рассказчик сам их отметил.',
+  liveNote: 'Это последний ответ: после сохранения выводы лягут так, будто рассказчик отметил их сам.',
   notCounted: 'ответ ещё не посчитан',
   uncounted: 'Академия этот ответ ещё не считала. Разбор подготовит черновик; изменения применятся после сохранения.',
   onlyLast: 'Этот ответ сейчас не разобрать.',
   more: 'ещё {n}',
+  talk: 'Что говорят',
+  // `{crowdIn}` и `{tab}` — слова пресета: «в классе», «Молва».
+  talkHint: 'Что говорят {crowdIn} о том, что было. Ничего не меняет — появится во вкладке «{tab}». Вычеркнутый факт уносит свои реакции, вычеркнутый пост — свои ответы.',
+  // Ответ под постом ленты, которого в этом разборе нет.
+  inThread: 'в ветке «{post}»',
+  nickHint: 'ник-маска: это не человек из списка',
+  talkNone: 'никто не обсуждает',
+  toCourse: 'Добавить',
+  toCourseHint: 'Добавить этого человека в раздел «{course}» вкладки «Люди».',
+  onFact: 'по поводу: {fact}',
+  unparsed: 'Не разобрано: {names} — таких людей нет в списках. Добавьте человека или поправьте имя и разберите заново.',
 };
 
-/** Что ищет секретарь — разделы плашки, по виду вывода (`tokenEvent().kind`). */
+/** Слова заведения по умолчанию — если хост их не передал (`view.labels`). */
+const LABELS = { course: 'Курс', rel: 'Отношение преподавателей', feedTab: 'Поток', crowdIn: 'на курсе' };
+
+const fillText = (t, vars) => String(t).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+
+/**
+ * Что ищет секретарь — разделы плашки, по виду вывода (`tokenEvent().kind`).
+ * `label` с `{…}` — слово заведения из `view.labels`: у школы «Отношение
+ * учителей» и «Класс: кто был…», у кадетов — «Взвод: …».
+ */
 export const SECTIONS = [
   { kind: 'grade', icon: 'fa-star', label: 'Оценки, зачёты, экзамены', tone: 'gold' },
   { kind: 'attendance', icon: 'fa-person-walking', label: 'Прогулы и опоздания', tone: 'red' },
-  { kind: 'rel', icon: 'fa-heart', label: 'Отношение преподавателей', tone: 'pink' },
+  { kind: 'rel', icon: 'fa-heart', label: '{rel}', tone: 'pink' },
   { kind: 'event', icon: 'fa-calendar-day', label: 'В планы: праздники и события', tone: 'blue' },
+  { kind: 'course', icon: 'fa-user-group', label: '{course}: кто был, стычки, слухи, дела', tone: 'green' },
 ];
+
+/** Подпись раздела словами заведения. */
+export function sectionLabel(section, labels = {}) {
+  return fillText(section.label, { ...LABELS, ...labels });
+}
 
 const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная' };
 
@@ -102,7 +128,7 @@ export function summaryText(view) {
   if (view.draft) return PANEL_TEXT.draft;
   if (view.uncounted) return PANEL_TEXT.notCounted;
   const when = [view.date, view.time].filter(Boolean).join(' · ');
-  const lines = [...(view.rows || []), ...(view.analyzed && view.correction ? (view.tokens || []).map((t) => t.text || t) : [])]
+  const lines = [...(view.rows || []), ...(view.analyzed && view.correction ? (view.tokens || []).map((t) => t.brief || t.text || t) : [])]
     .filter(Boolean);
   const head = lines.slice(0, 2);
   const rest = lines.length - head.length;
@@ -144,7 +170,8 @@ function icon(name) {
  * @param {Object} host
  * @param {(mesId: number) => ?Object} host.panelFor вид плашки или `null` — плашки не нужно
  * @param {(mesId: number) => Promise} host.analyze
- * @param {(mesId: number, index: number) => Promise} host.dropToken
+ * @param {(mesId: number, index: number) => Promise} host.dropToken вычеркнуть строку (факт — с его реакциями)
+ * @param {(mesId: number, candidateId: string) => Promise} [host.confirmCandidate] новое имя — в курс
  * @param {(mesId: number) => Promise} host.clearAnalysis
  * @param {?Element} [root] где искать сообщения; по умолчанию `#chat`
  */
@@ -236,7 +263,8 @@ function buildPanel(host, mesId, view) {
   ]);
 
   // --- подробности ---
-  if (view.draft) content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.draft }));
+  // «Черновик — ещё не сохранён» уже сказан в строке-сводке над подробностями:
+  // второй раз подряд он читался как сбой.
   if (view.summary) {
     content.append(el('div', { class: 'academy-mes-quote' }, [
       icon('fa-feather-pointed'),
@@ -244,28 +272,76 @@ function buildPanel(host, mesId, view) {
     ]));
   }
 
-  content.append(el('div', { class: 'academy-mes-title' }, [icon('fa-magnifying-glass'), el('span', { text: PANEL_TEXT.lookingFor })]));
-  if (!view.analyzed) content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.lookingForHint }));
+  const labels = { ...LABELS, ...(view.labels || {}) };
+  // «Что ищет секретарь» с пояснением — только до первого разбора: у готового
+  // черновика и сохранённого разбора разделы говорят сами за себя.
+  if (!view.analyzed && !view.draft) {
+    content.append(el('div', { class: 'academy-mes-title' }, [icon('fa-magnifying-glass'), el('span', { text: PANEL_TEXT.lookingFor })]));
+    content.append(el('div', { class: 'academy-mes-note', text: PANEL_TEXT.lookingForHint }));
+  }
 
   const tokens = (view.tokens || []).map((t, index) => ({ ...(typeof t === 'string' ? { text: t, kind: 'other' } : t), index }));
+  const tokenRow = (t) => el('li', t.nick ? { class: 'academy-mes-nick', title: PANEL_TEXT.nickHint } : {}, [
+    el('span', { text: t.text }),
+    t.about ? el('span', { class: 'academy-mes-about', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
+    t.candidate && host.confirmCandidate ? el('button', {
+      type: 'button',
+      class: 'menu_button academy-mes-btn academy-mes-confirm',
+      title: fillText(PANEL_TEXT.toCourseHint, labels),
+      disabled: busy,
+      onclick: () => run(host.confirmCandidate(mesId, t.candidate)),
+    }, [icon('fa-user-plus'), el('span', { text: PANEL_TEXT.toCourse })]) : null,
+    el('button', {
+      type: 'button',
+      class: 'academy-mes-drop',
+      title: PANEL_TEXT.drop,
+      'aria-label': PANEL_TEXT.drop,
+      disabled: busy,
+      onclick: () => run(host.dropToken(mesId, t.index)),
+    }, [icon('fa-xmark')]),
+  ]);
   for (const s of SECTIONS) {
     const mine = tokens.filter((t) => t.kind === s.kind);
     content.append(el('div', { class: `academy-mes-section academy-tone-${s.tone}` }, [
-      el('div', { class: 'academy-mes-section-head' }, [icon(s.icon), el('span', { text: s.label })]),
+      el('div', { class: 'academy-mes-section-head' }, [icon(s.icon), el('span', { text: sectionLabel(s, labels) })]),
       mine.length
-        ? el('ul', { class: 'academy-mes-tokens' }, mine.map((t) => el('li', {}, [
-          el('span', { text: t.text }),
-          el('button', {
-            type: 'button',
-            class: 'academy-mes-drop',
-            title: PANEL_TEXT.drop,
-            'aria-label': PANEL_TEXT.drop,
-            disabled: busy,
-            onclick: () => run(host.dropToken(mesId, t.index)),
-          }, [icon('fa-xmark')]),
-        ])))
+        ? el('ul', { class: 'academy-mes-tokens' }, mine.map(tokenRow))
         : el('div', { class: 'academy-mes-none', text: view.analyzed ? PANEL_TEXT.empty : '' }),
     ]));
+  }
+
+  // «Что сочинено» — отдельно и под фактами: реакции ничего не меняют, а
+  // держатся каждая за свой факт. Громкость — подписью к разделу.
+  const loud = tokens.find((t) => t.kind === 'loud');
+  // Ответы — под своим постом, с отступом; ответы к постам ленты (старая
+  // ветка) — после, с подписью, к чему (`talkGroups`).
+  const { posts: talk, elsewhere, replies } = talkGroups(tokens);
+  const postRow = (t) => {
+    const row = tokenRow(t);
+    if (t.replies.length) {
+      row.className = `${row.className ? `${row.className} ` : ''}academy-mes-has-thread`;
+      row.append(el('ul', { class: 'academy-mes-tokens academy-mes-thread' }, t.replies.map(tokenRow)));
+    }
+    return row;
+  };
+  if (talk.length || replies.length || view.analyzed || view.draft) {
+    content.append(el('div', { class: 'academy-mes-section academy-mes-talk academy-tone-violet' }, [
+      el('div', { class: 'academy-mes-section-head' }, [
+        icon('fa-comments'), el('span', { text: PANEL_TEXT.talk }),
+        loud ? el('span', { class: 'academy-mes-about', text: loud.text }) : null,
+      ]),
+      talk.length || elsewhere.length
+        ? el('ul', { class: 'academy-mes-tokens' }, [...talk.map(postRow), ...elsewhere.map(tokenRow)])
+        : el('div', { class: 'academy-mes-none', text: PANEL_TEXT.talkNone }),
+      talk.length || elsewhere.length ? el('div', { class: 'academy-mes-note academy-mes-small', text: fillText(PANEL_TEXT.talkHint, { crowdIn: labels.crowdIn, tab: labels.feedTab }) }) : null,
+    ]));
+  }
+
+  // Кого секретарь назвал, а найти не удалось даже мягко, — не тишина в
+  // консоли, а строка: человек может добавить его и разобрать заново.
+  const unparsed = (view.unparsed || []).filter(Boolean);
+  if (unparsed.length) {
+    content.append(el('div', { class: 'academy-mes-note academy-mes-unparsed', text: unparsedText(unparsed) }));
   }
 
   const rows = (view.rows || []).filter(Boolean);
@@ -313,6 +389,31 @@ function buildPanel(host, mesId, view) {
     'data-mesid': String(mesId),
   }, [toggle, content]);
   return panelNode;
+}
+
+/**
+ * «Что говорят» деревом: посты (реакции) с ответами под каждым и ответы к
+ * постам ленты, которых в этом разборе нет, — отдельно, с подписью «в ветке
+ * «…»». Строки — те же, что пришли (`index` — номер строки для вычёркивания).
+ *
+ * @param {Array<{kind: string, index: number, post?: number, onPost?: string}>} tokens
+ * @returns {{posts: Object[], elsewhere: Object[], replies: Object[]}}
+ */
+export function talkGroups(tokens) {
+  const list = Array.isArray(tokens) ? tokens : [];
+  const replies = list.filter((t) => t && t.kind === 'reply');
+  const reacts = list.filter((t) => t && t.kind === 'react');
+  const posts = reacts.map((t) => ({ ...t, replies: replies.filter((a) => a.post === t.index) }));
+  const elsewhere = replies.filter((a) => !reacts.some((t) => t.index === a.post)).map((a) => ({
+    ...a, about: a.onPost ? fillText(PANEL_TEXT.inThread, { post: a.onPost }) : '',
+  }));
+  return { posts, elsewhere, replies };
+}
+
+/** «Не разобрано: «sokolova», «Глеб» — таких людей нет в списках…» */
+export function unparsedText(names) {
+  const list = (names || []).filter(Boolean).map((n) => `«${n}»`).join(', ');
+  return list ? fillText(PANEL_TEXT.unparsed, { names: list }) : '';
 }
 
 /** Действие с кнопки: отказ хоста не должен ронять обработчик клика. */

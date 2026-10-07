@@ -369,9 +369,12 @@ test('первый прогул и призрак аудитории — по в
 
 test('каталог: все виды, тайные помечены, полученные с экземплярами', () => {
   const cat = milestoneCatalog([{ id: 'firstTop', kind: 'firstTop' }, { id: 'favorite:a', kind: 'favorite' }, { id: 'favorite:b', kind: 'favorite' }]);
-  assert.deepEqual(cat.map((c) => c.kind), KINDS);
+  // Полученные — первыми, остальные следом; внутри каждой части — порядок KINDS.
+  const rest = KINDS.filter((k) => k !== 'firstTop' && k !== 'favorite');
+  assert.deepEqual(cat.map((c) => c.kind), ['firstTop', 'favorite', ...rest]);
   assert.equal(cat.find((c) => c.kind === 'favorite').earned.length, 2);
   assert.deepEqual(cat.filter((c) => c.secret).map((c) => c.kind), SECRET_KINDS);
+  assert.deepEqual(milestoneCatalog([]).map((c) => c.kind), KINDS, 'без полученных — порядок KINDS');
   assert.deepEqual(Object.keys(DEFAULT_TITLES).sort(), [...KINDS].sort());
   assert.deepEqual(Object.keys(DEFAULT_HINTS).sort(), [...KINDS].sort());
 });
@@ -414,4 +417,19 @@ test('вкладка «Достижения»: тайное скрыто до п
   assert.ok(v.earned.find((m) => m.kind === 'firstSkip').secret);
   assert.deepEqual(achievementsView(null, RU).earned, [], 'без семестра — пусто, но каталог есть');
   assert.equal(achievementsView(null, RU).catalog.length, KINDS.length);
+});
+
+test('подсказки достижений не повторяют название и говорят без жаргона', () => {
+  for (const id of BUILTIN_PRESETS) {
+    const p = load(`${id}.json`);
+    for (const kind of KINDS) {
+      const title = milestoneTitle(kind, p).toLowerCase().replace(/[.«»]/g, '');
+      const hint = milestoneHint(kind, p).toLowerCase();
+      assert.equal(hint.includes(title) && title.split(' ').length > 1, false, `${id}/${kind}: «${hint}» повторяет «${title}»`);
+      assert.equal(/критическ|красный балл/.test(hint), false, `${id}/${kind}: жаргон в «${hint}»`);
+    }
+    for (const kind of ['cleanWeek', 'firstSkip']) {
+      assert.equal(/пропуск/i.test(milestoneTitle(kind, p)), false, `${id}/${kind}: «пропуск» вместо «прогул»`);
+    }
+  }
 });

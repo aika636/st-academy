@@ -1079,3 +1079,193 @@ test('таблица плана: корпус и аудитория доходя
   assert.equal(saved[0].subjects[0].room, '');
   api.destroy();
 });
+
+test('«Люди» → «Курс»: подсказка пустого курса, добавление, правка и удаление с вопросом', async () => {
+  const sent = [];
+  const empty = fakeHost(started, {}, LOREBOOK_FULL, {
+    addClassmate: async (raw) => { sent.push(['add', raw]); return { ok: true, id: 'vera' }; },
+  });
+  let { api, node } = mount(empty);
+  let body = openTab(node, 'people');
+  const part = findNode(body, (n) => /academy-people-part/.test(n.className) && n.textContent.startsWith('Курс'));
+  assert.ok(part, 'переключатель части «Курс»');
+  await click(part);
+  body = node.querySelector('.academy-body');
+  assert.ok(allTexts(body).includes(ui.DEFAULT_UI.classmatesNone), allTexts(body).join(' | '));
+  const byHint = (root, hint) => findNode(root, (n) => n.tagName === 'INPUT' && n.attrs.placeholder === hint);
+  byHint(body, ui.EXTRA_UI.cmNameHint).value = 'Вера Соколова';
+  byHint(body, ui.EXTRA_UI.cmDesireHint).value = 'стипендия';
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmAdd && n.listeners.click));
+  assert.deepEqual(sent, [['add', {
+    name: 'Вера Соколова', club: '', desire: 'стипендия', problem: '', tie: { to: '', what: '' },
+  }]]);
+  api.destroy();
+
+  const s = { ...started, classmates: [{ id: 'vera', name: 'Вера Соколова', relation: -1, club: 'театр', source: 'manual', locked: true }] };
+  const full = fakeHost(s, {}, LOREBOOK_FULL, {
+    removeClassmate: async (id) => { sent.push(['remove', id]); return { ok: true }; },
+    updateClassmate: async (id, patch) => { sent.push(['update', id, patch.name]); return { ok: true }; },
+  });
+  ({ api, node } = mount(full));
+  body = node.querySelector('.academy-body');
+  const texts = allTexts(body);
+  assert.ok(texts.includes('Вера Соколова'), texts.join(' | '));
+  assert.ok(texts.includes('косится · −1'), 'отношение словом и числом');
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmSave && n.listeners.click));
+  assert.deepEqual(sent[1], ['update', 'vera', 'Вера Соколова']);
+  const ask = findNode(body, (n) => /academy-confirm/.test(n.className));
+  assert.equal(ask.hidden, true, 'вопрос спрятан, пока не нажали «Удалить»');
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmRemove && n.listeners.click));
+  assert.equal(ask.hidden, false);
+  assert.equal(sent.length, 2, 'одно нажатие ещё не удаляет');
+  await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmRemoveYes && n.listeners.click));
+  assert.deepEqual(sent[2], ['remove', 'vera']);
+  api.destroy();
+});
+
+test('«Поток»: счётчик на ярлыке, два канала, «Взять в сюжет» — превью с правкой и отправка', async () => {
+  const day = started.calendar.day;
+  const s = {
+    ...started,
+    classmates: [{ id: 'vera', name: 'Вера Соколова', relation: 0, source: 'manual', locked: true }],
+    feed: {
+      items: [
+        { id: 'm#1', src: 'm', at: { day }, kind: 'reaction', chan: 'chat', who: 'vera', text: 'Опять она', factText: 'прогул: химия' },
+        { id: 'm#2', src: 'm', at: { day }, kind: 'reaction', chan: 'anon', who: 'someone', text: 'Говорят, подстроила' },
+      ],
+      seen: {},
+      deals: [],
+    },
+  };
+  const sent = [];
+  const host = fakeHost(s, {}, LOREBOOK_FULL, {
+    feedRead: async (ids) => { sent.push(['read', ids]); return { ok: true, n: 0 }; },
+    takeHook: async (ref, text) => { sent.push(['take', ref, text]); return { ok: true }; },
+  });
+  host.getPlot = () => null;
+  host.getHeroine = () => 'Аня';
+  host.getFeedDraft = (ref) => ({ text: `Если уместно: ${ref}` });
+  const { api, node } = mount(host);
+  const tab = node.querySelector('.academy-tabs').children.find((t) => t.dataset.tab === 'feed');
+  assert.ok(allTexts(tab).includes('2'), 'непрочитанное — числом на ярлыке');
+  // Панель закрыта (последним был открыт «Чат курса»): перерисовка по новому
+  // ответу ленту не читает — прочитанным становится только увиденное.
+  let body = openTab(node, 'feed');
+  assert.equal(sent.length, 0, 'закрытая панель ничего не помечает прочитанным');
+  node.classList.add('academy-open');
+  body = openTab(node, 'feed');
+  const texts = allTexts(body);
+  assert.ok(texts.includes('Вера Соколова'), texts.join(' | '));
+  assert.ok(texts.includes('по поводу: прогул: химия'));
+  assert.equal(texts.includes('Говорят, подстроила'), false, 'анонимка — своим каналом');
+  assert.deepEqual(sent[0], ['read', ['m#1']], 'открытый канал помечается прочитанным');
+  assert.ok(findNode(body, (n) => /academy-feed-unread/.test(n.className)), 'новое выделено');
+
+  await findNode(body, (n) => n.textContent === ui.EXTRA_UI.feedTake && n.listeners.click).listeners.click[0]({});
+  body = node.querySelector('.academy-body');
+  const area = findNode(body, (n) => n.tagName === 'TEXTAREA');
+  assert.ok(area, 'превью с правкой');
+  assert.equal(area.value, 'Если уместно: m#1');
+  area.value = 'Своими словами.';
+  const send = findNode(body, (n) => n.textContent === ui.EXTRA_UI.feedSend && n.listeners.click);
+  await send.listeners.click[0]({ currentTarget: send });
+  assert.deepEqual(sent.find((x) => x[0] === 'take'), ['take', 'm#1', 'Своими словами.']);
+
+  const anon = findNode(node.querySelector('.academy-body'), (n) => n.dataset && n.dataset.chan === 'anon');
+  await anon.listeners.click[0]({});
+  body = node.querySelector('.academy-body');
+  assert.ok(allTexts(body).includes('Говорят, подстроила'));
+  assert.ok(allTexts(body).includes('без подписи'), 'автор анонимки скрыт');
+  api.destroy();
+
+  const empty = mount(fakeHost(started, {}, LOREBOOK_FULL));
+  const emptyBody = openTab(empty.node, 'feed');
+  assert.ok(allTexts(emptyBody).includes(ui.EXTRA_UI.feedEmpty));
+  empty.api.destroy();
+});
+
+test('«Поток»: ветка под постом свёрнута после двух, маска курсивом, значок — нажатием', async () => {
+  const day = started.calendar.day;
+  const s = {
+    ...started,
+    classmates: [{ id: 'vera', name: 'Вера Соколова', relation: 0, source: 'manual', locked: true }],
+    feed: {
+      items: [
+        { id: 'm#1', src: 'm', at: { day }, kind: 'reaction', chan: 'chat', nick: 'школьный бес', text: 'Опять она', read: true, loud: 2 },
+        { id: 'm^1', src: 'm', at: { day }, kind: 'reaction', chan: 'chat', parent: 'm#1', who: 'vera', text: 'Это я-то?', read: true },
+        { id: 'm^2', src: 'm', at: { day }, kind: 'reaction', chan: 'chat', parent: 'm#1', nick: 'школьный бес', text: 'Ты, ты', read: true },
+        { id: 'm^3', src: 'm', at: { day }, kind: 'reaction', chan: 'chat', parent: 'm#1', nick: 'альфа', text: 'Третий ответ', read: true },
+      ],
+      seen: {},
+      deals: [],
+    },
+  };
+  const sent = [];
+  const host = fakeHost(s, {}, LOREBOOK_FULL, {
+    feedRead: async () => ({ ok: true, n: 0 }),
+    feedReact: async (id, emoji) => { sent.push([id, emoji]); return { ok: true, mine: emoji }; },
+  });
+  host.getPlot = () => null;
+  const { api, node } = mount(host);
+  node.classList.add('academy-open');
+  let body = openTab(node, 'feed');
+  // Канал помнится между монтированиями — открыть «Чат курса» явно.
+  await click(findNode(body, (n) => n.dataset && n.dataset.chan === 'chat' && n.listeners.click));
+  body = node.querySelector('.academy-body');
+  const texts = allTexts(body);
+  assert.ok(texts.includes('@школьный бес'), texts.join(' | '));
+  assert.ok(texts.includes('Вера Соколова'));
+  assert.ok(texts.includes('Ты, ты'));
+  assert.equal(texts.includes('Третий ответ'), false, 'третий ответ свёрнут');
+  assert.ok(findNode(body, (n) => /academy-feed-nick/.test(n.className)), 'маска выглядит иначе');
+  assert.ok(findNode(body, (n) => /academy-feed-thread/.test(n.className)), 'ветка с отступом');
+  for (const t of texts) assert.doesNotMatch(t, /~|reply|m\^/);
+
+  await click(findNode(body, (n) => n.textContent === 'ещё 1 ответ' && n.listeners.click));
+  body = node.querySelector('.academy-body');
+  assert.ok(allTexts(body).includes('Третий ответ'), 'раскрыта целиком');
+  assert.ok(allTexts(body).includes(ui.EXTRA_UI.feedFoldReplies));
+
+  const react = findNode(body, (n) => /academy-feed-react\b/.test(n.className) && n.listeners.click);
+  assert.ok(react, 'строка значков под постом');
+  await click(react);
+  assert.deepEqual(sent, [['m#1', react.dataset.emoji]]);
+  api.destroy();
+});
+
+test('лорбук: галочка перерисовывает блок сразу, не дожидаясь отчёта World Info', () => {
+  const settings = { lorebook: { enabled: false, book: '' } };
+  const host = fakeHost(started, settings, null);
+  host.setSettings = (patch) => { if (patch.lorebook) Object.assign(settings.lorebook, patch.lorebook); };
+  // Отчёт лорбука ещё старый: синхронизация не кончилась.
+  host.getLorebook = () => ({ enabled: false, name: '', reason: null, measure: null, suggest: [], orphans: [], error: null });
+  const U = ui.uiLabels(preset);
+  const { api, node } = mount(host);
+  openTab(node, 'settings');
+  const texts = () => allTexts(node.querySelector('.academy-body'));
+  assert.ok(texts().includes(U.lorebookOff));
+  let toggle = null;
+  walk(node.querySelector('.academy-body'), (n) => {
+    if (!toggle && n.tagName === 'LABEL' && n.children[1] && n.children[1].textContent === U.lorebookToggle) toggle = n.children[0];
+  });
+  assert.ok(toggle, 'галочка лорбука на месте');
+  toggle.checked = true;
+  for (const fn of toggle.listeners.change) fn({});
+  assert.equal(texts().includes(U.lorebookOff), false, '«Лорбук выключен.» ушло сразу');
+  assert.ok(texts().includes(U.lorebookRefresh), 'блок включённого лорбука на месте');
+  api.destroy();
+});
+
+test('«Люди» и «Сегодня» до начала: таблица без календаря — «не начат», а не «повреждено»', () => {
+  // «Сохранить таблицу» до «Начать»: в чате только предметы, люди и расписание.
+  const partial = { subjects: SUBJECTS, teachers: TEACHERS, schedule: buildSchedule(SUBJECTS, preset) };
+  const U = ui.uiLabels(preset);
+  const { api, node } = mount(fakeHost(partial, {}, LOREBOOK_FULL));
+  for (const tab of ['people', 'today']) {
+    const texts = allTexts(openTab(node, tab));
+    assert.ok(texts.includes(U.notStartedTitle), `${tab}: ${texts.join(' | ')}`);
+    assert.equal(texts.includes(U.brokenTitle), false, `${tab}: не «повреждено»`);
+    assert.equal(texts.some((t) => /версия схемы|нет presetId/.test(t)), false);
+  }
+  api.destroy();
+});

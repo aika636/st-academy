@@ -35,7 +35,9 @@
 
 import { labelFor, findSubject, findTeacher, teacherOfSubject } from './state.mjs';
 import { milestones, milestoneName } from './milestones.mjs';
-import { relationMemory } from './relations.mjs';
+import { relationMemory, relationLabel, isClassmate } from './relations.mjs';
+import { tieTarget } from './classmates.mjs';
+import { rumorFor } from './feed.mjs';
 
 /** Категории записей из 3.7. Порядок — приоритет при потолке: устав важнее хроники. */
 export const CATEGORIES = ['charter', 'people', 'places', 'chronicle'];
@@ -82,7 +84,32 @@ export const DEFAULT_TEMPLATES = {
   chronicleMilestone: '{day} — {milestone}.',
   place: '{name}. {note}',
   npc: '{name}. {note}',
+  // Однокурсник (шаг 2): имя, за ним — фразы только непустых полей, как у души
+  // наставника. Слова про человека, а не про заведение; пресет перекрывает.
+  classmate: '{name}.',
+  classmateClub: 'Кружок: {club}.',
+  classmateDesire: 'Хочет: {desire}.',
+  classmateTie: 'Связь: {tie}.',
+  classmateTieLine: '{who} — {what}',
+  classmateHeroine: 'героиня',
+  classmateProblem: 'Что не ладится: {problem}.',
+  classmateRelation: 'К героине: {relation}.',
+  classmateMemory: 'Помнит: {memory}.',
+  // Свежий факт ленты о человеке или слышанный им (шаг 4, `feed.rumorFor`):
+  // слух — «говорят, что…» и «может быть неправдой»; сыгранный факт — «на
+  // курсе говорят, что…» словом пресета (`vocab.crowdIn`: «в классе», «во
+  // взводе»). Без сути одной фразой (старая запись) — «обсуждают: …».
+  classmateRumor: 'Говорят (может быть неправдой), что {rumor}.',
+  classmateTalk: '{crowdIn} говорят, что {talk}.',
+  classmateTalkPlain: '{crowdIn} обсуждают: {talk}.',
 };
+
+/**
+ * Потолок длины записи однокурсника. Одна живая запись на человека
+ * (`razbor-inject.md` п.5): она подгружается при каждом упоминании имени и
+ * не должна разрастаться в биографию. Режется по последней целой фразе.
+ */
+export const CLASSMATE_ENTRY_MAX = 600;
 
 // --- форма записи -----------------------------------------------------------
 
@@ -219,6 +246,99 @@ export function teacherEntry(state, teacherId, preset) {
 }
 
 /**
+ * Запись про однокурсника (слой 2, 9.11): кто это, чего хочет, с кем связан,
+ * что у него не так, как относится к героине — словом. Ключи — имя и его
+ * части, поэтому запись срабатывает только когда человека назвали в сцене:
+ * весь курс в каждом промпте — ровно то, чего не брать (`razbor-inject.md`).
+ *
+ * Роль-зерно (`seed`) в запись не идёт: это подсказка генерации, а не
+ * характер. Слух (шаг 4) — одна свежая строка ленты о нём или слышанная им
+ * (`feed.rumorFor`); `opts.rumor` (строка) подставляет свою.
+ *
+ * @param {Object} state
+ * @param {string} id
+ * @param {Object} preset
+ * @param {{rumor?: string}} [opts]
+ */
+export function classmateEntry(state, id, preset, opts = {}) {
+  return classmateEntryOf(state, id, preset, opts);
+}
+
+/** uid записи однокурсника: по нему запись обновляется и уходит вместе с человеком. */
+export const classmateUid = (id) => `academy:classmate:${id}`;
+
+function classmateEntryOf(state, id, preset, opts) {
+  const c = ((state && state.classmates) || []).find((x) => x && x.id === id);
+  if (!c) return null;
+  const vars = vocabVars(preset);
+  const phrase = (tpl, key, value) => (bare(value) ? fill(templateOf(preset, tpl), { ...vars, [key]: bare(value) }) : '');
+
+  let tie = '';
+  if (c.tie) {
+    const target = tieTarget(state, c.tie.to);
+    const who = target.kind === 'heroine' ? templateOf(preset, 'classmateHeroine') : target.name;
+    tie = who && bare(c.tie.what)
+      ? fill(templateOf(preset, 'classmateTieLine'), { ...vars, who, what: bare(c.tie.what) })
+      : (who || c.tie.what || '');
+  }
+  const memory = relationMemory(state, c.id, preset).map((m) => bare(m.reason)).filter(Boolean);
+  const parts = [
+    fill(templateOf(preset, 'classmate'), { ...vars, name: c.name }),
+    phrase('classmateClub', 'club', c.club),
+    phrase('classmateDesire', 'desire', c.desire),
+    phrase('classmateTie', 'tie', tie),
+    phrase('classmateProblem', 'problem', c.problem),
+    phrase('classmateRelation', 'relation', relationLabel(state, c.id, preset)),
+    phrase('classmateMemory', 'memory', memory.join('; ')),
+    ...rumorPhrase(state, c.id, preset, vars, opts),
+  ].filter(Boolean);
+
+  return entry({
+    uid: classmateUid(c.id),
+    category: 'people',
+    keys: nameKeys(c.name),
+    content: capText(parts, CLASSMATE_ENTRY_MAX),
+    // Ниже преподавателей: при потолке записей наставник важнее однокурсника.
+    order: 45,
+  });
+}
+
+/**
+ * Факт ленты в запись однокурсника: слух — «говорят (может быть неправдой),
+ * что…», сыгранное — «на курсе говорят, что…». Реплики ленты сюда не идут
+ * (`feed.rumorFor`). Ложный слух о героине так и остаётся слухом: запись —
+ * знание этого человека, а не её.
+ */
+function rumorPhrase(state, id, preset, vars, opts) {
+  const v = { ...vars, crowdIn: vars.crowdIn || 'на курсе' };
+  if (typeof opts.rumor === 'string') {
+    return bare(opts.rumor) ? [capFirst(fill(templateOf(preset, 'classmateRumor'), { ...v, rumor: bare(opts.rumor) }))] : [];
+  }
+  const r = rumorFor(state, id);
+  if (!r || !bare(r.text)) return [];
+  const text = bare(r.text);
+  if (r.kind === 'rumor') return [capFirst(fill(templateOf(preset, 'classmateRumor'), { ...v, rumor: text }))];
+  return [capFirst(fill(templateOf(preset, r.gist ? 'classmateTalk' : 'classmateTalkPlain'), { ...v, talk: text }))];
+}
+
+/** Заглавная первая буква фразы: «{crowdIn} говорят» начинает предложение. */
+function capFirst(text) {
+  const t = String(text || '');
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
+}
+
+/** Фразы через пробел, но не длиннее `max`: последняя не влезшая отбрасывается целиком. */
+function capText(parts, max) {
+  let out = '';
+  for (const p of parts) {
+    const next = out ? `${out} ${p}` : p;
+    if (next.length > max) break;
+    out = next;
+  }
+  return out || String(parts[0] || '').slice(0, max);
+}
+
+/**
  * Устав: одна запись, постоянно активная. Она же объясняет модели, почему
  * репутация вообще чего-то стоит (3.7), — поэтому в ней и нынешний ярлык
  * репутации, а не только правила заведения.
@@ -350,6 +470,10 @@ function journalEvents(state, preset) {
 
   for (const record of state.journal || []) {
     if (!isSignificant(record, state, preset)) continue;
+    // Перемена отношения однокурсника хроники не заводит: его запись сама
+    // несёт нынешнее слово и память «за что», а запись на каждый переход
+    // размножила бы курс по лорбуку.
+    if (record.kind === 'rel' && isClassmate(state, record.data && record.data.teacherId)) continue;
 
     const base = `academy:chronicle:${record.kind}:${record.day || ''}:${subjectOfRecord(state, record) || (record.data && record.data.teacherId) || ''}`;
     // Суффикс приписывается только со второго совпадения: иначе единственное
@@ -474,13 +598,16 @@ export function buildEntries(state, preset) {
   const people = (state.teachers || [])
     .map((t) => teacherEntry(state, t.id, preset))
     .filter(Boolean);
+  const classmates = (state.classmates || [])
+    .map((c) => classmateEntry(state, c.id, preset))
+    .filter(Boolean);
 
   const chronicle = significantEvents(state, preset)
     .map((ev) => chronicleEntry(ev, state, preset))
     .filter(Boolean)
     .reverse();
 
-  return [charterEntry(state, preset), ...people, ...chronicle];
+  return [charterEntry(state, preset), ...people, ...classmates, ...chronicle];
 }
 
 /**
@@ -608,10 +735,29 @@ export function nameKeys(name) {
   const full = String(name || '').trim();
   if (!full) return [];
   // Считаются именно буквы и цифры: `\w` знает только латиницу, и на «Петровой»
-  // отбрасывалось бы вообще всё.
-  const parts = full.split(/\s+/).filter((p) => p.replace(/[^\p{L}\p{N}]/gu, '').length >= 3);
+  // отбрасывалось бы вообще всё. Часть имени из общего слова («Человек» у
+  // «Лишний Человек», «Мастер», «Новенькая») ключом не становится: запись
+  // всплывала бы на каждом «человек» в сцене. Полное имя остаётся ключом всегда.
+  const parts = full.split(/\s+/).filter((p) => {
+    const letters = p.replace(/[^\p{L}\p{N}]/gu, '');
+    return letters.length >= 3 && !COMMON_NAME_WORDS.has(letters.toLowerCase().replace(/ё/g, 'е'));
+  });
   return [full, ...parts.filter((p) => p !== full)];
 }
+
+/**
+ * Частые слова, которые бывают частью прозвища, но не годятся в ключ World
+ * Info сами по себе: срабатывали бы в любой сцене.
+ */
+export const COMMON_NAME_WORDS = new Set([
+  'человек', 'лишний', 'новый', 'новая', 'новенький', 'новенькая', 'старый', 'старая', 'старший', 'старшая',
+  'младший', 'младшая', 'большой', 'малый', 'маленький', 'маленькая', 'белый', 'белая', 'черный', 'черная',
+  'темный', 'темная', 'красный', 'красная', 'рыжий', 'рыжая', 'тихий', 'тихая', 'злой', 'злая',
+  'мастер', 'леди', 'лорд', 'сэр', 'господин', 'госпожа', 'мисс', 'мистер', 'миссис', 'доктор', 'профессор',
+  'учитель', 'учительница', 'капитан', 'брат', 'сестра', 'друг', 'подруга', 'девочка', 'мальчик', 'девушка',
+  'парень', 'сосед', 'соседка', 'староста', 'тень', 'кот', 'кошка', 'лис', 'лиса', 'волк', 'старик', 'дядя', 'тетя',
+  'the', 'mister', 'miss', 'lady', 'lord', 'sir', 'doctor', 'master', 'man', 'girl', 'boy', 'old', 'new', 'little', 'big',
+]);
 
 /** Собирает запись, дописывая отпечаток: без него следующий прогон слеп к правкам. */
 function entry(raw) {

@@ -80,9 +80,15 @@ export function dayPlan(state, preset, day = state.calendar.day) {
   const row = state.schedule ? state.schedule[String(dayOfWeek(day))] : null;
   if (!Array.isArray(row) || !row.length) return [];
 
+  // Пар в дне не больше, чем мест в сетке пресета: строка расписания могла
+  // остаться от прежнего пресета, где пар было шесть, а у нового пять звонков.
+  // Лишняя пара без времени показывалась номером «6», а часы и `t=+1` до неё
+  // всё равно не доходят (`time.advancePeriods` считает по тем же звонкам).
   const bells = bellsOf(preset);
+  const perDay = preset.week && Number.isInteger(preset.week.periodsPerDay) ? preset.week.periodsPerDay : 0;
+  const slots = bells.length || perDay || row.length;
   const out = [];
-  for (let i = 0; i < row.length; i += 1) {
+  for (let i = 0; i < Math.min(row.length, slots); i += 1) {
     const subjectId = row[i];
     if (!subjectId) continue; // дырка в сетке — законное «окно», не пара
     const subject = findSubject(state, subjectId);

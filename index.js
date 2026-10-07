@@ -16,21 +16,35 @@ import { buildPrompt, statusLine } from './prompt.mjs';
 import {
   awaitingAnnouncement, gradeInfo, isPassing, kindOf, publicView, sittableExams, EXAM_RULES, examRule,
 } from './core/exams.mjs';
-import { buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent } from './core/analysis.mjs';
-import { applyCorrection, revertCorrection, receiptOf, completionReceipt } from './core/corrections.mjs';
-import { MARKER_RE, stripMarker } from './core/parse-marker.mjs';
 import {
-  cloneState, createState, defaultStartDay, isDay, joinSentences, normalizePortrait,
+  buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent, tokenOf,
+  dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf,
+  unparsedNames, repliesOf, replyOf, isReplyToken,
+} from './core/analysis.mjs';
+import { applySceneEvents, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
+import {
+  reactionCap, carryFeedMarks, markRead, markPlayed, setLoudness, toggleReact, recentPosts, postByRef,
+} from './core/feed.mjs';
+import {
+  emptyPlot, takeHook, dropHook, draftHook, hookPrompt, onGeneration, onPlayerSent, onReply, expireHooks,
+  secretaryHooks, knownHooks, playedRefs, autoPick, isMuted, quietScene, HOLIDAY_KIND,
+} from './core/plot.mjs';
+import { applyCorrection, revertCorrection, receiptOf, completionReceipt } from './core/corrections.mjs';
+import { MARKER_RE, stripMarker, parseMarker } from './core/parse-marker.mjs';
+import {
+  cloneState, createState, defaultStartDay, isDay, normalizePortrait,
   normalizeSubject, normalizeTeacher, TEACHER_TEXT_MAX, teacherDetails,
 } from './core/state.mjs';
 import { readTime } from './core/time-source.mjs';
 import { readDiceRoll, readTimeSkip, readPhoneTurn } from './core/cues.mjs';
 import { diffMilestones, milestoneName, milestones, recordTally } from './core/milestones.mjs';
 import { stopList, filterPeople } from './core/stop-names.mjs';
+import { addClassmate, updateClassmate, removeClassmate } from './core/classmates.mjs';
+import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName, carryRoster } from './core/classmates.mjs';
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump } from './core/engine.mjs';
 import { alignToGrid } from './core/time.mjs';
-import { addEvent, removeEvent, armHolidayHooks } from './core/holidays.mjs';
+import { addEvent, removeEvent, armHolidayHooks, alreadyPlanned } from './core/holidays.mjs';
 import {
   BUILTIN_PRESETS, DEFAULT_BASE, USER_PRESETS_MAX, freeId, freeName, normalizePreset,
   presetEnvelope, presetFilename, presetSummary, readPresetFile,
@@ -40,7 +54,7 @@ import {
 // этот импорт не добавляет; монтирование панели по-прежнему ленивое.
 import {
   extraLabels, fill, formatDate, gradebookView, hookJournal, hookNow, hookSummary, hookToday, playChime,
-  promptDoctorView, todayView, PRESET_TEXT,
+  promptDoctorView, todayView, PRESET_TEXT, uiLabels,
 } from './ui.js';
 import { renderMessagePanels, clearMessagePanels, rowText, PANEL_TEXT } from './mes-panel.js';
 import * as storage from './storage.js';
@@ -103,6 +117,12 @@ const live = {
    * на время фоновой генерации инжекты гасятся, а взведённое остаётся (9.1.3).
    */
   oneShot: '',
+  /**
+   * Очередь поводов «Взять в сюжет» (шаг 4, `core/plot.mjs`). Живёт рядом с
+   * состоянием, в `chat_metadata.academy_plot`, и снимком хода не
+   * откатывается: свайп повод не тратит и не теряет.
+   */
+  plot: emptyPlot(),
   /** Идёт фоновая (`quiet`) генерация соседа: инжекты погашены (ремонт 9.1.3). */
   quiet: false,
   /**
@@ -402,6 +422,7 @@ function reloadState() {
   // без него не значит ничего (storage.js, «история ходов»).
   live.turns = storage.loadTurns(ctx(), live.preset);
   live.ledger = storage.loadLedger(ctx());
+  live.plot = storage.loadPlot(ctx());
   live.analysisErrors.clear();
   primeMilestones();
   return report;
@@ -482,6 +503,62 @@ function forgetTurns() {
   } catch (err) {
     console.warn(`[${MODULE}] протокол ответов не очищен:`, err);
   }
+  // Поводы ссылаются на ленту старого состояния — им больше не на что.
+  live.plot = emptyPlot();
+  savePlot();
+}
+
+/** Записать очередь поводов; сбой записи — не повод ронять ход. */
+function savePlot() {
+  try {
+    live.plot = storage.savePlot(ctx(), live.plot);
+  } catch (err) {
+    console.warn(`[${MODULE}] очередь поводов не записана:`, err);
+  }
+}
+
+/** Рубильник слоя 3, авто-режим и фон в сцене (`settings.feed`). */
+function plotSettings() {
+  const f = storage.loadSettings(ctx()).feed || {};
+  return { enabled: f.hooks !== false, auto: f.hooks !== false && f.auto === true, background: f.background !== false };
+}
+
+/**
+ * Звучит ли в этот ответ разовый повод праздника или события (решение
+ * владелицы Р5): тогда повод игрока уступает и ждёт следующего хода
+ * (`plot.onGeneration`, `yielded`). Узнаётся по взведённому одноразовому
+ * тексту: ход помнит, какие строки праздников он взвёл (`holidayLines`), а
+ * взведённое для этого ответа — `live.oneShot` (свайп получает
+ * `oneShotBefore`, и праздник прошлого хода узнаётся так же).
+ */
+function holidaySounding() {
+  const armed = String(live.oneShot || '');
+  if (!armed) return false;
+  return live.turns.some((t) => Array.isArray(t.holidayLines) && t.holidayLines.some((line) => line && armed.includes(line)));
+}
+
+/** Строки праздничных поводов среди одноразовых инжектов — в ход, который их взвёл. */
+function holidayLinesOf(injects) {
+  return (Array.isArray(injects) ? injects : []).filter((i) => i && i.kind === HOLIDAY_KIND && i.text).map((i) => String(i.text));
+}
+
+/** Последняя реплика игрока в чате — для «(без сплетен)». */
+function lastUserText() {
+  const chat = chatOf();
+  for (let i = chat.length - 1; i >= 0; i -= 1) {
+    const m = chat[i];
+    if (m && m.is_user && !m.is_system) return String(m.mes || '');
+  }
+  return '';
+}
+
+/**
+ * Молчат ли поток и поводы на этот ход: игрок написал «(без сплетен)» (приём
+ * 11) или сцена тихая (`plot.quietScene` — пока заглушка, приём 9).
+ */
+function feedMuted() {
+  const said = lastUserText();
+  return isMuted(said) || quietScene(said);
 }
 
 // --- операции, переживающие смену чата (ремонт 9.1.4) ------------------------
@@ -565,15 +642,22 @@ function writeInjects({ blank = false } = {}) {
 
   const started = !blank && Boolean(live.state && live.state.started);
   const withMarker = Boolean(settings.injectMarker) && settings.mode !== 'context';
+  const muted = started && feedMuted();
+  const plotOpts = plotSettings();
+  // Фон в сцене — отдельной галочкой (`feed.background`): рубильник поводов
+  // его не гасит, и наоборот.
   const built = started
-    ? buildPrompt(live.state, live.preset, { injects: [], withMarker })
+    ? buildPrompt(live.state, live.preset, { injects: [], withMarker, feed: { quiet: muted || !plotOpts.background } })
     : { status: '', instruction: '', oneShot: '' };
+  // Повод «Взять в сюжет» (слой 3) — один, взведённый, к одноразовому факту.
+  // Рубильник выключен, игрок попросил тишины или звучит повод праздника — не идёт.
+  const hook = started && !muted && plotOpts.enabled && !holidaySounding() ? hookPrompt(live.plot) : '';
   // Строку ставит сам человек макросом `{{academy}}` (9.3.1) — автоинжект
   // молчит, иначе строка ушла бы в промпт дважды. Гаснет только строка:
   // инструкции метки место важно (она просит ПЕРВУЮ строку ответа), а
   // одноразовый факт повелителен и обязан стоять у самого хвоста.
   const status = settings.statusViaMacro === true ? '' : built.status;
-  const oneShot = started ? [live.oneShot, live.skipWarning].filter(Boolean).join(' ') : '';
+  const oneShot = started ? [live.oneShot, hook, live.skipWarning].filter(Boolean).join(' ') : '';
 
   // Порядок аргументов — (key, value, position, depth, scan, role, filter).
   // JSDoc над `setExtensionPrompt` (script.js:8866) переставляет scan и role
@@ -642,7 +726,42 @@ function handleGenerationStarted(type, _params, dryRun) {
   }
   live.generating = String(type || 'normal');
   refreshSkipWarning();
+  // Повод взводится к генерации ответа: голова очереди, если ещё ничего не
+  // взведено. Реплика игрока, если она есть, придёт следом (`MESSAGE_SENT`
+  // таверна шлёт после этого события) и решит окончательно.
+  if (type !== 'impersonate' && live.state && live.state.started) {
+    live.plot = onGeneration(live.plot, { enabled: plotSettings().enabled, muted: feedMuted(), yielded: holidaySounding() });
+    savePlot();
+  }
   writeInjects();
+}
+
+/**
+ * Реплика игрока ушла (`MESSAGE_SENT`). Таверна шлёт её после
+ * `GENERATION_STARTED`, но до сборки промпта (`script.js:4240` → `:5851`),
+ * так что здесь ещё можно поменять, что уйдёт в этот ответ (образец —
+ * nell-witchcraft). Повод, отданный прошлому ответу, уходит в журнал;
+ * «(без сплетен)» гасит поводы, авто-режим и фон на этот ход; авто-режим,
+ * если включён, подкидывает один повод.
+ */
+async function handlePlayerSent(mesId) {
+  if (!live.preset || !live.state || !live.state.started) return 'семестр не начат';
+  const message = chatOf()[mesId];
+  if (!message || !message.is_user) return 'не реплика игрока';
+  const muted = isMuted(message.mes) || quietScene(message.mes);
+  const opts = plotSettings();
+  const yielded = holidaySounding();
+  let { plot } = onPlayerSent(live.plot, { enabled: opts.enabled, muted, yielded });
+  if (opts.auto && !muted) {
+    const picked = autoPick(plot, live.state, { enabled: true, muted, yielded, heroine: ctx().name1, preset: live.preset });
+    plot = picked.plot;
+    if (picked.id) await commit(picked.state);
+  }
+  live.plot = plot;
+  savePlot();
+  setInjects({});
+  refreshPanel();
+  return muted ? 'без поводов' : 'принята';
 }
 
 /**
@@ -967,7 +1086,11 @@ function armPending(state) {
   const latest = live.turns[live.turns.length - 1];
   if (latest && latest.stamp === null) return state;
   const joined = [armedOneShot(), ...pending.map((i) => i && i.text)].filter(Boolean).join(' ');
-  if (latest) latest.oneShot = joined;
+  if (latest) {
+    latest.oneShot = joined;
+    const lines = holidayLinesOf(pending);
+    if (lines.length) latest.holidayLines = [...(latest.holidayLines || []), ...lines].slice(-6);
+  }
   live.oneShot = joined;
   return { ...state, pending: [] };
 }
@@ -1164,10 +1287,16 @@ function latestFor(mesId, chat, { edited = false } = {}) {
  * текста: `stamp = null` — «ещё не посчитан».
  */
 async function rollbackLatest(turn, mesId, reason = 'swipe') {
+  const was = turn.stamp;
   turn.mesId = mesId;
   turn.stamp = null;
   live.oneShot = turn.oneShotBefore;
-  await commit(turn.before);
+  // Люди, добавленные и поправленные руками после ответа, — решение игрока,
+  // а не событие ответа: откат их не отменяет (`classmates.carryRoster`).
+  turn.before = carryRoster(live.state, turn.before);
+  // «Прочитано» и жизнь поводов ставились после снимка — переносятся с собой
+  // (`feed.carryFeedMarks`); «сыграно» от откатываемого ответа снимается.
+  await commit(carryFeedMarks(live.state, turn.before, was || ''));
   announceRollback(reason, mesId);
 }
 
@@ -1252,6 +1381,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   const analysisKey = tokens ? tokens.join(' ') : null;
 
   let turn = latestFor(mesId, chat);
+  const fresh = !turn;
   if (turn) {
     // Тот же ход: свайп, продолжение, правка. Уже посчитан этим текстом и этим
     // разбором — выход; иначе считается заново от снимка «до него».
@@ -1278,6 +1408,9 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
     live.turns.push(turn);
     if (live.turns.length > storage.TURN_HISTORY) live.turns.splice(0, live.turns.length - storage.TURN_HISTORY);
   }
+  // Пересчёт идёт от снимка, но курс в нём — нынешний: человека, которого
+  // добавили руками после ответа, пересчёт не стирает (`carryRoster`).
+  if (!fresh) turn.before = carryRoster(live.state, turn.before);
   const before = turn.before;
 
   const settings = storage.loadSettings(c);
@@ -1320,11 +1453,24 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
     run.divergence = exam.divergence || run.divergence;
   }
 
+  state = sceneOfTurn(state, text, tokens, mark, c);
+  // Пересчёт идёт от снимка «до ответа»: отметки ленты, поставленные после
+  // него (прочитано, взято, истекло), переносятся с прошлой версии.
+  state = carryFeedMarks(live.state, state, mark);
+  // Поводы (шаг 4): пришедший ответ получил взведённый повод; новый ответ —
+  // ещё один шаг к истечению неотыгранного.
+  if (source === 'received') live.plot = onReply(live.plot, { fresh });
+  const expired = expireHooks(live.plot, state);
+  live.plot = expired.plot;
+  state = expired.state;
+  savePlot();
+
   const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join(' ');
   turn.mesId = mesId;
   turn.stamp = mark;
   turn.analysis = analysisKey;
   turn.oneShot = oneShot;
+  turn.holidayLines = holidayLinesOf(injects);
   live.lastRun = { ...run, injects, permission, source, mesId };
   // Ответ пришёл — предупреждение промотки своё отработало.
   live.skipWarning = '';
@@ -1435,8 +1581,17 @@ function recordLedger(mark, before, after, { marker = false, exam = null } = {})
   const boundary = oldLast ? journal.findLastIndex((row) => JSON.stringify(row) === JSON.stringify(oldLast)) : -1;
   const relations = journal.slice(boundary + 1).filter((row) => row.kind === 'rel' && Number.isFinite(row.data?.from) && Number.isFinite(row.data?.to));
   const applied = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'rel');
+  const planned = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'event' || ev.kind === 'event-known');
   const receipts = tokens && tokens.map((token) => {
     const ev = tokenEvent(token, lexiconOf(before, ctx()));
+    // Событие: записано — квитанция с id; было в планах — `known`, чтобы
+    // плашка не выдавала его за записанное, а снятие не убрало чужую запись.
+    if (ev?.kind === 'event') {
+      const at = planned.findIndex((item) => item.name === ev.name);
+      const info = at >= 0 ? planned.splice(at, 1)[0] : null;
+      if (info?.kind === 'event-known') return { kind: 'event', known: true, name: ev.name };
+      if (info) return { kind: 'event', id: info.id, name: info.name, from: info.from };
+    }
     if (ev?.kind === 'rel') {
       const at = applied.findIndex((item) => item.teacherId === ev.teacherId && item.delta === ev.delta);
       const info = at >= 0 ? applied.splice(at, 1)[0] : null;
@@ -1471,10 +1626,68 @@ function lexiconOf(state, c) {
   return {
     ...live.preset,
     subjects: state.subjects,
-    teachers: state.teachers,
+    // `rel=` двигает и однокурсников: люди — преподаватели и курс (шаг 2).
+    teachers: markerPeople(state),
+    classmates: Array.isArray(state.classmates) ? state.classmates : [],
     survey: state.survey,
     names: sceneNames(c),
+    // Поводы «Взять в сюжет»: секретарь отмечает сыгранные `played=id`.
+    hooks: knownHooks(live.plot),
   };
+}
+
+/** Стоп-лист сцены для кандидатов в курс: героиня, карточка, заведение. */
+function sceneStop(state, c) {
+  return stopList({ ...sceneNames(c), preset: live.preset, survey: state.survey });
+}
+
+/**
+ * Курс в пересчёте ответа (шаг 3), поверх того, что посчитал движок:
+ *
+ * - встречи по имени (`razbor-inject.md`, приём 10): однокурсник, названный в
+ *   ответе, — «был в сцене», без запроса;
+ * - факты курса из разбора секретаря (`met/clash/rumor/new/deal`), а без
+ *   разбора — из метки самого рассказчика, если он их написал;
+ * - реакции сохранённого разбора — в ленту, каждая при своём факте.
+ *
+ * Всё ложится от снимка «до ответа» тем же пересчётом, что оценки: свайп и
+ * правка не удваивают ленту, снятие разбора её чистит.
+ */
+function sceneOfTurn(state, text, tokens, mark, c) {
+  const day = (state.calendar && state.calendar.day) || '';
+  const time = (state.calendar && state.calendar.time) || '';
+  const stop = sceneStop(state, c);
+  let next = localMet(state, stripMarker(text), { stop, day, time }).state;
+  const lexicon = lexiconOf(next, c);
+  const source = Array.isArray(tokens) ? tokens.filter(isFactToken) : null;
+  const items = source
+    ? source.map((token) => ({ token, ev: tokenEvent(token, lexicon) }))
+    : parseMarker(text, lexicon).events.map((ev) => ({ ev, token: tokenOf(ev) })).filter((x) => x.token);
+  const scene = items.filter((x) => x.ev && SCENE_KINDS.includes(x.ev.kind));
+  if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1 });
+  const reactions = Array.isArray(tokens) ? reactionsWithFacts(tokens, lexicon) : [];
+  const replies = Array.isArray(tokens) ? repliesOf(tokens) : [];
+  const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
+  if (reactions.length || replies.length) {
+    const facts = new Map(items.filter((x) => x.ev).map((x) => [x.token, x.ev]));
+    next = applyReactions(next, mark, reactions, facts, { day, time, cap: reactionCap(live.preset), loud, replies });
+  }
+  if (loud !== null && next.feed) {
+    next = cloneState(next);
+    setLoudness(next, mark, loud);
+  }
+  // «Повод сыгран» (шаг 4): секретарь видел его в сцене.
+  const played = Array.isArray(tokens) ? playedRefs(live.plot, playedOf(tokens)) : [];
+  if (played.length) {
+    next = cloneState(next);
+    markPlayed(next, mark, played);
+  }
+  return next;
+}
+
+/** Реакции разбора с подписью «к какому факту» — для вкладки «Поток» и фона. */
+function reactionsWithFacts(tokens, lexicon) {
+  return reactionsOf(tokens).map((r) => ({ ...r, factText: tokenText(r.fact, lexicon, { brief: true }) }));
 }
 
 /**
@@ -1514,10 +1727,7 @@ function panelView(mesId) {
     analyzed: Boolean(tokens),
     draft: Boolean(draft),
     summary: (draft ? draft.summary : entry && entry.summary) || '',
-    tokens: ((draft ? draft.tokens : tokens) || []).map((t) => {
-      const ev = tokenEvent(t, lexicon);
-      return { text: tokenText(t, lexicon), kind: ev ? (ev.kind === 'completion' ? 'grade' : ev.kind) : 'other' };
-    }),
+    tokens: panelTokens((draft ? draft.tokens : tokens) || [], lexicon, entry, Boolean(draft)),
     marker: entry ? entry.marker : null,
     // Как лягут выводы: пересчётом последнего ответа или поправкой к старому.
     live: Boolean(turn) || uncounted,
@@ -1526,7 +1736,122 @@ function panelView(mesId) {
     uncounted,
     busy: live.analyzing.has(mark),
     error: live.analysisErrors.get(mark) || '',
+    // Кого секретарь назвал, а в списках нет, — словами на плашке.
+    unparsed: ((draft ? draft.unparsed : tokens && entry.unparsed) || []).slice(),
+    // Слова заведения для разделов плашки: «Класс», «Отношение учителей».
+    labels: panelLabels(),
   };
+}
+
+/** Слова пресета для плашки: подвкладка «Люди», учителя, вкладка ленты. */
+function panelLabels() {
+  const U = uiLabels(live.preset);
+  return {
+    course: U.classmatesTitle,
+    rel: U.mesRelSection,
+    feedTab: U.tabFeed,
+    crowdIn: String((live.preset && live.preset.vocab && live.preset.vocab.crowdIn) || '').trim() || 'на курсе',
+  };
+}
+
+/**
+ * Строки разбора для плашки. Факты курса — разделом «Курс», реакции —
+ * разделом «Что говорят» при своём факте (`fact` — номер строки факта),
+ * новое имя — с кнопкой «в курс», пока кандидат ждёт галочки.
+ */
+function panelTokens(list, lexicon, entry, isDraft) {
+  return list.map((t, i) => {
+    if (isReactToken(t)) {
+      const r = reactionOf(t, list);
+      const fact = r && r.fact ? list.indexOf(r.fact) : -1;
+      return {
+        text: tokenText(t, lexicon), brief: '', kind: 'react', nick: Boolean(r && r.nick),
+        ...(fact >= 0 ? { fact, about: tokenText(list[fact], lexicon) } : {}),
+      };
+    }
+    // Ответ в ветке: под своим постом этого разбора (`post` — номер строки)
+    // или под постом ленты — тогда подпись, к чему он.
+    if (isReplyToken(t)) {
+      const a = replyOf(t, list);
+      const post = a && a.post ? list.indexOf(a.post) : -1;
+      const old = a && a.feed && live.state ? postByRef(live.state, a.feed) : null;
+      return {
+        text: tokenText(t, lexicon), brief: '', kind: 'reply', nick: Boolean(a && a.nick),
+        ...(post >= 0 ? { post } : {}),
+        ...(old ? { onPost: old.text } : {}),
+      };
+    }
+    if (isPlayedToken(t)) return { text: tokenText(t, lexicon), brief: tokenText(t, lexicon), kind: 'course' };
+    if (!isFactToken(t)) return { text: tokenText(t, lexicon), brief: '', kind: 'loud' };
+    if (t.startsWith('new=')) return newNameToken(t.slice(4), isDraft);
+    const ev = tokenEvent(t, lexicon);
+    const known = ev?.kind === 'event' && eventKnown(ev, entry, isDraft ? null : i);
+    const kind = ev ? (ev.kind === 'completion' ? 'grade' : SCENE_KINDS.includes(ev.kind) ? 'course' : ev.kind) : 'other';
+    return {
+      text: tokenText(t, lexicon, { known }),
+      brief: tokenText(t, lexicon, { known, brief: true }),
+      kind,
+    };
+  });
+}
+
+/**
+ * «новое имя: Глеб Орлов — добавить?» и что с ним сейчас. Раздел — словом
+ * пресета (`classmatesTitle`: «Класс», «Взвод»), в кавычках: склонять подпись
+ * вкладки нельзя, а «в раздел «Класс»» читается при любом слове.
+ */
+function newNameToken(name, isDraft) {
+  const head = `новое имя: ${name}`;
+  const part = uiLabels(live.preset).classmatesTitle;
+  if (findClassmate(live.state, name)) return { text: `${head} — уже в разделе «${part}»`, brief: head, kind: 'course' };
+  const cand = listCandidates(live.state).find((c) => c && sameName(c.name, name));
+  if (cand) return { text: `${head} — добавить в раздел «${part}»?`, brief: head, kind: 'course', candidate: cand.id };
+  return { text: isDraft ? `${head} — после сохранения его можно будет добавить` : head, brief: head, kind: 'course' };
+}
+
+/**
+ * Галочка с плашки: кандидат из сцены становится однокурсником — в нынешнем
+ * состоянии и в снимках ходов, где он ждёт. В снимок последнего хода он
+ * ложится однокурсником и там, где кандидата ещё нет: пересчёт того же ответа
+ * (повторный разбор, правка) иначе вернул бы его в кандидаты и забыл галочку.
+ */
+async function confirmSceneCandidate(id) {
+  if (!live.state) return { ok: false };
+  const cand = listCandidates(live.state).find((c) => c && c.id === id);
+  if (!cand) return { ok: false };
+  const stop = sceneStop(live.state, ctx());
+  const next = cloneState(live.state);
+  const made = confirmCandidate(next, id, live.preset, { stop });
+  if (!made) return { ok: false };
+  for (const t of live.turns) {
+    if (!t.before) continue;
+    if (findClassmate(t.before, made.name)) continue;
+    const twin = listCandidates(t.before).find((c) => c && sameName(c.name, made.name));
+    if (twin) confirmCandidate(t.before, twin.id, live.preset, { stop });
+    else if (t === live.turns[live.turns.length - 1]) {
+      const { id: _id, relation: _rel, ...fields } = made;
+      addClassmate(t.before, { ...fields, locked: false }, live.preset, { stop });
+    }
+  }
+  await commit(next);
+  await syncLorebook();
+  refreshPanel();
+  renderPanels();
+  return { ok: true, id: made.id };
+}
+
+/**
+ * Событие из разбора уже было в планах и не записано. Сохранённый разбор
+ * знает это по квитанции; черновик — сверкой с нынешними планами, без своих
+ * же событий прошлого сохранения (`holidays.alreadyPlanned`).
+ * @param {?number} index номер токена в сохранённом разборе; `null` — черновик
+ */
+function eventKnown(ev, entry, index) {
+  const receipts = (entry && Array.isArray(entry.receipts)) ? entry.receipts : [];
+  if (index !== null) return Boolean(receipts[index] && receipts[index].known);
+  const day = (entry && entry.day) || (live.state.calendar && live.state.calendar.day);
+  const own = receipts.filter((r) => r && r.kind === 'event' && r.id).map((r) => r.id);
+  return alreadyPlanned(live.state, live.preset, ev, day, own);
 }
 
 /**
@@ -1557,6 +1882,12 @@ async function analyzeMessage(mesId) {
     const entry = entryOf(mark, turn);
     // Последний ответ читается против состояния «до него» — тем, что видел
     // рассказчик; старый — против нынешнего списка предметов и людей.
+    //
+    // Курс — нынешний и для последнего ответа: снимок получает людей,
+    // добавленных руками после ответа (`carryRoster`), — иначе секретарь их не
+    // видит, а «Разобрать заново» не находит. Это безопасно для отката: те же
+    // люди переживут и пересчёт этого ответа, и свайп.
+    if (turn) turn.before = carryRoster(live.state, turn.before);
     const base = turn ? turn.before : live.state;
     const prompt = buildAnalysisPrompt(base, live.preset, {
       reply: stripMarker(text),
@@ -1566,6 +1897,9 @@ async function analyzeMessage(mesId) {
         : [entry ? formatDate(entry.day) : '', entry ? entry.time : ''].filter(Boolean).join(', '),
       heroine: c.name1,
       exams: Boolean(turn),
+      posts: Boolean(turn),
+      // Статус повода — по живой ленте: «взято» ставится после снимка.
+      hooks: secretaryHooks(live.plot, live.state),
     });
     const res = await api.complete(storage.apiSettings(c), {
       system: prompt.system,
@@ -1576,7 +1910,9 @@ async function analyzeMessage(mesId) {
     });
     if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
     if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
-    const parsed = parseAnalysis(res.text, lexiconOf(base, c));
+    // Недавние посты ленты — те же, что видел секретарь (`buildAnalysisPrompt`):
+    // по ним проверяется `reply=f2:…`. У поправки старого ответа их нет.
+    const parsed = parseAnalysis(res.text, { ...lexiconOf(base, c), feedPosts: turn ? recentPosts(base) : [] });
     if (!parsed.found) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       return fail('Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
@@ -1588,7 +1924,9 @@ async function analyzeMessage(mesId) {
     if (parsed.rejected.length) console.info(`[${MODULE}] секретарь: отвергнуто`, parsed.rejected);
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
-      stamp: mark, draft: { tokens: parsed.tokens, summary: parsed.summary }, at: Date.now(),
+      stamp: mark,
+      draft: { tokens: parsed.tokens, summary: parsed.summary, unparsed: unparsedNames(parsed.rejected) },
+      at: Date.now(),
     });
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
   } catch (err) {
@@ -1630,10 +1968,11 @@ async function writeAnalysis(mesId, tokens, summary) {
   const day = (prev && prev.day) || (live.state.calendar && live.state.calendar.day) || '';
   const steps = prev ? undoCorrections(prev) : [];
   const lexicon = lexiconOf(live.state, ctx());
+  const stop = sceneStop(live.state, ctx());
   const receipts = [];
   for (const t of list || []) {
     const ev = tokenEvent(t, lexicon);
-    const step = (s) => applyCorrection(s, ev, live.preset, { day });
+    const step = (s) => applyCorrection(s, ev, live.preset, { day, src: mark, token: t, stop, heroine: ctx().name1 });
     steps.push(step);
     receipts.push(null);
   }
@@ -1652,6 +1991,32 @@ async function writeAnalysis(mesId, tokens, summary) {
     }
   });
   historyApply(mesId, steps, undoCount);
+  // Реакции — блок «что сочинено»: квитанций у них нет, лента кладёт их
+  // заново целиком (`feed.putReactions` идемпотентна), а снимает — снятие
+  // источника в `undoCorrections`.
+  const reactions = list ? reactionsWithFacts(list, lexicon) : [];
+  const replies = list ? repliesOf(list) : [];
+  if (reactions.length || replies.length) {
+    const facts = new Map(list.filter(isFactToken).map((t) => [t, tokenEvent(t, lexicon)]));
+    const loud = loudOf(list);
+    const feedStep = (s) => applyReactions(s, mark, reactions, facts, {
+      day, time: (prev && prev.time) || '', cap: reactionCap(live.preset), loud, replies,
+    });
+    state = feedStep(state);
+    historyApply(mesId, [feedStep], 1);
+  }
+  // «Повод сыгран» старым ответом — тоже шагом: снимается вместе с разбором
+  // (`scene.revertSceneSource` снимает отметки этого ответа).
+  const played = list ? playedRefs(live.plot, playedOf(list)) : [];
+  if (played.length) {
+    const playStep = (s) => {
+      const n = cloneState(s);
+      markPlayed(n, mark, played);
+      return n;
+    };
+    state = playStep(state);
+    historyApply(mesId, [playStep], 1);
+  }
   await commit(state);
   putLedger({
     ...(prev || { rows: [], time: '', marker: false }),
@@ -1681,7 +2046,9 @@ async function saveAnalysis(mesId) {
     if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
     if (live.epoch !== epoch || stamp(String(chatOf()[mesId]?.mes || '')) !== mark) return { ok: false };
     const result = await writeAnalysis(mesId, tokens, summary);
-    if (result.ok && live.epoch === epoch) putLedger({ ...ledgerEntry(mark), draft: null, previousAnalysis });
+    if (result.ok && live.epoch === epoch) {
+      putLedger({ ...ledgerEntry(mark), draft: null, previousAnalysis, unparsed: entry.draft.unparsed || [] });
+    }
     return result;
   } finally {
     live.analyzing.delete(mark);
@@ -1723,6 +2090,15 @@ function undoCorrections(entry) {
       ? entry.receipts[i]
       : receiptOf(tokenEvent(entry.tokens[i], lexicon), entry.day);
     if (receipt) steps.push((s) => revertCorrection(s, receipt, live.preset));
+  }
+  // Курс и лента (шаг 3): реакции квитанций не имеют, а выводы, легшие
+  // пересчётом, — и факты тоже. Снимается всё, что лежит от этого ответа;
+  // кандидатов по имени — только без квитанций (с ними их снял `revertCorrection`).
+  const social = entry.tokens.some((t) => !isFactToken(t) || /^(?:met|clash|rumor|new|deal-?)=/.test(t));
+  if (social) {
+    const receipted = Array.isArray(entry.receipts) && entry.receipts.some(Boolean);
+    const names = receipted ? [] : entry.tokens.filter((t) => t.startsWith('new=')).map((t) => t.slice(4));
+    steps.push((s) => revertSceneSource(s, entry.stamp, names));
   }
   return steps;
 }
@@ -1808,7 +2184,9 @@ const panelHost = {
   analyze: (mesId) => analyzeMessage(mesId),
   saveAnalysis: (mesId) => saveAnalysis(mesId),
   discardAnalysis: (mesId) => discardAnalysis(mesId),
-  dropToken: (mesId, index) => editAnalysis(mesId, (list) => (list || []).filter((_, i) => i !== index)),
+  // Вычеркнутый факт уносит свои реакции (решение 3 владелицы).
+  dropToken: (mesId, index) => editAnalysis(mesId, (list) => dropTokenAt(list || [], index)),
+  confirmCandidate: (mesId, id) => confirmSceneCandidate(id),
   clearAnalysis: (mesId) => undoAnalysis(mesId),
 };
 
@@ -1988,7 +2366,7 @@ async function handleDeleted() {
   }
   live.turns = kept;
   live.oneShot = target.oneShotBefore;
-  await commit(target.before);
+  await commit(carryRoster(live.state, target.before));
   announceRollback('delete');
   // Регенерация: старт пришёл раньше среза (ремонт, факт 2), и предупреждение
   // промотки тогда считалось от дня ПОСЛЕ срезанного ответа. Теперь день верный.
@@ -2027,6 +2405,15 @@ async function handleChatChanged() {
 // --- стоп-лист имён в плане (9.3.6) -----------------------------------------
 
 /** Чьё имя совпало — словами для человека. Слова механизма, не заведения. */
+/** Стоп-лист для курса: героиня, карточка, заведение и слова пресета (шаг 2). */
+function classmateStop() {
+  return stopList({
+    ...sceneNames(ctx()),
+    preset: live.preset,
+    survey: (live.state && live.state.survey) || {},
+  });
+}
+
 const STOP_WHO = {
   user: 'вашего персонажа',
   institution: 'заведения',
@@ -2084,7 +2471,7 @@ function macroText() {
   if (live.quiet) return '';
   if (!live.preset || !live.state || !live.state.started) return '';
   try {
-    return buildPrompt(live.state, live.preset, { injects: [], withMarker: false }).status || '';
+    return buildPrompt(live.state, live.preset, { injects: [], withMarker: false, feed: { quiet: feedMuted() || !plotSettings().background } }).status || '';
   } catch (err) {
     console.error(`[${MODULE}] {{${MACRO}}} не собран:`, err);
     return '';
@@ -2193,6 +2580,12 @@ const host = {
     refreshPanel();
   },
   getDebug: () => live.lastRun,
+  /** Очередь поводов «Взять в сюжет» — для вкладки «Поток». */
+  getPlot: () => live.plot,
+  /** Имя героини — для подписей ленты. */
+  getHeroine: () => String((ctx() && ctx().name1) || ''),
+  /** Формулировка повода по умолчанию — для превью перед отправкой (приём 7). */
+  getFeedDraft: (ref) => (live.state ? draftHook(live.state, ref, { heroine: ctx().name1, preset: live.preset }) : null),
   markerVisibleRisk,
   /**
    * Сырьё «Доктора промпта» (9.7A п.4) и его разбор. Инжекты берутся у
@@ -2416,6 +2809,63 @@ const host = {
     },
 
     /**
+     * Однокурсники — с части «Курс» вкладки «Люди» (шаг 2). Ручное добавление,
+     * правка и удаление; кандидаты из сцены и лорбука — шаги 3 и 5. Стоп-лист
+     * тот же, что у метки: героиня, карточка, заведение, слова пресета.
+     * Лорбук пересобирается: у человека одна живая запись по имени.
+     */
+    async addClassmate(raw = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const res = addClassmate(next, { ...(raw && typeof raw === 'object' ? raw : {}), source: 'manual' },
+        live.preset, { stop: classmateStop() });
+      if (!res.ok) return res;
+      await commit(next);
+      await syncLorebook();
+      refreshPanel();
+      return res;
+    },
+
+    async updateClassmate(id, patch = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const res = updateClassmate(next, id, patch, live.preset, { stop: classmateStop() });
+      if (!res.ok) return res;
+      await commit(next);
+      await syncLorebook();
+      refreshPanel();
+      return res;
+    },
+
+    /**
+     * Удалить однокурсника. Его запись в лорбуке уходит вместе с ним — это
+     * нажатие кнопки, то есть явное действие (решение 6 в `lorebook.js`), и
+     * правленую руками запись `pruneOrphans` всё равно не тронет.
+     */
+    async removeClassmate(id) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const res = removeClassmate(next, id);
+      if (!res.ok) return res;
+      const op = captureOperation();
+      await commit(next);
+      await syncLorebook();
+      if (isCurrent(op)) {
+        try {
+          await lorebook.forgetClassmate(ctx(), id, {
+            settings: storage.loadSettings(ctx()),
+            guard: () => isCurrent(op),
+          });
+          await syncLorebook({ force: true });
+        } catch (err) {
+          console.warn(`[${MODULE}] запись однокурсника не убрана из лорбука:`, err);
+        }
+      }
+      refreshPanel();
+      return { ok: true };
+    },
+
+    /**
      * Своё событие чата (`core/holidays.mjs`): «вечеринка у Миражи в субботу».
      * Живёт в состоянии, поэтому откатывается вместе с ним; фон и разовый повод
      * у него те же, что у праздников пресета.
@@ -2428,6 +2878,65 @@ const host = {
       setInjects({});
       refreshPanel();
       return { ok: true, id: res.event.id };
+    },
+
+    /**
+     * Свой значок под постом — переключатель. Украшение: состояние семестра,
+     * отношения и промпт он не трогает; живёт в записи ленты и откатывается с
+     * ней.
+     */
+    async feedReact(id, emoji) {
+      if (!live.state || !live.state.feed) return { ok: false, error: 'ленты в этом чате нет' };
+      const next = cloneState(live.state);
+      const mine = toggleReact(next, id, emoji);
+      if (mine === null) return { ok: false, error: 'этой записи больше нет' };
+      await commit(next);
+      refreshPanel();
+      return { ok: true, mine };
+    },
+
+    /**
+     * Поток (шаг 4). Открытый канал помечается прочитанным; новое знание
+     * героини — прочитанные чужие стычки — уходит в фон строки состояния.
+     */
+    async feedRead(ids = null) {
+      if (!live.state || !live.state.feed) return { ok: true, n: 0 };
+      const next = cloneState(live.state);
+      const n = markRead(next, ids);
+      if (!n) return { ok: true, n: 0 };
+      await commit(next);
+      setInjects({});
+      refreshPanel();
+      return { ok: true, n };
+    },
+
+    /**
+     * «Взять в сюжет»: повод — в очередь, разово в следующую генерацию.
+     * `text` — формулировка из превью (правленая); пусто — по умолчанию.
+     */
+    async takeHook(ref, text = '') {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      if (!plotSettings().enabled) return { ok: false, error: 'поводы выключены в настройках' };
+      const res = takeHook(live.plot, live.state, { ref, text, heroine: ctx().name1, preset: live.preset });
+      if (!res.ok) return res;
+      live.plot = res.plot;
+      savePlot();
+      if (res.state !== live.state) await commit(res.state);
+      setInjects({});
+      refreshPanel();
+      return { ok: true, id: res.id };
+    },
+
+    async dropHook(id) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const res = dropHook(live.plot, live.state, id);
+      if (!res.ok) return { ok: false, error: 'такого повода в очереди нет' };
+      live.plot = res.plot;
+      savePlot();
+      if (res.state !== live.state) await commit(res.state);
+      setInjects({});
+      refreshPanel();
+      return { ok: true };
     },
 
     async removeEvent(id) {
@@ -2690,27 +3199,25 @@ const host = {
       if (started && opts.confirm !== true) {
         // Слово периода — из пресета: «семестр» тут был бы русским вузом,
         // прописанным в общем коде, ровно как «пропущено пар» в `commands.js`.
-        const term = (live.preset && live.preset.vocab && live.preset.vocab.term) || 'учёба';
+        const vocab = (live.preset && live.preset.vocab) || {};
+        // Пресеты — названиями, а не id: «jp-highschool» человеку ничего не
+        // говорит. Остаётся то, что лежит в состоянии (предметы, люди, оценки,
+        // журнал); из нового пресета — слова, шкала, контрольные и звонки.
+        // Про часы говорим заранее: после смены они встанут по звонкам нового
+        // пресета (`alignToGrid` ниже), и человек, не знающий об этом, читает
+        // сдвиг как поломку. Слова — активного пресета: новый ещё и не
+        // загружен (`loadPreset` ниже, после подтверждения).
+        const question = {
+          title: fill(PRESET_TEXT.switchTitle, { to: presetName(wanted) }),
+          note: fill(PRESET_TEXT.switchNote, { teachers: vocab.teacherPlural || 'преподаватели' }),
+        };
         return {
           ok: false,
           code: 'needs-confirm',
           needsConfirm: true,
-          // Склейка — через `joinSentences`, а не через шаблон: `presetMismatchNote`
-          // написан как фрагмент списка, со строчной буквы, и в шаблоне давал
-          // «Идёт круг. состояние собрано с пресетом…».
-          // Слова — активного пресета: человек читает это предупреждение в
-          // панели, которая прямо сейчас говорит именно ими; новый пресет ещё
-          // и не загружен (`loadPreset` ниже, после подтверждения).
-          error: joinSentences([
-            `Идёт ${term}`,
-            storage.presetMismatchNote(active, wanted, live.preset),
-            // Про часы говорим заранее: после смены они встанут по звонкам
-            // нового пресета (`alignToGrid` ниже), и человек, не знающий об
-            // этом, читает сдвиг как поломку.
-            'часы календаря встанут по звонкам нового пресета',
-            'Подтвердите смену',
-          ]),
-          reasons: [storage.presetMismatchNote(active, wanted, live.preset)],
+          question,
+          error: `${question.title} ${question.note}`,
+          reasons: [question.note],
           current: storage.stateSummary(live.state),
           incoming: null,
         };
@@ -2949,6 +3456,13 @@ async function init() {
   // Генерации (ремонт 9.1.2, 9.1.3). Сборка без этих событий — не повод молчать
   // целиком: тогда просто нет гашения под фоновые генерации.
   if (t.GENERATION_STARTED) ev.on(t.GENERATION_STARTED, (type, params, dryRun) => handleGenerationStarted(type, params, dryRun));
+  // Реплика игрока: снимает отданный повод и решает «(без сплетен)» (шаг 4).
+  // Мимо журнала `traced`: он про ответы модели и держит последние шесть.
+  if (t.MESSAGE_SENT) {
+    ev.on(t.MESSAGE_SENT, (mesId) => handlePlayerSent(mesId).catch((err) => {
+      console.error(`[${MODULE}] реплика #${mesId}: поводы не обновлены:`, err);
+    }));
+  }
   if (t.GENERATION_ENDED) ev.on(t.GENERATION_ENDED, () => handleGenerationEnded());
   if (t.GENERATION_STOPPED) ev.on(t.GENERATION_STOPPED, () => handleGenerationEnded());
 

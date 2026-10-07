@@ -79,9 +79,10 @@ export const TOKEN_BUDGETS = {
   ping: 8,
   survey: 1024,
   plan: 4096,
-  // Разбор ответа (секретарь, `core/analysis`): сам ответ — одна строка метки,
-  // остальное — запас на размышление думающей модели, как у анкеты.
-  analysis: 1024,
+  // Разбор ответа (секретарь, `core/analysis`): строка метки, до шести строк
+  // реакций курса (шаг 3) и «Кратко»; остальное — запас на размышление
+  // думающей модели, как у анкеты.
+  analysis: 1536,
   default: 1024,
 };
 
@@ -722,7 +723,7 @@ export async function listModels(api, opts = {}) {
   if (!res.ok) return res;
   const models = parseModels(res.data);
   if (!models.length) {
-    return { ok: false, code: 'empty-list', message: 'Сервер ответил, но список моделей пуст — впишите имя модели руками.', status: res.status, detail: '' };
+    return { ok: false, code: 'empty-list', message: 'Сервер ответил, но список моделей пуст — впишите имя модели вручную.', status: res.status, detail: '' };
   }
   return via ? { ok: true, models, via } : { ok: true, models };
 }
@@ -817,7 +818,7 @@ export async function testConnection(api, opts = {}) {
   }
   const model = (api && api.model) || '';
   if (!model) {
-    return { ok: false, code: 'no-model', message: 'Модель не выбрана: возьмите её из списка или впишите руками.', status: null, detail: '' };
+    return { ok: false, code: 'no-model', message: 'Модель не выбрана: возьмите её из списка или впишите вручную.', status: null, detail: '' };
   }
   const bad = keyProblem(api);
   if (bad) return bad;
@@ -861,7 +862,7 @@ export async function complete(api, req = {}) {
       status: null,
       detail: '',
       message: url
-        ? 'Выбран свой адрес, но модель не выбрана: возьмите её из списка или впишите руками.'
+        ? 'Выбран свой адрес, но модель не выбрана: возьмите её из списка или впишите вручную.'
         : 'Выбран свой адрес, но он не вписан.',
     };
   }
@@ -957,7 +958,7 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
         // слово вуза. Название берётся из пресета, а форма фразы выбрана без
         // рода: «Расписание предметов пришёл наполовину» не сказать.
         error: truncatedMessage(`${planWord(preset)} — только половина`, res.budget,
-          'Таблицу ниже можно заполнить руками.'),
+          'Таблицу ниже можно заполнить вручную.'),
         code: 'truncated',
         raw: parsed.raw,
         errors: [...new Set([...parsed.errors, ...checked.errors, 'truncated'])],
@@ -967,7 +968,7 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
     last = {
       // Без названия вовсе: род и падеж у него в каждом пресете свои, а
       // человеку здесь важно не как это называется, а что делать дальше.
-      error: 'Ответ модели не разобрался. Таблицу ниже можно заполнить руками.',
+      error: 'Ответ модели не разобрался. Таблицу ниже можно заполнить вручную.',
       code: 'parse',
       raw: parsed.raw,
       errors: [...new Set([...parsed.errors, ...checked.errors])],
@@ -1121,7 +1122,7 @@ export function readCharacterCard(ctx) {
       return {
         ok: false,
         code: 'group',
-        message: 'Это групповой чат, и общей карточки в нём нет: заполните анкету руками.',
+        message: 'Это групповой чат, и общей карточки в нём нет: заполните анкету вручную.',
       };
     }
     if (!char) {
@@ -1131,7 +1132,7 @@ export function readCharacterCard(ctx) {
       ok: false,
       code: 'empty-card',
       message: `Карточка «${card.name || 'без имени'}» пуста: ни описания, ни сценария, ни первого сообщения.`
-        + ' Угадывать не по чему — заполните анкету руками.',
+        + ' Угадывать не по чему — заполните анкету вручную.',
     };
   }
 
@@ -1317,7 +1318,7 @@ export async function guessSurvey(preset, api, ctx, opts = {}) {
     // То же решение, что и у плана: обрыв по длине повтором не лечится.
     if (res.truncated) {
       last = {
-        error: truncatedMessage('анкета пришла наполовину', res.budget, 'Поля анкеты можно заполнить руками.'),
+        error: truncatedMessage('анкета пришла наполовину', res.budget, 'Поля анкеты можно заполнить вручную.'),
         code: 'truncated',
         raw: parsed.raw,
         errors: [...new Set([...parsed.errors, 'truncated'])],

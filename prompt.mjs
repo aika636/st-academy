@@ -35,7 +35,9 @@ import { relationLabel } from './core/relations.mjs';
 import { reputationLabel } from './core/reputation.mjs';
 import { examMode, publicView } from './core/exams.mjs';
 import { upcomingEvents } from './core/upcoming.mjs';
-import { holidayBackground } from './core/holidays.mjs';
+import { holidayBackground, bare } from './core/holidays.mjs';
+import { feedBackground, BACKGROUND_MAX } from './core/feed.mjs';
+import { unsaid } from './core/plot.mjs';
 
 /**
  * Слова и шаблоны по умолчанию — ДАННЫЕ, а не логика: каждое поле перекрывается
@@ -70,7 +72,8 @@ export const DEFAULT_LABELS = {
   exams: '{examPeriod}: не сдано {count}, дней осталось {days}',
   examsNoDays: '{examPeriod}: не сдано {count}',
   relation: '{teacher}: {label}',
-  reputation: '{label}',
+  /** Репутация — с названием шкалы: голое «На грани исключения.» читалось обрывком. */
+  reputation: 'репутация: {label}',
 
   /** Чем сегменты сшиваются в одну строку. */
   glue: '. ',
@@ -92,14 +95,36 @@ export const DEFAULT_LABELS = {
 
   /**
    * Праздники и мероприятия (`core/holidays.mjs`): фон, а не задание. Когда —
-   * словом, как у ближних событий; дальше недели — «скоро».
+   * словом, как у ближних событий; дальше недели — «скоро». Второй праздник
+   * того же дня пристёгивается через «и», без повторного «сегодня».
    */
   holidayNow: 'сегодня {name} — {note}',
   holidayNowBare: 'сегодня {name}',
   holidayAhead: '{when} {name} — {note}',
   holidayAheadBare: '{when} {name}',
+  holidayAlso: 'и {name} — {note}',
+  holidayAlsoBare: 'и {name}',
   holidaySoon: 'скоро',
+
+  /**
+   * Фон потока курса (шаг 4, слой 1): одна короткая фраза, только когда есть
+   * свежее. Пометка «факт / слух» обязательна — иначе модель примет сплетню за
+   * правду (`nabrosok-odnokursniki.md`, раздел 5).
+   */
+  // `{crowdIn}` — слово пресета (`vocab.crowdIn`): «на курсе», «в классе»,
+  // «во взводе». Слух анонимки — без второго «говорят» и без «Говорят,» в
+  // начале самой реплики (`plot.unsaid`).
+  feed: '{crowdIn} говорят: {list}',
+  feedFact: '{text} (факт)',
+  feedRumor: '{text} (слух)',
+  feedTalk: '{text} — обсуждают (факт)',
+  feedTalkQuote: 'обсуждают: «{text}» (факт)',
+  feedGossip: '«{text}» (слух — правда ли, неизвестно)',
+  feedGlue: '; ',
 };
+
+/** Потолок длины фона потока: строка состояния — не сводка. */
+export const FEED_LINE_MAX = 220;
 
 /**
  * Инструкция про метку (3.1). Тоже данные: пресет волен написать свою.
@@ -156,7 +181,7 @@ const promptsOf = (preset) => ({ ...DEFAULT_PROMPTS, ...((preset && preset.promp
  * @param {Object} preset
  * @returns {string}
  */
-export function statusLine(state, preset) {
+export function statusLine(state, preset, opts = {}) {
   if (!state || state.started !== true || !state.calendar) return '';
 
   const L = labelsOf(preset);
@@ -164,6 +189,13 @@ export function statusLine(state, preset) {
   // ещё не объявлен, в балл и хвосты строки не входит — иначе «Хвосты: химия»
   // объявил бы провал раньше ведомости. См. `exams.publicView`.
   const segments = segmentsOf(publicView(state, preset), preset, L);
+  // Фон потока — только по просьбе (`opts.feed`): строку состояния видит и
+  // секретарь («где мы в календаре»), а сплетни ему не нужны.
+  if (opts.feed) {
+    const holiday = segments.some((s) => (s.id === 'holiday' || s.id === 'holidayAhead') && s.text);
+    const crowdIn = String(vocabOf(preset).crowdIn || '').trim() || 'на курсе';
+    segments.push({ id: 'feed', text: feedSegment(state, L, { quiet: opts.feed.quiet === true, holiday, crowdIn }) });
+  }
 
   // Отбор по потолку чисел. Сегменты идут в порядке значимости, поэтому первый
   // же не поместившийся просто пропускается, а следующие — беcчисленные —
@@ -177,7 +209,9 @@ export function statusLine(state, preset) {
     const n = countNumbers(seg.text);
     if (used + n > limit) continue;
     used += n;
-    kept.push(cap(seg.text));
+    // Конечная точка — дело склейки: тексты пресета («сегодня бал — суета.»)
+    // иначе давали «суета.. Сегодня».
+    kept.push(cap(seg.text.replace(/[\s.;,]+$/u, '')));
   }
   if (!kept.length) return '';
   return kept.join(L.glue) + L.end;
@@ -187,9 +221,9 @@ export function statusLine(state, preset) {
  * Сегменты строки в порядке значимости — он же порядок слов.
  *
  * 1. день и неделя — без них всё остальное висит в воздухе;
- * 1½. праздник — фон дня: «сегодня Зимний бал», «в пятницу ярмарка — все
- *    ищут пару» (`core/holidays.mjs`). Сразу за днём, потому что окрашивает
- *    весь день; чисел в нём нет;
+ * 1½. праздник — фон дня: «сегодня Зимний бал», и отдельной фразой — «в
+ *    пятницу ярмарка — все ищут пару» (`core/holidays.mjs`). Сразу за днём,
+ *    потому что окрашивает весь день; чисел в нём нет;
  * 2. что идёт сейчас — то, что модель отыгрывает прямо в этом ответе;
  * 3. сессия — остаток и несданное, тон меняется целиком (3.5);
  * 4. хвосты — то, что висит и требует действий;
@@ -206,7 +240,8 @@ function segmentsOf(state, preset, L) {
   const out = [];
 
   out.push({ id: 'day', text: daySegment(state, preset, L) });
-  out.push({ id: 'holiday', text: holidaySegment(state, preset, L) });
+  out.push({ id: 'holiday', text: holidaySegment(state, preset, L, 'now') });
+  out.push({ id: 'holidayAhead', text: holidaySegment(state, preset, L, 'ahead') });
   out.push({ id: 'schedule', text: mode.active ? '' : scheduleSegment(state, preset, L) });
 
   if (mode.active) {
@@ -272,8 +307,8 @@ function daySegment(state, preset, L) {
  * дни без занятий.
  *
  * Точность решает форму. Часы известны — говорится про одну пару, ту самую.
- * Известен только день — сетка звонков бесполезна, перечисляется весь день с
- * пометкой, какая пара идёт по счёту.
+ * Известен только день — сетка звонков бесполезна, перечисляются предметы дня
+ * (каждый один раз) с пометкой, какой идёт сейчас.
  */
 function scheduleSegment(state, preset, L) {
   if (state.calendar.daypart === 'night') return '';
@@ -292,9 +327,12 @@ function scheduleSegment(state, preset, L) {
     });
   }
 
-  const list = plan.map((p) => (p.index === cur.index && cur.status === 'now'
-    ? fill(L.nowMark, { subject: p.name })
-    : p.name));
+  // Предмет, который стоит в дне дважды, называется один раз: «Математика,
+  // Японский, Физкультура, Математика, …» модель читает как шум, а не как
+  // расписание. Пометка «сейчас» — у того места, где предмет назван.
+  const nowName = cur.status === 'now' ? (plan.find((p) => p.index === cur.index) || {}).name : null;
+  const names = [...new Set(plan.map((p) => p.name))];
+  const list = names.map((name) => (name === nowName ? fill(L.nowMark, { subject: name }) : name));
   return fill(L.today, { list: list.join(L.listGlue) });
 }
 
@@ -334,20 +372,62 @@ function nearSegment(state, preset, L) {
 }
 
 /**
- * Фон праздника: «сегодня Зимний бал — вечером бал, днём суета» или «в пятницу
- * Зимний бал — все ищут пару». Что и когда — решает `core/holidays.mjs`.
+ * Фон праздника: «сегодня Зимний бал — вечером бал, днём суета» (`part:
+ * 'now'`) или «в пятницу Зимний бал — все ищут пару» (`'ahead'`). Два
+ * праздника одного дня — одной фразой через «и». Что и когда — решает
+ * `core/holidays.mjs`; конечная пунктуация текстов пресета снимается.
  */
-function holidaySegment(state, preset, L) {
+function holidaySegment(state, preset, L, part) {
   const day = state.calendar && state.calendar.day;
   if (!day) return '';
   const bg = holidayBackground(preset, day, state);
-  const parts = bg.now.map((h) => fill(h.today ? L.holidayNow : L.holidayNowBare, { name: h.name, note: h.today }));
-  if (bg.ahead) {
-    const { holiday: h, days } = bg.ahead;
-    const when = days > 6 ? L.holidaySoon : nearWhen({ days, day: bg.ahead.day }, L);
-    if (when) parts.push(fill(h.buzz ? L.holidayAhead : L.holidayAheadBare, { when, name: h.name, note: h.buzz }));
+  if (part === 'now') return holidayPhrase(bg.now.map((h) => ({ h, note: bare(h.today) })), L, L.holidayNow, L.holidayNowBare, {});
+  const first = bg.aheadAll[0];
+  if (!first) return '';
+  const when = first.days > 6 ? L.holidaySoon : nearWhen({ days: first.days, day: first.day }, L);
+  if (!when) return '';
+  return holidayPhrase(bg.aheadAll.map((a) => ({ h: a.holiday, note: bare(a.holiday.buzz) })), L, L.holidayAhead, L.holidayAheadBare, { when });
+}
+
+/**
+ * Фон курса (шаг 4, слой 1): «на курсе говорят: прогул: история —
+ * обсуждают (факт); «…» (слух — правда ли, неизвестно)». Что
+ * попадает — решает `feed.feedBackground` (свежее, что героиня может знать,
+ * не больше двух пунктов); здесь только слова и потолок длины. Рядом с фоном
+ * праздника — один пункт: общий потолок фона, строка не должна разрастаться.
+ * Нечего сказать — пусто, и сегмента нет.
+ */
+function feedSegment(state, L, { quiet = false, holiday = false, crowdIn = 'на курсе' } = {}) {
+  if (quiet) return '';
+  const points = feedBackground(state, { max: holiday ? 1 : BACKGROUND_MAX });
+  if (!points.length) return '';
+  const word = (p) => {
+    if (p.kind === 'fact') return fill(L.feedFact, { text: p.text });
+    if (p.kind === 'rumor') return fill(L.feedRumor, { text: p.text });
+    if (p.kind === 'gossip') return fill(L.feedGossip, { text: unsaid(p.text) });
+    return fill(p.quoted ? L.feedTalkQuote : L.feedTalk, { text: p.text });
+  };
+  const parts = [];
+  for (const p of points) {
+    const next = [...parts, word(p)];
+    const line = fill(L.feed, { crowdIn, list: next.join(L.feedGlue) });
+    if (line.length > FEED_LINE_MAX && parts.length) break;
+    parts.push(word(p));
   }
-  return parts.join(L.nearGlue);
+  return fill(L.feed, { crowdIn, list: parts.join(L.feedGlue) });
+}
+
+/** «сегодня A — x, и B — y» / «в пятницу A и B». */
+function holidayPhrase(items, L, full, short, vars) {
+  let out = '';
+  items.forEach(({ h, note }, i) => {
+    const text = i === 0
+      ? fill(note ? full : short, { ...vars, name: h.name, note })
+      : fill(note ? L.holidayAlso : L.holidayAlsoBare, { name: h.name, note });
+    // После пояснения с тире — запятая, иначе «A — суета и B» сливается.
+    out = i === 0 ? text : `${out}${items[i - 1].note ? ', ' : ' '}${text}`;
+  });
+  return out;
 }
 
 /** «сегодня» / «завтра» / «в пятницу». */
@@ -460,11 +540,14 @@ export function injectBlock(injects) {
  * Что уходит в промпт целиком — для режима отладки (3.2) и для `index.js`,
  * который решает, куда и на какой глубине это вставлять.
  *
+ * `feed` — дописать к строке фон потока курса (слой 1); `{quiet: true}` —
+ * игрок попросил тишины на этот ход, фон молчит.
+ *
  * @returns {{status: string, instruction: string, oneShot: string}}
  */
-export function buildPrompt(state, preset, { injects = [], withMarker = true } = {}) {
+export function buildPrompt(state, preset, { injects = [], withMarker = true, feed = null } = {}) {
   return {
-    status: statusLine(state, preset),
+    status: statusLine(state, preset, { feed }),
     instruction: withMarker ? markerInstruction(state, preset) : '',
     oneShot: injectBlock(injects),
   };

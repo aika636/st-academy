@@ -1012,11 +1012,37 @@
   color: var(--SmartThemeQuoteColor, currentColor);
 }
 
-/* Праздники на «Сегодня»: название, фон словами, когда — справа. */
+/* Праздники на «Сегодня»: столбиком — название, когда, «занятий нет», фон.
+   Дата справа от названия на 390 пикселях не переносилась и сжимала название
+   до буквы в строку. */
 .academy-holidays {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.academy-holiday-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  align-items: baseline;
+}
+
+.academy-holiday-own {
+  color: var(--academy-dim);
+  cursor: help;
+}
+
+.academy-holidays .academy-shift-day {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+/* Подсказка в поле — образец, а не введённое значение: бледнее и курсивом. */
+.academy-events-form .academy-input::placeholder {
+  color: var(--academy-dim);
+  font-style: italic;
+  opacity: 0.6;
 }
 
 .academy-holiday-now .academy-milestone-name {
@@ -1228,6 +1254,7 @@
   --academy-mes-pink: color-mix(in srgb, var(--academy-accent) 35%, #c27fd0);
   --academy-mes-green: color-mix(in srgb, var(--academy-accent) 45%, #6dbb78);
   --academy-mes-blue: color-mix(in srgb, var(--academy-accent) 35%, #5f9fd8);
+  --academy-mes-violet: color-mix(in srgb, var(--academy-accent) 35%, #9a86e0);
   box-sizing: border-box;
   order: 10000;
   margin: 8px 30px 0;
@@ -1408,6 +1435,19 @@
 .academy-tone-red { --tone: var(--academy-mes-red); }
 .academy-tone-pink { --tone: var(--academy-mes-pink); }
 .academy-tone-blue { --tone: var(--academy-mes-blue); }
+.academy-tone-green { --tone: var(--academy-mes-green); }
+.academy-tone-violet { --tone: var(--academy-mes-violet); }
+
+/* Реакция — к какому факту; громкость — подписью к «Что говорят». */
+.academy-mes-about {
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--ac-mute);
+}
+
+.academy-mes-tokens li > span:first-child {
+  flex: 1 1 auto;
+}
 
 .academy-mes-section-head {
   display: flex;
@@ -1447,6 +1487,25 @@
 
 .academy-mes-tokens li:last-child {
   border-bottom: 0;
+}
+
+/* Ответы под постом — с отступом, отдельной строкой под ним: строка поста
+   переносится, ветка занимает всю ширину. */
+.academy-mes-tokens li.academy-mes-has-thread {
+  flex-wrap: wrap;
+}
+
+.academy-mes-tokens .academy-mes-thread {
+  flex: 1 1 100%;
+  margin: 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--ac-line);
+}
+
+/* Маска — серым: это не человек из списка. */
+.academy-mes-nick > span:first-child {
+  color: var(--ac-mute);
+  font-style: italic;
 }
 
 .academy-mes-list {
@@ -2023,6 +2082,19 @@
     font-size: 0.74em;
   }
 
+  /* В столбце `min-width: 0` ширину не держит: длинный ярлык («Нефритовая
+     табличка») вылезал на соседние вкладки. Две строки, дальше многоточие. */
+  .academy-panel .academy-tab-label {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.1;
+    text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
   .academy-tab-icon {
     font-size: 1.25em;
   }
@@ -2080,4 +2152,348 @@
 .academy-panel .academy-bar,
 .academy-panel .academy-tabs {
   flex: 0 0 auto;
+}
+
+/* --- «Люди»: две части и курс (шаг 2) ------------------------------------- */
+
+/* Переключатель «Преподаватели / Курс»: две кнопки в ряд, на узком экране
+   делят ширину поровну и не вылезают за край. */
+.academy-people-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.academy-people-parts .academy-people-part {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: normal;
+  opacity: 0.75;
+}
+
+.academy-people-parts .academy-people-part-on {
+  opacity: 1;
+  font-weight: 600;
+  border-color: var(--SmartThemeQuoteColor, currentColor);
+}
+
+.academy-classmates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--academy-gap);
+  min-width: 0;
+}
+
+/* Карточка однокурсника — колонка на любой ширине: шесть коротких строк в
+   таблицу не просятся, а на 390 пикселях таблица дала бы прокрутку вбок. */
+.academy-cm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+  border-radius: var(--academy-radius);
+  overflow-wrap: anywhere;
+}
+
+.academy-cm-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.academy-cm-line {
+  min-width: 0;
+}
+
+.academy-cm-label {
+  opacity: 0.7;
+}
+
+.academy-cm-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.academy-cm-form .academy-input,
+.academy-cm-form select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* --- вкладка «Поток» (шаг 4) ------------------------------------------------
+   Лента в колонку на любой ширине: на 390 пикселях ни одна строка не должна
+   давать прокрутку вбок, поэтому длинные слова переносятся где угодно, а
+   кнопки тянутся во всю ширину и не мельче пальца. */
+
+.academy-panel .academy-tab {
+  position: relative;
+}
+
+/* Счётчик непрочитанного на ярлыке «Потока». */
+.academy-tab-badge {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--academy-accent);
+  color: var(--SmartThemeBodyColor, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.academy-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--academy-gap);
+  min-width: 0;
+}
+
+.academy-feed-chans {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-panel .academy-feed-chan {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0.75;
+}
+
+.academy-panel .academy-feed-chan-on {
+  opacity: 1;
+  border-color: var(--academy-accent);
+  font-weight: 600;
+}
+
+.academy-feed-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--academy-accent);
+  color: var(--SmartThemeBodyColor, #fff);
+  font-size: 0.8em;
+  line-height: 18px;
+  text-align: center;
+}
+
+.academy-feed-list,
+.academy-feed-deals,
+.academy-feed-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-feed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+  border-radius: var(--academy-radius);
+  overflow-wrap: anywhere;
+}
+
+/* Непрочитанное — полоса акцента слева, а не цвет фона: тема таверны своя. */
+.academy-feed-unread {
+  border-left: 3px solid var(--academy-accent);
+}
+
+.academy-feed-queued {
+  border-style: dashed;
+}
+
+.academy-feed-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.academy-feed-who {
+  font-weight: 600;
+}
+
+.academy-feed-tag,
+.academy-feed-day,
+.academy-feed-about,
+.academy-feed-status {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.academy-feed-tag-rumor {
+  font-style: italic;
+}
+
+.academy-feed-status-taken,
+.academy-feed-status-played {
+  opacity: 1;
+  color: var(--academy-accent);
+}
+
+.academy-panel .academy-feed-take,
+.academy-panel .academy-feed-drop,
+.academy-panel .academy-feed-buttons .academy-btn {
+  width: 100%;
+  min-height: 40px;
+  justify-content: center;
+}
+
+.academy-feed-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-feed-edit {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.academy-feed-buttons {
+  flex-direction: column;
+}
+
+/* --- ветки и значки ленты (решение 08.10) ----------------------------------- */
+
+/* Маска — не человек: «@ник» курсивом и тусклее, а имя из состава — жирным. */
+.academy-feed-nick {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--academy-dim);
+}
+
+/* Ветка — с отступом и линией слева, в колонку: на 390 пикселях ни одна
+   строка не уходит вбок. */
+.academy-feed-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-left: 10px;
+  padding-left: 8px;
+  border-left: 2px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+}
+
+.academy-feed-reply {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.academy-feed-reply.academy-feed-unread {
+  border-left: none;
+}
+
+.academy-panel .academy-feed-more {
+  align-self: flex-start;
+  min-height: 36px;
+  justify-content: center;
+}
+
+/* Значки под постом: переносятся строкой, каждый — от 36px под палец. */
+.academy-feed-reacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.academy-panel .academy-feed-react {
+  width: auto;
+  min-width: 44px;
+  min-height: 36px;
+  margin: 0;
+  padding: 2px 10px;
+  box-sizing: border-box;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  border-radius: 18px;
+  opacity: 0.85;
+}
+
+.academy-panel .academy-feed-react-mine {
+  opacity: 1;
+  border-color: var(--academy-accent);
+  font-weight: 600;
+}
+
+.academy-feed-react-n {
+  font-size: 0.85em;
+}
+
+/* --- починка после второго прогона (08.10) ---------------------------------- */
+
+/* Подпись над полем превью повода — обычной строкой, не капителью разделов:
+   «Так повод уйдёт рассказчику» — пояснение к тексту, а не заголовок. */
+.academy-panel .academy-feed-preview-title {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--academy-dim);
+}
+
+/* Строка «Не разобрано: …» на плашке — заметнее обычной пометки. */
+.academy-mes-unparsed {
+  color: var(--ac-bad, #c0392b);
+}
+
+/* Сводка в шапке плашки на узком экране обрезалась до «по…»: две строки,
+   дальше многоточие. */
+.academy-mes-summary {
+  white-space: normal;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.25;
+}
+
+/* «Править», «Добавить человека», «Своё событие», «Поправить время» были
+   высотой 18px — под палец мало. Паддинг и min-height: display остаётся
+   list-item, штатный маркер жив. */
+.academy-repair > summary {
+  min-height: 36px;
+  padding: 9px 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px) {
+  /* Ярлык вкладки переносится только между словами: «Достиже-ния» посреди
+     слова читалось хуже многоточия. Длинное слово не влезло — сжимается
+     шрифт и обрезается многоточием. */
+  .academy-panel .academy-tab-label {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: manual;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: clamp(0.85em, 2.6vw, 1em);
+  }
 }

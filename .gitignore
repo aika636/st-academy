@@ -22,3 +22,6 @@ tools/out/*
 node_modules/
 *.log
 nabrosok-*.md
+
+razbor-*.md
+.playwright-mcp/

@@ -27,6 +27,7 @@
 //    тот самый, который таверна сериализует, поэтому он правится на месте.
 
 import { METADATA_KEY, SCHEMA_VERSION, migrate, validateState } from './core/state.mjs';
+import { normalizePlot } from './core/plot.mjs';
 // Словарь панели — за словами заведения. Направление импорта необычное (данные
 // зовут интерфейс), но словарь один на всё расширение, и второй копии у него
 // быть не должно: этим же путём за словами ходит `commands.js`. Цикла нет —
@@ -114,6 +115,19 @@ export const DEFAULT_SETTINGS = {
    * (`:476-477`), а не вкус: у людей есть свои лорбуки, и сюрприз в чужом
    * World Info недопустим.
    */
+  /**
+   * Поток курса (шаг 4). `hooks` — рубильник слоя 3: кнопка «Взять в сюжет»
+   * и разовый повод в промпте; выключен — поводы не уходят вовсе. `auto` —
+   * «подкидывать поводы автоматически» (`core/plot.autoPick`): выключено,
+   * пока человек не попросил. `background` — фон в сцене: что говорят о
+   * свежем, строкой состояния; выключен — фон молчит, поводы живут.
+   */
+  feed: {
+    hooks: true,
+    auto: false,
+    /** Фон курса в строке состояния («на курсе говорят: …», слой 1). */
+    background: true,
+  },
   lorebook: {
     enabled: false,
     /** Имя лорбука. Пусто — берётся привязанный к чату, иначе по имени чата. */
@@ -439,10 +453,14 @@ export function readLedger(raw) {
       mode: e.mode === 'late' ? 'late' : 'live',
       receipts: Array.isArray(e.receipts) ? e.receipts.map((r) => (r && typeof r === 'object' ? r : null)) : null,
       summary: typeof e.summary === 'string' ? e.summary.slice(0, 300) : '',
+      // Кого секретарь назвал, а в списках не нашлось (`analysis.unparsedNames`):
+      // плашка говорит «Не разобрано: …», а не молчит.
+      unparsed: unparsedList(e.unparsed),
       // Черновик не участвует в расчётах до явного сохранения игроком.
       draft: e.draft && Array.isArray(e.draft.tokens) ? {
         tokens: e.draft.tokens.filter((t) => typeof t === 'string' && t),
         summary: typeof e.draft.summary === 'string' ? e.draft.summary.slice(0, 300) : '',
+        unparsed: unparsedList(e.draft.unparsed),
       } : null,
       previousAnalysis: e.previousAnalysis && typeof e.previousAnalysis === 'object'
         && (e.previousAnalysis.tokens === null || Array.isArray(e.previousAnalysis.tokens)) ? {
@@ -453,6 +471,11 @@ export function readLedger(raw) {
     });
   }
   return out.slice(-LEDGER_SIZE);
+}
+
+/** Имена «не разобрано»: строки, не больше шести, каждая короче 80 знаков. */
+function unparsedList(v) {
+  return (Array.isArray(v) ? v : []).filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 80)).slice(0, 6);
 }
 
 /** Протокол текущего чата. */
@@ -471,6 +494,33 @@ export function saveLedger(ctx, list) {
   md[LEDGER_KEY] = { v: LEDGER_FORMAT, list: ledger };
   c.saveMetadataDebounced();
   return ledger;
+}
+
+// --- очередь поводов (шаг 4) --------------------------------------------------
+//
+// «Взять в сюжет» (`core/plot.mjs`): что ждёт следующей генерации и что уже
+// ушло рассказчику. Лежит отдельно от состояния, как протокол: жизнь повода —
+// функция генераций, и снимок хода не должен откатывать её свайпом.
+
+/** Ключ очереди поводов в `chat_metadata`. */
+export const PLOT_KEY = `${KEY}_plot`;
+
+/** Очередь поводов текущего чата (нормализованная). */
+export function loadPlot(ctx) {
+  const c = context(ctx);
+  const md = c.chatMetadata || {};
+  return normalizePlot(md[PLOT_KEY]);
+}
+
+/** Записать очередь поводов. */
+export function savePlot(ctx, plot) {
+  const c = context(ctx);
+  const md = c.chatMetadata;
+  if (!md) throw new Error('academy/storage: у чата нет метаданных');
+  const clean = normalizePlot(plot);
+  md[PLOT_KEY] = clean;
+  c.saveMetadataDebounced();
+  return clean;
 }
 
 /**
@@ -696,7 +746,7 @@ export function readExport(source, preset) {
   }
   if (report.status === 'invalid') {
     return fail('invalid', `Состояние в файле не проходит проверку: ${report.errors.join('; ')}.`
-      + ' Скорее всего, оно собрано другой версией расширения или правлено руками.', report.errors);
+      + ' Скорее всего, оно собрано другой версией расширения или правлено вручную.', report.errors);
   }
 
   if (report.status === 'migrated') {

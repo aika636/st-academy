@@ -21,6 +21,7 @@ const SHIP = [
   'index.js',
   'style.css',
   'ui.js',
+  'ui',
   'mes-panel.js',
   'storage.js',
   'lorebook.js',

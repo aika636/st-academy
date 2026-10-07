@@ -26,23 +26,58 @@
 //
 // Модуль чистый: состояние, пресет и тексты на входе, строки на выходе.
 
-import { parseMarker, keepMarkerKinds } from './parse-marker.mjs';
+import { parseMarker, keepMarkerKinds, markerKeys, partyOf, MARKER_RE, HEROINE } from './parse-marker.mjs';
 import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
+import { SCENE_KINDS, sceneText, personWord } from './scene.mjs';
+import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, nickWord, recentPosts, postRef, NICK_MAX } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
-export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event'];
+export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event', ...SCENE_KINDS];
 
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
 
 const SYSTEM = [
-  'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку и списки предметов и преподавателей.',
-  'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось с героиней. Ничего не додумываешь.',
-  'Отвечаешь строкой служебной метки, затем строкой «Кратко:» с объяснением.',
+  'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку, списки предметов, преподавателей и её курса.',
+  'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось — с героиней и людьми вокруг неё. Ничего не додумываешь.',
+  'Отвечаешь двумя блоками: «Что было» — строка служебной метки, «Что сочинено» — как это обсуждают на курсе; затем строка «Кратко:».',
 ].join(' ');
+
+/** Потолки разбора курса на один ответ: больше — шум, а не сцена. */
+export const SOCIAL_LIMITS = { met: 8, clash: 4, rumor: 3, new: 3, deal: 4 };
+
+/** Реакция: длина реплики и сколько курс держит в промпте секретаря. */
+export const REACTION_LIMITS = { text: 140, minLetters: 3 };
+
+/** Кто реагирует, если не из состава: «кто-то с курса» словом пресета. */
+export const SOMEONE = 'someone';
+
+/**
+ * Ответы в ветках (решение 08.10). Потолок свой, а не общий с реакциями:
+ * ответ — короткая реплика под постом, и съедай он место реакций, громкое
+ * событие давало бы либо посты без веток, либо ветки без постов. Но растёт он
+ * той же громкостью (`loudCap`): тихо — самое большее один, скандал — до
+ * `total`. Под одним постом — до `perPost`: третья реплика в ветке за один
+ * ответ — уже перепалка, которую стоит играть, а не сочинять.
+ */
+export const REPLY_LIMITS = { perPost: 2, total: 4 };
+
+/** Сколько ответов допускает громкость разбора. */
+export function replyCap(loud) {
+  return loudCap(Number.isInteger(loud) ? loud : 1, REPLY_LIMITS.total);
+}
+
+/** Знак ника в ответе секретаря: `~школьный бес`. */
+export const NICK_MARK = '~';
+
+/** «Кто-то с курса» словами пресета (`vocab.someone`: «кто-то из класса», «кто-то из взвода»). */
+export function someoneWord(preset) {
+  const own = preset && preset.vocab && preset.vocab.someone;
+  return typeof own === 'string' && own.trim() ? own.trim() : 'кто-то с курса';
+}
 
 /**
  * Промпт секретаря.
@@ -52,7 +87,8 @@ const SYSTEM = [
  * @param {{reply: string, userText?: string, statusLine?: string, heroine?: string}} input
  *   `statusLine` — строка состояния, которую видел рассказчик (`prompt.statusLine`):
  *   день, пара, хвосты словами пресета. Её собирает вызывающий — ядро не знает
- *   про `prompt.mjs`.
+ *   про `prompt.mjs`. `hooks` — поводы, отданные рассказчику кнопкой «Взять в
+ *   сюжет» (`plot.secretaryHooks`): секретарь отмечает сыгранные `played=id`.
  * @returns {{system: string, user: string}}
  */
 export function buildAnalysisPrompt(state, preset, input = {}) {
@@ -62,12 +98,20 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     return `- ${s.id} — ${s.name || s.id}${t ? ` — ${t.name || t.id} (${t.id})` : ''}`;
   });
   const teachers = (state.teachers || []).map((t) => `- ${t.id} — ${t.name || t.id}`);
+  // Курс — так же, как преподаватели: id, имя и одна строка о человеке.
+  // Роль-зерно из пресета сюда не идёт (решение 3 от 06.10).
+  const course = (Array.isArray(state.classmates) ? state.classmates : []).filter((c) => c && c.id).map((c) => {
+    const about = classmateLine(c);
+    return `- ${c.id} — ${c.name || c.id}${about ? ` — ${about}` : ''}`;
+  });
+  const cap = reactionCap(preset);
   const values = ((preset.grades && preset.grades.values) || []).map((g) => g.value);
 
   const lines = [];
   if (input.statusLine) lines.push(`Где мы в календаре: ${input.statusLine}`);
   lines.push('Предметы (id — название — преподаватель):', ...subjects);
   lines.push('Преподаватели (id — имя):', ...teachers);
+  lines.push('Курс героини (id — имя — о человеке):', ...(course.length ? course : ['- пока никого']));
   if (values.length) lines.push(`Оценки пишутся одним из значений: ${values.join(', ')}.`);
   const debts = (state.subjects || []).filter((subject) => subject.debt);
   lines.push(`Текущие хвосты: ${debts.length ? debts.map((subject) => subject.id).join(', ') : 'нет'}.`);
@@ -77,6 +121,15 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   if (exams.length) {
     lines.push(`Сегодня по расписанию: ${exams.join('; ')}. Если во фрагменте его сдали или провалили — запиши исход как grade по этому предмету.`);
   }
+  const hooks = (Array.isArray(input.hooks) ? input.hooks : []).filter((h) => h && h.id && h.text).slice(0, 3);
+  if (hooks.length) lines.push('Поводы, которые игрок отдал рассказчику (id — что):', ...hooks.map((h) => `- ${h.id} — ${clip(h.text, 200)}`));
+  // Недавние посты ленты — коротко: секретарь может продолжить старую ветку.
+  // Старый ответ (поправка) их не видит: лента ушла вперёд него.
+  const posts = input.posts === false ? [] : recentPosts(state);
+  const people = [...(state.teachers || []), ...(Array.isArray(state.classmates) ? state.classmates : [])];
+  if (posts.length) {
+    lines.push('Недавно в ленте (id — кто, где: что):', ...posts.map((p) => `- ${p.ref} — ${postAuthor(p, people)}: «${clip(p.text, 90)}»${p.replies ? ` (ответов: ${p.replies})` : ''}`));
+  }
   const known = knownEventLines(state, preset);
   lines.push(`Уже в планах (не повторяй): ${known.length ? known.join('; ') : 'ничего'}.`);
   lines.push('');
@@ -84,25 +137,61 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   if (said) lines.push('Реплика игрока перед ответом:', '"""', said, '"""', '');
   lines.push('Ответ рассказчика:', '"""', clipAnalysisReply(input.reply), '"""', '');
   lines.push(
-    'Запиши, что случилось, одной строкой вида:',
-    '<!-- [ACADEMY grade=предмет:оценка rel=преподаватель:minor+:повод skip=предмет late=предмет event=+3:название] -->',
-    'Правила:',
+    'Блок 1. Что было — одной строкой служебной метки:',
+    '<!-- [ACADEMY grade=предмет:оценка rel=человек:minor+:повод skip=предмет late=предмет event=+3:название met=однокурсник clash=кто:с кем:повод rumor=о ком:что говорят new=Имя Фамилия deal=кто:кому:что] -->',
+    'Правила блока 1:',
     `- grade — только если ${heroine} получила оценку, сдала или не сдала зачёт или экзамен. Оценки другим людям не пишутся.`,
     '- Прочитай весь фрагмент: учебный итог может быть фоном, воспоминанием о прошедших днях или репликой собеседника, даже если главная сцена бытовая или романтическая.',
     '- Явный итог «все экзамены/зачёты сданы» записывай completion=all:оценка; «все хвосты закрыты» — completion=debts:оценка; сдан конкретный предмет — completion=id:оценка. Обычная оценка за ответ у доски остаётся grade. Не дублируй completion обычными grade по тем же предметам.',
     '- «Ты все зачёты на отлично сдала», «все хвосты были сданы на высший балл», «сдала все хвосты до единого; в зачётке отметки отлично» — состоявшийся учебный итог, а не отсутствие событий. Для «отлично»/«высший балл» возьми высшую оценку из шкалы. Без точной оценки используй проходное «зачёт», если оно есть в шкале; не выдумывай числовой балл.',
     '- completion=all допустим только при явно сказанном «все» об экзаменах/зачётах героини. Желание, будущий план, отрицание («ещё не сдала все») или достижения другого персонажа не означают завершение. Не угадывай предмет по неназванному преподавателю; не добавляй оценки остальным предметам за один удачный ответ.',
-    `- rel — если отношение преподавателя к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
+    `- rel — если отношение преподавателя или однокурсника к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
     `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
     '- skip/late только при прямом факте пропуска/опоздания героини. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.',
     `- event — праздник, вечеринка, бал, концерт, поход, свидание или другое событие, о котором во фрагменте сказано, что оно будет: event=+дни:название, где дни — через сколько дней от момента сцены (0 — сегодня, 1 — завтра). Несколько дней подряд — event=+5..+6:название. Событий несколько — несколько ключей event. Дальше ${EVENT_HORIZON} дней, без понятного срока, прошедшее и уже записанное в планах — не пиши.`,
+    '- met — кто из курса был в сцене: id из списка курса, несколько — через запятую.',
+    `- clash — стычка, ссора или перепалка двоих: clash=кто:с кем:повод в двух-трёх словах. ${heroine} пишется @heroine.`,
+    '- rumor — кто-то в сцене пустил или пересказал слух: rumor=о ком:что говорят. Только если слух прозвучал во фрагменте; о ком — id или @heroine. «Что» продолжает фразу «говорят, что <он/она> …»: rumor=sokolova:списала контрольную.',
+    `- new — в сцене появился человек по имени, которого нет ни среди преподавателей, ни в курсе: new=имя, как в тексте. ${heroine}, рассказчика и тех, кто уже в списках, не пиши.`,
+    '- deal — между людьми открылось дело: обещание, долг, общий проект, вещь, которую надо вернуть: deal=кто:кому:что. Дело закрыли (вернули, выполнили) — deal-=кто:кому:что.',
+    ...(hooks.length ? ['- played — повод из списка «Поводы» во фрагменте действительно прозвучал: played=id. Не прозвучал — не пиши.'] : []),
     '- Время и дату не пиши (кроме дней до события в event).',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
     '- Если ничего из этого не случилось — пустая метка <!-- [ACADEMY] -->.',
     '',
-    'Второй строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини (пары, оценки, преподаватели, прогулы) — или «к учёбе не относится».',
+    'Блок 2. Что сочинено — как это обсуждают на курсе. Этот блок ничего в ведомости не меняет. Строками:',
+    'Что сочинено:',
+    'loud=0..3',
+    'react=номер факта:кто:chat|anon:короткая реплика',
+    `reply=куда:кто:короткий ответ`,
+    'Правила блока 2:',
+    '- loud — насколько громко то, что было: 0 — тихо (обычная оценка, разговор), курс почти не замечает; 1 — заметно; 2 — громко (прогул при всех, ссора); 3 — скандал.',
+    `- Реакций столько, сколько стоит событие: при loud=0 — ни одной или одна от того, кому это важно; при 2 — одна-три; при 3 — до ${cap}. Пустой блок «Что сочинено» — нормально.`,
+    '- Номер факта — порядковый номер ключа в метке блока 1, считая с 1. Реакция без факта не нужна.',
+    `- Кто — id из курса или преподаватель: с основных аккаунтов пишут только люди из списков выше. Все остальные пишут под смешными никами, которые выдают их интерес или характер: ${NICK_MARK}школьный бес, ${NICK_MARK}альфа футбольной команды, ${NICK_MARK}я-люблю-никки-из-11-класса. Ник начинается с ${NICK_MARK}, до ${NICK_MAX} знаков, без двоеточия. Ник — не человек из сцены и не новое имя: в блок 1 его не пиши. Не ${heroine}.`,
+    `- chat — чат курса: люди из списков и ники с фейковых аккаунтов обсуждают то, что было. anon — анонимка: автора не видно — пишут под ником или без подписи (someone, «${someoneWord(preset)}»); это слух, он может преувеличивать или перевирать.`,
+    `- reply — ответ в ветке под постом: короткая реплика — спор, поддержка, подкол. Куда — номер строки react в этом блоке, считая с 1${posts.length ? ', или id поста из списка «Недавно в ленте»' : ''}. Кто — как у react; ник может ответить ещё раз в своей же ветке. Под одним постом — до ${REPLY_LIMITS.perPost} ответов, всего — до ${REPLY_LIMITS.total} и не больше, чем реакций стоит событие. Можно ни одного.`,
+    '- Реакция — то, как люди обсуждают факт, а не новое событие. Не выдумывай событий, которых не было в сцене, — только реакции на них. Одна реплика — одно короткое предложение.',
+    '',
+    'Последней строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини и людьми вокруг (пары, оценки, преподаватели, прогулы, курс) — или «к учёбе не относится».',
   );
   return { system: SYSTEM, user: lines.join('\n') };
+}
+
+/** Одна строка о человеке курса: желание, проблема — что есть. */
+function classmateLine(c) {
+  const parts = [];
+  if (str(c.desire)) parts.push(`хочет ${str(c.desire)}`);
+  if (str(c.problem)) parts.push(str(c.problem));
+  return parts.join('; ').slice(0, 140);
+}
+
+/** Автор поста для секретаря: «Вера Соколова, чат», «~школьный бес, анонимка». */
+function postAuthor(p, people) {
+  const where = p.chan === 'anon' ? 'анонимка' : 'чат';
+  if (p.nick) return `${NICK_MARK}${p.nick}, ${where}`;
+  if (p.chan === 'anon' || !p.who || p.who === SOMEONE) return `без подписи, ${where}`;
+  return `${personWord(p.who, people)}, ${where}`;
 }
 
 /**
@@ -144,23 +233,489 @@ function todaysExamLines(state, preset) {
  * единой метки — `found: false`: это сбой, а не «ничего не случилось»
  * (на «ничего» есть пустая метка).
  *
+ * Ответ — два блока (решение 1 владелицы, шаг 3). «Что было» — метка: её
+ * ключи становятся токенами фактов. «Что сочинено» — строки `react=` и
+ * `loud=`: реакции становятся токенами `react=…` в том же списке, после
+ * фактов, и держатся за свой факт отпечатком его токена (`factRef`).
+ * Список один, потому что протокол ответа хранит одно — «что записано из
+ * этого ответа», и вычеркнуть с плашки можно любую строку.
+ *
+ * Реакция проверяется кодом, а не просьбой к модели (`razbor-inject.md`,
+ * приём 1): ссылка на факт, которого нет или который отвергнут, — реакция
+ * отброшена; сверх громкости и потолка пресета — отброшена; героиня автором
+ * — отброшена; повтор — отброшен. Всё отброшенное — в `rejected`, как и
+ * отвергнутые ключи метки.
+ *
+ * Ответ в ветке (`reply=`, решение 08.10) — так же: родитель — реакция этого
+ * блока по номеру строки или недавний пост ленты (`lexicon.feedPosts`, `f2`);
+ * родителя нет или реакция отвергнута — ответ отброшен; потолок — свой
+ * (`REPLY_LIMITS`, `replyCap`). Автор реакции и ответа — человек из списков или
+ * ник-маска `~школьный бес`: ник в состав, кандидаты и встречи не идёт.
+ *
  * @param {string} raw ответ модели
  * @param {Object} lexicon то же, что `parseMarker`: пресет со списками состояния и `names`
  * @returns {{found: boolean, tokens: string[], summary: string, rejected: Array<{raw: string, reason: string}>}}
  */
 export function parseAnalysis(raw, lexicon) {
   const text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
-  const parsed = parseMarker(text, lexicon);
+  const found = new RegExp(MARKER_RE.source, 'i').test(text);
   const tokens = [];
-  for (const ev of parsed.events) {
-    const t = tokenOf(ev);
-    if (t && !tokens.includes(t)) tokens.push(t);
+  const rejected = [];
+  // Номер факта — его место в метке, как его видит модель: считаются все
+  // ключи блока «что было», и выдуманные тоже, кроме самих реакций.
+  const byNumber = [];
+  const counts = {};
+  const hookIds = new Set((Array.isArray(lexicon && lexicon.hooks) ? lexicon.hooks : []).map((h) => h && h.id).filter(Boolean));
+  for (const k of markerKeys(text)) {
+    if (COMPOSED_KEYS.includes(k.name)) continue;
+    // «Повод сыгран» — факт блока «что было», но состояние семестра он не
+    // меняет: движку не едет, реакции к нему не цепляются. Номер он занимает —
+    // модель считает его ключом метки.
+    if (PLAYED_KEYS.includes(k.name)) {
+      byNumber.push(null);
+      for (const id of String(k.value || '').split(/[,\s]+/).map((v) => v.replace(/[[\]()«»"]/g, '').trim().toLowerCase()).filter(Boolean)) {
+        const t = `played=${id}`;
+        if (!hookIds.has(id)) rejected.push({ raw: t, reason: 'такого повода секретарю не давали' });
+        else if (!tokens.includes(t)) tokens.push(t);
+      }
+      continue;
+    }
+    if (!k.kind) {
+      byNumber.push(null);
+      continue;
+    }
+    if (!k.value) {
+      rejected.push({ raw: k.raw, reason: 'пустое значение' });
+      byNumber.push(null);
+      continue;
+    }
+    const parsed = parseMarker(analysisMarker([k.raw]), lexicon);
+    rejected.push(...parsed.rejected);
+    let first = null;
+    for (const ev of parsed.events) {
+      const t = tokenOf(ev);
+      if (!t) continue;
+      const limit = SOCIAL_LIMITS[ev.kind];
+      if (!tokens.includes(t)) {
+        if (limit !== undefined && (counts[ev.kind] || 0) >= limit) {
+          rejected.push({ raw: k.raw, reason: `больше ${limit} ключей ${ev.kind} на один ответ` });
+          continue;
+        }
+        counts[ev.kind] = (counts[ev.kind] || 0) + 1;
+        tokens.push(t);
+      }
+      first = first || t;
+    }
+    byNumber.push(first);
   }
+
+  const loudMatch = /(?<![\p{L}\d_])(?:loud|громкость)\s*[=:]\s*([0-3])/iu.exec(text);
+  const loud = loudMatch ? Number(loudMatch[1]) : null;
+  const cap = loudCap(loud === null ? 1 : loud, reactionCap(lexicon));
+  const reactions = [];
+  const seenText = new Set();
+  // Номер поста для `reply=` — место строки `react=` в блоке, как его видит
+  // модель: отвергнутая реакция номер занимает, но ветку не держит.
+  const slots = [];
+  for (const value of reactionValues(text)) {
+    const r = readReaction(value, tokens, byNumber, lexicon);
+    const raw = `react=${value}`;
+    slots.push(null);
+    if (r.error) {
+      rejected.push({ raw, reason: r.error });
+      continue;
+    }
+    const key = textKey(r.text);
+    if (seenText.has(key)) {
+      rejected.push({ raw, reason: 'повтор реакции' });
+      continue;
+    }
+    if (reactions.length >= cap) {
+      rejected.push({ raw, reason: `реакций больше, чем стоит событие (до ${cap})` });
+      continue;
+    }
+    seenText.add(key);
+    const t = reactionToken(r);
+    reactions.push(t);
+    slots[slots.length - 1] = t;
+  }
+
+  // Ответы в ветках: родитель — реакция этого блока или недавний пост ленты.
+  const replies = [];
+  const perPost = new Map();
+  const replyMax = replyCap(loud === null ? 1 : loud);
+  for (const value of reactionValues(text, REPLY_WORDS)) {
+    const raw = `reply=${value}`;
+    const a = readReply(value, slots, lexicon);
+    if (a.error) {
+      rejected.push({ raw, reason: a.error });
+      continue;
+    }
+    const key = textKey(a.text);
+    if (seenText.has(key)) {
+      rejected.push({ raw, reason: 'повтор реплики' });
+      continue;
+    }
+    if (replies.length >= replyMax) {
+      rejected.push({ raw, reason: `ответов больше, чем стоит событие (до ${replyMax})` });
+      continue;
+    }
+    if ((perPost.get(a.parent) || 0) >= REPLY_LIMITS.perPost) {
+      rejected.push({ raw, reason: `под одним постом — до ${REPLY_LIMITS.perPost} ответов` });
+      continue;
+    }
+    seenText.add(key);
+    perPost.set(a.parent, (perPost.get(a.parent) || 0) + 1);
+    replies.push(replyToken(a));
+  }
+  if (reactions.length || replies.length) tokens.push(...reactions, ...replies, `loud=${loud === null ? 1 : loud}`);
+
   // «Кратко: …» — что секретарь вычитал словами; показывается на плашке, в
   // состояние не идёт.
   const m = /кратко\s*[:：]\s*(.+)/i.exec(text);
   const summary = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 300) : '';
-  return { found: parsed.found, tokens, summary, rejected: parsed.rejected };
+  return { found, tokens, summary, rejected };
+}
+
+// --- реакции: блок «что сочинено» -------------------------------------------------
+
+/** Ключи блока «что сочинено» — в номер факта не считаются. */
+const COMPOSED_KEYS = ['react', 'реакция', 'reply', 'ответ', 'loud', 'громкость'];
+
+/** Ключи реакции и ответа в ветке — словами модели. */
+const REACT_WORDS = ['react', 'реакция'];
+const REPLY_WORDS = ['reply', 'ответ'];
+
+/** Ключ сравнения реплик: повтор — тот же текст без знаков. */
+function textKey(text) {
+  return String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/** «Повод сыгран» (шаг 4) — словами модели. */
+const PLAYED_KEYS = ['played', 'сыграно', 'сыгран'];
+
+/** Каналы реакции и слова, которыми модель их называет. */
+const CHANNEL_WORDS = {
+  chat: ['chat', 'чат', 'чат курса', 'course', 'факт'],
+  anon: ['anon', 'анон', 'анонимка', 'аноним', 'слух', 'rumor'],
+};
+
+/** «Кто-то с потока» — словами модели. */
+const SOMEONE_WORDS = ['someone', 'кто-то', 'кто то', 'кто-то с потока', 'кто то с потока', 'кто-то с курса', 'anyone', 'somebody'];
+
+function channelOf(word) {
+  const w = String(word || '').toLowerCase().replace(/ё/g, 'е').replace(/[[\]()«»"]/g, '').trim();
+  for (const [chan, words] of Object.entries(CHANNEL_WORDS)) if (words.includes(w)) return chan;
+  return null;
+}
+
+/**
+ * Значения `react=` по порядку: строками блока «что сочинено», а если модель
+ * вписала их в метку — до следующего ключа или конца метки.
+ */
+function reactionValues(text, words = REACT_WORDS) {
+  const out = [];
+  const re = new RegExp(`(?<![\\p{L}\\d_])(?:${words.join('|')})\\s*=\\s*([^\\n]*)`, 'giu');
+  for (const m of text.matchAll(re)) {
+    let v = m[1];
+    const stop = v.search(/-->|\s[\p{L}\d_-]{1,24}\s*=/u);
+    if (stop >= 0) v = v.slice(0, stop);
+    v = v.replace(/\]{1,2}\s*$/, '').trim();
+    if (v) out.push(v);
+  }
+  return out;
+}
+
+/** Одна реакция: `номер:кто:канал:текст` → поля или `{error}`. */
+function readReaction(value, tokens, byNumber, lexicon) {
+  const fields = value.split(':');
+  const ref = fields[0].replace(/[#№[\]()]/g, '').trim().toLowerCase();
+  let fact = null;
+  if (/^\d{1,2}$/.test(ref)) {
+    const n = Number(ref);
+    if (n < 1 || n > byNumber.length) return { error: `нет факта номер ${n}` };
+    fact = byNumber[n - 1];
+    if (!fact) return { error: `факт номер ${n} не записан — реакция без опоры` };
+  } else if (ref) {
+    fact = tokens.find((t) => t.startsWith(`${ref}=`) && isFactToken(t)) || null;
+    if (!fact) return { error: `нет факта «${ref}»` };
+  } else {
+    return { error: 'реакция без ссылки на факт' };
+  }
+  // Кто и канал: `кто:канал:текст`, но модель бывает пропускает «кто».
+  let who = '';
+  let chan = 'chat';
+  let rest;
+  if (channelOf(fields[1])) {
+    chan = channelOf(fields[1]);
+    rest = fields.slice(2);
+  } else if (channelOf(fields[2])) {
+    who = fields[1];
+    chan = channelOf(fields[2]);
+    rest = fields.slice(3);
+  } else {
+    who = fields[1];
+    rest = fields.slice(2);
+  }
+  const author = authorOf(who, lexicon);
+  if (author.error) return { error: author.error };
+  const text = reactionText(rest.join(':'));
+  if ((text.match(/\p{L}/gu) || []).length < REACTION_LIMITS.minLetters) return { error: 'у реакции нет текста' };
+  return { fact, who: author.id, nick: author.nick, chan, text };
+}
+
+/**
+ * Ответ в ветке: `куда:кто:текст` → поля или `{error}`. Куда — номер строки
+ * `react=` этого блока (`slots`: токен или `null`, если реакция отвергнута)
+ * или ссылка `f2` на недавний пост ленты (`lexicon.feedPosts`). Канал — как у
+ * поста: ветка не переходит из анонимки в чат.
+ */
+function readReply(value, slots, lexicon) {
+  const fields = value.split(':');
+  const ref = fields[0].replace(/[#№[\]()«»"]/g, '').trim().toLowerCase();
+  let parent;
+  let chan;
+  const own = /^(?:r|р|реакция\s*)?(\d{1,2})$/u.exec(ref);
+  const old = /^(?:f|ф)\s*(\d{1,2})$/u.exec(ref);
+  if (own) {
+    const n = Number(own[1]);
+    if (n < 1 || n > slots.length) return { error: `нет поста номер ${n} — ответ без ветки` };
+    const post = slots[n - 1];
+    if (!post) return { error: `пост номер ${n} не записан — ответ без ветки` };
+    parent = `r.${hash(post)}`;
+    chan = reactionOf(post).chan;
+  } else if (old) {
+    const post = arr(lexicon && lexicon.feedPosts).find((p) => p && p.ref === `f${Number(old[1])}`);
+    if (!post) return { error: `нет поста «${ref}» в ленте — ответ без ветки` };
+    parent = `f.${postRef(post.id)}`;
+    chan = post.chan === 'anon' ? 'anon' : 'chat';
+  } else {
+    return { error: 'ответ без поста' };
+  }
+  // `кто:текст`; без автора — `текст`; лишний канал после автора пропускается.
+  let rest = fields.slice(1);
+  let who = '';
+  if (rest.length > 1) {
+    who = rest[0];
+    rest = rest.slice(1);
+    if (rest.length > 1 && channelOf(rest[0])) rest = rest.slice(1);
+  }
+  const author = authorOf(who, lexicon);
+  if (author.error) return { error: author.error };
+  const text = reactionText(rest.join(':'));
+  if ((text.match(/\p{L}/gu) || []).length < REACTION_LIMITS.minLetters) return { error: 'у ответа нет текста' };
+  return { parent, who: author.id, nick: author.nick, chan, text };
+}
+
+/**
+ * Автор реакции и ответа: id из списков (и мягко — `parse-marker.softPerson`),
+ * ник-маска, «кто-то с курса» или отказ (героиня).
+ *
+ * Ник — `~школьный бес`. Без знака ником считается и незнакомое, что
+ * написано со строчной кириллицей или в несколько слов («альфа футбольной
+ * команды»): имя человека модель пишет с заглавной, а латинское слово
+ * похоже на id, которого нет, — это «кто-то с курса», как раньше. Ник,
+ * который оказывается героиней, — отказ, как и сама героиня.
+ *
+ * @returns {{id: string, nick: string} | {error: string}}
+ */
+function authorOf(raw, lexicon) {
+  const w = String(raw || '').replace(/[[\]()«»"]/g, '').trim();
+  const low = w.toLowerCase().replace(/ё/g, 'е');
+  if (!w || SOMEONE_WORDS.includes(low) || low === someoneWord(lexicon).toLowerCase().replace(/ё/g, 'е')) return { id: SOMEONE, nick: '' };
+  if (w.startsWith(NICK_MARK) || w.startsWith('～')) {
+    const nick = cleanNick(w);
+    if (!nick) return { id: SOMEONE, nick: '' };
+    if (partyOf(nick, lexicon).id === HEROINE) return { error: 'героиня — не реакция курса' };
+    return { id: '', nick };
+  }
+  const party = partyOf(w, lexicon);
+  if (party.id === HEROINE) return { error: 'героиня — не реакция курса' };
+  if (party.id) return { id: party.id, nick: '' };
+  // Незнакомое имя — не новый человек: в ленте это «кто-то с курса» или маска.
+  const masky = /^[а-яё]/.test(w) || (/\s/.test(w) && !/^[A-ZА-ЯЁ]/.test(w));
+  const nick = masky ? cleanNick(w) : '';
+  return nick ? { id: '', nick } : { id: SOMEONE, nick: '' };
+}
+
+/** Реплика: одна строка, без кавычек и знаков метки, с потолком по слову. */
+function reactionText(raw) {
+  let t = String(raw || '')
+    .replace(/-->|[=[\]<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[«"“„']+|[»"”']+$/g, '')
+    .trim();
+  if (t.length > REACTION_LIMITS.text) {
+    const cut = t.slice(0, REACTION_LIMITS.text);
+    const at = cut.lastIndexOf(' ');
+    t = `${(at > REACTION_LIMITS.text / 2 ? cut.slice(0, at) : cut).trim()}…`;
+  }
+  return t;
+}
+
+/**
+ * Кого секретарь назвал, а в списках нет: имена и id из отвергнутого
+ * («неизвестный человек: «sokolova»»), без повторов. Мягкое сопоставление
+ * уже пробовано (`parse-marker.softPerson`); что не нашлось и так — плашка
+ * показывает строкой «Не разобрано», а не прячет в консоль.
+ *
+ * @param {Array<{raw: string, reason: string}>} rejected
+ * @returns {string[]}
+ */
+export function unparsedNames(rejected) {
+  const out = [];
+  for (const r of Array.isArray(rejected) ? rejected : []) {
+    const m = /неизвестный (?:человек|преподаватель):\s*«([^»]+)»/u.exec(String((r && r.reason) || ''));
+    const name = m ? m[1].trim() : '';
+    if (name && !out.some((x) => x.toLowerCase() === name.toLowerCase())) out.push(name);
+  }
+  return out.slice(0, 6);
+}
+
+/** Ссылка реакции на факт — отпечаток его токена: не съезжает, когда список правят. */
+export function factRef(token) {
+  return hash(String(token || ''));
+}
+
+/** Автор в токене: id, `~ник` или `someone`. */
+function authorField(who, nick) {
+  const n = cleanNick(nick);
+  return n ? `${NICK_MARK}${n}` : (who || SOMEONE);
+}
+
+/** Автор из токена: `{who, nick}`. */
+function authorFrom(field) {
+  const f = String(field || '');
+  if (f.startsWith(NICK_MARK)) {
+    const nick = cleanNick(f);
+    if (nick) return { who: '', nick };
+  }
+  return { who: f || SOMEONE, nick: '' };
+}
+
+/** Реакция → канонический токен `react=отпечаток факта:кто:канал:текст`; кто — id или `~ник`. */
+export function reactionToken({ fact, who, nick, chan, text }) {
+  return `react=${factRef(fact)}:${authorField(who, nick)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
+}
+
+/**
+ * Ответ → канонический токен `reply=пост:кто:канал:текст`. Пост — `r.<отпечаток
+ * токена реакции>` (реакция этого же разбора) или `f.<отпечаток id записи>`
+ * (пост ленты: в id есть двоеточия, `feed.postRef`).
+ */
+export function replyToken({ parent, who, nick, chan, text }) {
+  return `reply=${parent}:${authorField(who, nick)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
+}
+
+export function isReactToken(token) {
+  return /^react=/.test(String(token || ''));
+}
+
+export function isReplyToken(token) {
+  return /^reply=/.test(String(token || ''));
+}
+
+/**
+ * Ответ из токена. `post` — токен реакции-родителя в списке (`null` — её
+ * вычеркнули, ответ сирота) или ссылка на пост ленты `feed`.
+ * @returns {?{parent: string, who: string, nick: string, chan: string, text: string, post: ?string, feed: string}}
+ */
+export function replyOf(token, tokens = []) {
+  const m = /^reply=([rf]\.[0-9a-z]+):([^:]*):(chat|anon):([\s\S]+)$/.exec(String(token || ''));
+  if (!m) return null;
+  const own = m[1].startsWith('r.');
+  const post = own ? (tokens || []).find((t) => isReactToken(t) && hash(t) === m[1].slice(2)) || null : null;
+  return { parent: m[1], ...authorFrom(m[2]), chan: m[3], text: m[4], post, feed: own ? '' : m[1].slice(2) };
+}
+
+/**
+ * Ответы списка с их родителями — для ленты (`scene.applyReactions`):
+ * `{parent: {token}}` — к реакции этого разбора, `{parent: {ref}}` — к посту
+ * ленты по отпечатку id. Сироты не идут.
+ */
+export function repliesOf(tokens) {
+  const list = Array.isArray(tokens) ? tokens : [];
+  return list.filter(isReplyToken).map((t) => replyOf(t, list)).filter((a) => a && (a.post || a.feed)).map((a) => ({
+    parent: a.post ? { token: a.post } : { ref: a.feed },
+    who: a.nick ? '' : a.who, nick: a.nick, chan: a.chan, text: a.text,
+  }));
+}
+
+export function isLoudToken(token) {
+  return /^loud=/.test(String(token || ''));
+}
+
+/** «Повод сыгран»: `played=p3`. */
+export function isPlayedToken(token) {
+  return /^played=/.test(String(token || ''));
+}
+
+/** Id поводов, отмеченных сыгранными. */
+export function playedOf(tokens) {
+  return (Array.isArray(tokens) ? tokens : []).filter(isPlayedToken).map((t) => t.slice(7)).filter(Boolean);
+}
+
+/**
+ * Токен факта — то, что меняет состояние семестра: всё, кроме блока «что
+ * сочинено» и отметки «повод сыгран» (она правит только ленту).
+ */
+export function isFactToken(token) {
+  return Boolean(token) && !isReactToken(token) && !isReplyToken(token) && !isLoudToken(token) && !isPlayedToken(token);
+}
+
+/**
+ * Реакция из токена; `fact` — токен её факта в списке или `null`
+ * (факт вычеркнут — реакция сирота). У маски `who` пустой, ник — в `nick`.
+ * @returns {?{ref: string, who: string, nick: string, chan: string, text: string, fact: ?string, token: string}}
+ */
+export function reactionOf(token, tokens = []) {
+  const m = /^react=([^:]+):([^:]*):(chat|anon):([\s\S]+)$/.exec(String(token || ''));
+  if (!m) return null;
+  const fact = (tokens || []).find((t) => isFactToken(t) && factRef(t) === m[1]) || null;
+  return { ref: m[1], ...authorFrom(m[2]), chan: m[3], text: m[4], fact, token: String(token) };
+}
+
+/** Реакции списка с их фактами — для ленты (`scene.applyReactions`). */
+export function reactionsOf(tokens) {
+  const list = Array.isArray(tokens) ? tokens : [];
+  return list.filter(isReactToken).map((t) => reactionOf(t, list)).filter((r) => r && r.fact);
+}
+
+/** Громкость разбора; `null` — реакций нет. */
+export function loudOf(tokens) {
+  const t = (tokens || []).find(isLoudToken);
+  const n = t ? Number(t.slice(5)) : NaN;
+  return Number.isInteger(n) && n >= 0 && n <= 3 ? n : null;
+}
+
+/**
+ * Без реакций-сирот: реакция, чьего факта больше нет, уходит; громкость без
+ * единой реакции — тоже. Решение 3 владелицы: вычеркнула факт — его реакции
+ * уходят вместе с ним.
+ */
+export function pruneReactions(tokens) {
+  if (!Array.isArray(tokens)) return tokens;
+  const refs = new Set(tokens.filter(isFactToken).map(factRef));
+  const withReacts = tokens.filter((t) => {
+    if (!isReactToken(t)) return true;
+    const r = reactionOf(t);
+    return Boolean(r && refs.has(r.ref));
+  });
+  // Реакция ушла — её ветка тоже. Ответ к посту ленты держится за ленту.
+  const posts = new Set(withReacts.filter(isReactToken).map((t) => hash(t)));
+  const kept = withReacts.filter((t) => {
+    if (!isReplyToken(t)) return true;
+    const a = replyOf(t);
+    return Boolean(a && (a.feed || posts.has(a.parent.slice(2))));
+  });
+  return kept.some((t) => isReactToken(t) || isReplyToken(t)) ? kept : kept.filter((t) => !isLoudToken(t));
+}
+
+/** Вычеркнуть строку с плашки: факт уносит свои реакции, реакция — свою ветку. */
+export function dropTokenAt(tokens, index) {
+  if (!Array.isArray(tokens)) return tokens;
+  return pruneReactions(tokens.filter((_, i) => i !== index));
 }
 
 /** Событие разборщика → канонический токен; время и прочее — `null`. */
@@ -174,6 +729,23 @@ export function tokenOf(ev) {
     if (!name) return null;
     return `event=+${ev.days}${ev.until > ev.days ? `..+${ev.until}` : ''}:${name}`;
   }
+  if (ev.kind === 'met') return `met=${ev.personId}`;
+  if (ev.kind === 'clash') {
+    const reason = cleanReason(ev.reason);
+    return `clash=${ev.a}:${ev.b}${reason ? `:${reason}` : ''}`;
+  }
+  if (ev.kind === 'rumor') {
+    const what = cleanReason(ev.text, 100);
+    return what ? `rumor=${ev.about}:${what}` : null;
+  }
+  if (ev.kind === 'new') {
+    const name = cleanReason(ev.name).replace(/:/g, ' ').trim();
+    return name ? `new=${name}` : null;
+  }
+  if (ev.kind === 'deal') {
+    const what = cleanReason(ev.what);
+    return what ? `deal${ev.closed ? '-' : ''}=${ev.a}:${ev.b}:${what}` : null;
+  }
   const sign = ev.delta < 0 ? '-' : '+';
   const strength = ev.impact ? `${ev.impact}${sign}` : `${sign}${Math.abs(ev.delta)}`;
   const reason = cleanReason(ev.reason);
@@ -184,12 +756,13 @@ export function tokenOf(ev) {
  * Повод — свободный текст внутри метки. Вычищается всё, что разборщик принял
  * бы за границу: `=` начинает новый ключ, скобки и `-->` закрывают метку.
  */
-function cleanReason(reason) {
+function cleanReason(reason, max = ANALYSIS_LIMITS.reason) {
   return str(reason)
     .replace(/-->|[=[\]<>]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, ANALYSIS_LIMITS.reason);
+    .slice(0, max)
+    .trim();
 }
 
 /** Токены одной меткой — так их читает движок. */
@@ -207,7 +780,8 @@ export function analysisMarker(tokens) {
 export function effectiveText(text, tokens) {
   const src = String(text || '');
   if (!Array.isArray(tokens)) return src;
-  return `${keepMarkerKinds(src, ['time'])}\n${analysisMarker(tokens)}`;
+  // Реакции и громкость — блок «что сочинено»: в метку движку не едут.
+  return `${keepMarkerKinds(src, ['time'])}\n${analysisMarker(tokens.filter(isFactToken))}`;
 }
 
 /**
@@ -215,10 +789,43 @@ export function effectiveText(text, tokens) {
  * «Петрова: теплее (немного) — помогла с опытом», «прогул: история».
  * Имена — из состояния; токен, который больше не читается (предмет удалили), —
  * как есть.
+ *
+ * Событие — без «в планы:»: оно и так стоит в разделе «В планы» плашки.
+ * `known` — событие уже было в планах и не записано: тогда «уже в планах: …»,
+ * а не как записанное. `brief` — для свёрнутой сводки, где раздела не видно:
+ * там «в планы:» нужно.
+ *
+ * @param {{known?: boolean, brief?: boolean}} [opts]
  */
-export function tokenText(token, lexicon) {
+export function tokenText(token, lexicon, { known = false, brief = false } = {}) {
+  // У пресета `classmates` — настройки курса, не список: берутся только массивы.
+  const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
+  const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
+  if (isReactToken(token)) {
+    const r = reactionOf(token);
+    if (!r) return String(token);
+    // Анонимка без автора — и на плашке: кто пустил слух, курс не знает.
+    // Маска видна и там: она и есть подпись анонимки.
+    if (r.chan === 'anon') return r.nick ? `анонимка, ${nickWord(r.nick)}: «${r.text}»` : `анонимка: «${r.text}»`;
+    return `${authorWord(r, people, heroine, lexicon)}: «${r.text}»`;
+  }
+  if (isReplyToken(token)) {
+    const a = replyOf(token);
+    if (!a) return String(token);
+    const who = a.chan === 'anon' && !a.nick ? 'без подписи' : authorWord(a, people, heroine, lexicon);
+    return `${who}: «${a.text}»`;
+  }
+  if (isLoudToken(token)) {
+    const row = LOUDNESS.find((l) => l.level === loudOf([token]));
+    return row ? row.word : String(token);
+  }
+  if (isPlayedToken(token)) {
+    const hook = arr(lexicon.hooks).find((h) => h && h.id === token.slice(7));
+    return hook ? `повод сыгран: ${hook.text}` : 'повод сыгран';
+  }
   const ev = tokenEvent(token, lexicon);
   if (!ev) return String(token);
+  if (SCENE_KINDS.includes(ev.kind)) return sceneText(ev, people, heroine);
   const subject = (id) => {
     const s = (lexicon.subjects || []).find((x) => x.id === id);
     return (s && s.name) || id;
@@ -226,9 +833,13 @@ export function tokenText(token, lexicon) {
   if (ev.kind === 'grade') return `оценка: ${subject(ev.subjectId)} — ${ev.value}`;
   if (ev.kind === 'completion') return `Сданы ${ev.scope === 'all' ? 'все зачёты и экзамены' : ev.scope === 'debts' ? 'все текущие хвосты' : subject(ev.scope)}: ${ev.value}`;
   if (ev.kind === 'attendance') return `${ev.status === 'late' ? 'опоздание' : 'прогул'}: ${subject(ev.subjectId)}`;
-  if (ev.kind === 'event') return `в планы: ${ev.name} — ${daysText(ev.days)}${ev.until > ev.days ? ` (на ${ev.until - ev.days + 1} дн.)` : ''}`;
+  if (ev.kind === 'event') {
+    const span = ev.until > ev.days ? ` (${daysWord(ev.until - ev.days + 1)})` : '';
+    const head = known ? 'уже в планах: ' : brief ? 'в планы: ' : '';
+    return `${head}${ev.name} — ${daysText(ev.days)}${span}`;
+  }
   if (ev.kind === 'rel') {
-    const t = (lexicon.teachers || []).find((x) => x.id === ev.teacherId);
+    const t = people.find((x) => x.id === ev.teacherId);
     const who = (t && t.name) || ev.teacherId;
     const dir = ev.delta > 0 ? 'теплее' : 'холоднее';
     const how = ev.impact === 'major' ? 'заметно' : ev.impact === 'minor' ? 'немного' : '';
@@ -237,17 +848,35 @@ export function tokenText(token, lexicon) {
   return String(token);
 }
 
-/** «сегодня», «завтра», «через 3 дн.» — от дня сцены. */
+/** Автор реплики словами: маска — «@школьный бес», человек — имя, иначе «кто-то с курса». */
+function authorWord(r, people, heroine, lexicon) {
+  if (r.nick) return nickWord(r.nick);
+  return r.who === SOMEONE || !r.who ? someoneWord(lexicon) : personWord(r.who, people, heroine);
+}
+
+/** «сегодня», «завтра», «через 3 дня» — от дня сцены. */
 function daysText(n) {
   if (n === 0) return 'сегодня';
   if (n === 1) return 'завтра';
   if (n === 2) return 'послезавтра';
-  return `через ${n} дн.`;
+  return `через ${daysWord(n)}`;
+}
+
+/** «1 день», «3 дня», «5 дней». */
+function daysWord(n) {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  const word = a > 10 && a < 20 ? 'дней' : b === 1 ? 'день' : b > 1 && b < 5 ? 'дня' : 'дней';
+  return `${n} ${word}`;
 }
 
 /** Токен обратно в событие разборщика; не читается — `null`. */
 export function tokenEvent(token, lexicon) {
   return parseMarker(analysisMarker([token]), lexicon).events[0] || null;
+}
+
+function arr(v) {
+  return Array.isArray(v) ? v : [];
 }
 
 function str(v) {
@@ -265,7 +894,7 @@ export function clipAnalysisReply(text, limit = ANALYSIS_LIMITS.reply) {
   const edge = Math.floor(budget / 4);
   const middle = source.slice(edge, source.length - edge);
   const relevant = middle.split(/\n\s*\n|(?<=[.!?])\s+/u)
-    .filter((part) => /экзамен|зач[её]т|хвост|оценк|отметк|профессор|преподавател|прогул|опозда|сдал|сдан|сдач|праздн|(?<![а-яё])бал(?!л)|вечеринк|концерт|ярмарк|фестивал|турнир|поход|свидани|через .{0,12}(дн|недел)|завтра|послезавтра|в (понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)|exam|grade|passed/iu.test(part))
+    .filter((part) => /экзамен|зач[её]т|хвост|оценк|отметк|профессор|преподавател|прогул|опозда|сдал|сдан|сдач|праздн|(?<![а-яё])бал(?!л)|вечеринк|концерт|ярмарк|фестивал|турнир|поход|свидани|через .{0,12}(дн|недел)|завтра|послезавтра|в (понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье)|ссор|ругал|скандал|слух|сплетн|говорят|обещал|одолжил|верн[её]т|конспект|exam|grade|passed/iu.test(part))
     .join('\n');
   return [source.slice(0, edge), relevant.slice(0, budget - edge * 2), source.slice(-edge)]
     .filter(Boolean).join(separator);

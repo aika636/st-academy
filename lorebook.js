@@ -65,7 +65,7 @@
 //    остаётся — это файл с именем старого чата, и прошлый чат при возврате его
 //    просто привяжет (`ensureBook`: существующий не перезаписывается).
 
-import { buildEntries, buildLorebook, fingerprint, KEEP_FOREIGN } from './core/lorebook.mjs';
+import { buildEntries, buildLorebook, fingerprint, KEEP_FOREIGN, classmateUid } from './core/lorebook.mjs';
 import { DEFAULT_SETTINGS } from './storage.js';
 
 /** Тот же отпечаток, что у ядра: ре-экспорт, чтобы не разъехались две реализации. */
@@ -205,10 +205,13 @@ export function worldInfo(ctx) {
  * Имя лорбука для этого чата.
  *
  * Приоритет: уже привязанный к чату → заданный в настройках → по имени чата.
- * Отсев символов — тот же, которым таверна зовёт чат-лорбук из слэш-команды
- * (`world-info.js:1178`): имя уезжает в имя файла, и хотя сервер санирует его
- * сам (`src/endpoints/worldinfo.js:151`), расходиться с таверной в том, как
- * называется один и тот же лорбук, нельзя.
+ * Отсев символов — как у чат-лорбука таверны из слэш-команды
+ * (`world-info.js:1178`), но буквы любого алфавита остаются: там стоит
+ * `[^a-z0-9]`, и чат «Вера - 2026-10-07…» превращался в «Academy _ - 2026…» —
+ * по такому имени свой лорбук не найти. Имя уезжает в имя файла, а сервер
+ * санирует его сам (`src/endpoints/worldinfo.js:151`, `sanitize-filename`) и
+ * кириллицу пропускает; запрещённые в именах файлов знаки (`/`, `:`, `@`)
+ * по-прежнему становятся `_`. Уже привязанное имя не меняется.
  */
 export function bookName(ctx, s = {}) {
   const md = (ctx && ctx.chatMetadata) || {};
@@ -217,7 +220,7 @@ export function bookName(ctx, s = {}) {
   if (s.book) return s.book;
   const chatId = ctx && typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : '';
   if (!chatId) return '';
-  return `Academy ${chatId}`.replace(/[^a-z0-9 -]/gi, '_').replace(/_{2,}/g, '_').substring(0, 64);
+  return `Academy ${chatId}`.replace(/[^\p{L}\p{N} -]/gu, '_').replace(/_{2,}/g, '_').substring(0, 64);
 }
 
 // --- снимок ------------------------------------------------------------------
@@ -450,6 +453,18 @@ export async function pruneOrphans(ctx, orphans, opts = {}) {
 
   if (removed > 0) await wi.save(name, data, true);
   return { ok: true, name, removed };
+}
+
+/**
+ * Убрать запись однокурсника, которого человек удалил с курса (шаг 2: «удалила
+ * человека — запись уходит»). Это то же явное действие, что `pruneOrphans`
+ * (решение 6): удаление человека — нажатие кнопки, а не свайп, и правленую
+ * руками запись `pruneOrphans` по-прежнему не тронет. Сторож `opts.guard` —
+ * тот же, что у всех походов в World Info (решение 7).
+ */
+export async function forgetClassmate(ctx, id, opts = {}) {
+  if (!id) return { ok: false, reason: 'no-entry' };
+  return pruneOrphans(ctx, [classmateUid(id)], opts);
 }
 
 // --- мелочи ------------------------------------------------------------------

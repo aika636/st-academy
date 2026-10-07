@@ -13,11 +13,15 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const css = readFileSync(fileURLToPath(new URL('../style.css', import.meta.url)), 'utf8');
-const ui = readFileSync(fileURLToPath(new URL('../ui.js', import.meta.url)), 'utf8');
+// Панель разложена по `ui/*.js` (`ui.js` — только фасад), читаются все файлы.
+const uiDir = fileURLToPath(new URL('../ui/', import.meta.url));
+const ui = readdirSync(uiDir).filter((f) => f.endsWith('.js'))
+  .map((f) => readFileSync(join(uiDir, f), 'utf8')).join('\n');
 
 // Комментарии сняты заранее: внутри них живут фигурные скобки — цитаты чужих
 // правил, — и наивный поиск конца блока обрывается на них.

@@ -13,8 +13,8 @@ import { resolve } from 'node:path';
 
 import { normalizePreset } from '../core/preset.mjs';
 import { KINDS } from '../core/milestones.mjs';
-import { holidaysOf } from '../core/holidays.mjs';
-import { DEFAULT_UI } from '../ui.js';
+import { holidaysOf, vacationsOf, mergeVacations } from '../core/holidays.mjs';
+import { DEFAULT_UI, PRESET_UI_WORDS } from '../ui.js';
 
 const file = process.argv[2];
 if (!file) {
@@ -44,6 +44,11 @@ for (const section of ['vocab', 'labels', 'prompts']) {
   }
 }
 for (const k of Object.keys(DEFAULT_UI)) need(raw.ui && k in raw.ui, `ui: нет ключа «${k}»`);
+// Свои слова ленты, плашки и фона (решение владелицы Р6): без них сеттинг
+// заговорил бы «на курсе» и «кто-то с курса» вуза. `vocab.crowdIn` и
+// `vocab.someone` проверяет сверка словарей выше — они есть у образца.
+for (const k of PRESET_UI_WORDS) need(raw.ui && isStr(raw.ui[k]), `ui: нет своего слова «${k}»`);
+for (const k of ['crowdIn', 'someone']) need(raw.vocab && isStr(raw.vocab[k]), `vocab: нет своего слова «${k}»`);
 for (const k of Object.keys((ru.ui && ru.ui.phases) || {})) {
   need(raw.ui && raw.ui.phases && k in raw.ui.phases, `ui.phases: нет ключа «${k}»`);
 }
@@ -73,6 +78,41 @@ for (const h of raw.holidays || []) {
   if (isStr(h.today)) need(!/\d/.test(h.today), `holidays: в today «${h.name}» цифры — строка состояния бережёт числа`);
 }
 
+// Курс (шаг 2): размер и роли-зёрна по смыслу сеттинга, ярлыки отношения
+// однокурсника к героине на той же шкале, что у преподавателей.
+const course = raw.classmates || {};
+need(Number.isInteger(course.size) && course.size >= 1 && course.size <= 12, 'classmates.size: целое от 1 до 12');
+const seeds = Array.isArray(course.seeds) ? course.seeds : [];
+need(seeds.length >= 6 && seeds.length <= 8, `classmates.seeds: ролей ${seeds.length}, нужно 6–8`);
+need(seeds.every(isStr) && new Set(seeds).size === seeds.length, 'classmates.seeds: пустые роли или повторы');
+need(seeds.every((s) => typeof s === 'string' && s.length <= 40), 'classmates.seeds: роль длиннее 40 символов');
+const labels = Array.isArray(course.labels) ? course.labels : [];
+const scale = raw.relations || {};
+need(labels.length > 0 && labels.every((l) => l && typeof l.upTo === 'number' && isStr(l.label)), 'classmates.labels: нужен список {upTo, label}');
+if (labels.length) {
+  need(labels.every((l, i) => i === 0 || l.upTo > labels[i - 1].upTo), 'classmates.labels: upTo по возрастанию');
+  need(labels[labels.length - 1].upTo >= scale.max, 'classmates.labels: последняя ступень не покрывает верх шкалы relations');
+}
+
+// Лента (шаг 3): потолок реакций на разбор — необязательный, но если задан,
+// то целое 1–12 (умолчание ядра — 6).
+if (raw.feed !== undefined) {
+  const cap = raw.feed && raw.feed.reactionCap;
+  need(raw.feed && typeof raw.feed === 'object' && !Array.isArray(raw.feed), 'feed: нужен объект {reactionCap}');
+  if (cap !== undefined) need(Number.isInteger(cap) && cap >= 1 && cap <= 12, `feed.reactionCap: ${cap} — нужно целое от 1 до 12`);
+}
+
+// Праздник и каникулы с тем же именем в те же дни ядро показывает одним
+// событием (`holidays.mergeVacations`). Это не ошибка, но автору пресета
+// стоит знать, что вторая запись не видна сама по себе, — и что сроки, если
+// они расходятся, сольются в общий.
+const notes = [];
+for (const { holiday, vacation } of mergeVacations(holidays, vacationsOf(raw)).pairs) {
+  const same = holiday.from === vacation.from && holiday.to === vacation.to;
+  notes.push(`праздник «${holiday.name}» и каникулы «${vacation.name}» — одно событие`
+    + (same ? '' : ` (сроки ${holiday.from}…${holiday.to} и ${vacation.from}…${vacation.to} сольются в общий)`));
+}
+
 // Настоящая нормализация с пробным прогоном ядра.
 const res = normalizePreset(raw, { builtins: { 'ru-university': ru } });
 if (!res.ok) problems.push(`нормализация: ${res.message}`);
@@ -84,3 +124,4 @@ if (problems.length) {
 }
 console.log(`✔ ${file}: пресет «${raw.displayName}» в порядке, праздников ${holidays.length}`);
 if (res.warnings.length) console.log(`  предупреждения: ${res.warnings.join('; ')}`);
+for (const n of notes) console.log(`  к сведению: ${n}`);

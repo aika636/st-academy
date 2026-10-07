@@ -47,6 +47,8 @@
 import { createState } from './state.mjs';
 import { buildSchedule } from './schedule.mjs';
 import { applyResponse } from './engine.mjs';
+import { SIZE_BOUNDS, DEFAULT_SIZE, SEEDS_MAX, CLASSMATE_TEXT_MAX } from './classmates.mjs';
+import { REACTION_CAP, CAP_BOUNDS } from './feed.mjs';
 
 /** Имя формата в конверте файла. Отличается от выгрузки состояния (`academy-state`). */
 export const PRESET_FORMAT = 'academy-preset';
@@ -133,7 +135,7 @@ const SAFE_TAGS = new Set(['code', 'b', 'i', 'em', 'strong', 'u', 'br']);
  * либо основы (решение 3). Не названная здесь секция сливается на два уровня:
  * это словари (`phrases.milestones.*`, `prompts.plan.*`, `ui.phases.*`).
  */
-const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0, holidays: 0 };
+const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0, holidays: 0, classmates: 1 };
 
 const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
@@ -346,6 +348,81 @@ function checkHolidays(list) {
     if (h.off !== undefined && typeof h.off !== 'boolean') e.push(`${where}.off: «занятий нет» — true или false`);
   });
   return e;
+}
+
+/**
+ * Курс (`core/classmates.mjs`): `{size, seeds, labels}`, весь блок
+ * необязателен. Размер и зёрна не отвергаются, а приводятся к рамкам с
+ * предупреждением — пресет с девятью ролями годен и так. Ярлыки — та же
+ * форма, что у шкалы отношения: битая таблица означала бы немого человека.
+ * Правит блок на месте (он уже копия слияния).
+ *
+ * @returns {{errors: string[], warnings: string[]}}
+ */
+export function normalizeClassmatesBlock(preset) {
+  const errors = [];
+  const warnings = [];
+  const block = preset.classmates;
+  if (block === undefined) return { errors, warnings };
+  if (!isPlain(block)) return { errors: ['classmates: нужен объект {size, seeds, labels}'], warnings };
+  if (block.size !== undefined) {
+    const [lo, hi] = SIZE_BOUNDS;
+    if (!isInt(block.size)) {
+      warnings.push(`classmates.size: не целое — взято ${DEFAULT_SIZE}`);
+      block.size = DEFAULT_SIZE;
+    } else if (block.size < lo || block.size > hi) {
+      const n = Math.min(hi, Math.max(lo, block.size));
+      warnings.push(`classmates.size: ${block.size} за рамками ${lo}–${hi}, взято ${n}`);
+      block.size = n;
+    }
+  }
+  if (block.seeds !== undefined) {
+    if (!Array.isArray(block.seeds)) {
+      errors.push('classmates.seeds: нужен список ролей');
+    } else {
+      const seeds = [];
+      for (const v of block.seeds) {
+        const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, CLASSMATE_TEXT_MAX.seed) : '';
+        if (t && !seeds.includes(t)) seeds.push(t);
+      }
+      if (seeds.length !== block.seeds.length) warnings.push('classmates.seeds: пустые, повторы и не-строки выброшены');
+      if (seeds.length > SEEDS_MAX) warnings.push(`classmates.seeds: ролей больше ${SEEDS_MAX} — лишние отброшены`);
+      block.seeds = seeds.slice(0, SEEDS_MAX);
+    }
+  }
+  if (block.labels !== undefined && (!Array.isArray(block.labels) || !block.labels.length
+    || !block.labels.every((l) => isPlain(l) && typeof l.upTo === 'number' && typeof l.label === 'string'))) {
+    errors.push('classmates.labels: список ступеней {upTo, label}');
+  }
+  return { errors, warnings };
+}
+
+/**
+ * Лента (`core/feed.mjs`): `{reactionCap}` — сколько реакций самое большее
+ * ложится с одного разбора. Блок необязателен; число вне рамок 1–12 не
+ * отвергается, а зажимается с предупреждением, мусор — умолчание 6. Правит
+ * блок на месте (он уже копия слияния).
+ *
+ * @returns {{errors: string[], warnings: string[]}}
+ */
+export function normalizeFeedBlock(preset) {
+  const errors = [];
+  const warnings = [];
+  const block = preset.feed;
+  if (block === undefined) return { errors, warnings };
+  if (!isPlain(block)) return { errors: ['feed: нужен объект {reactionCap}'], warnings };
+  if (block.reactionCap !== undefined) {
+    const [lo, hi] = CAP_BOUNDS;
+    if (!isInt(block.reactionCap)) {
+      warnings.push(`feed.reactionCap: не целое — взято ${REACTION_CAP}`);
+      block.reactionCap = REACTION_CAP;
+    } else if (block.reactionCap < lo || block.reactionCap > hi) {
+      const n = Math.min(hi, Math.max(lo, block.reactionCap));
+      warnings.push(`feed.reactionCap: ${block.reactionCap} за рамками ${lo}–${hi}, взято ${n}`);
+      block.reactionCap = n;
+    }
+  }
+  return { errors, warnings };
 }
 
 function checkGrades(g) {
@@ -641,6 +718,12 @@ export function normalizePreset(raw, opts = {}) {
     ...checkScale(preset.reputation, 'reputation'),
   ];
   if (preset.attendance !== undefined && !isPlain(preset.attendance)) errors.push('attendance: нужен объект');
+  const course = normalizeClassmatesBlock(preset);
+  errors.push(...course.errors);
+  warnings.push(...course.warnings);
+  const feed = normalizeFeedBlock(preset);
+  errors.push(...feed.errors);
+  warnings.push(...feed.warnings);
   if (errors.length) return fail(errors, warnings);
 
   const probed = probePreset(preset, opts.probe || []);

@@ -35,7 +35,7 @@ const good = () => createState(preset, { startDay: '2024-09-02' });
 test('analysis drafts and previous accepted analysis survive reload separately from saved tokens', () => {
   const ctx = fakeContext();
   const entry = { stamp: 'reply', tokens: ['rel=teacher:minor+'], summary: 'Saved',
-    draft: { tokens: ['grade=math:5'], summary: 'Candidate' },
+    draft: { tokens: ['grade=math:5'], summary: 'Candidate', unparsed: ['sokolova'] },
     previousAnalysis: { tokens: null, summary: '' } };
   saveLedger(ctx, [entry]);
   const restored = loadLedger(fakeContext({ chatMetadata: JSON.parse(JSON.stringify(ctx.chatMetadata)) }))[0];
@@ -58,7 +58,8 @@ test('invalid drafts are discarded and old ledger entries have no drafts', () =>
   assert.equal(restored[0].draft, null);
   assert.equal(restored[1].draft, null);
   assert.equal(restored[1].previousAnalysis, null);
-  assert.deepEqual(restored[2].draft, { tokens: ['grade=math:5'], summary: '' });
+  assert.deepEqual(restored[2].draft, { tokens: ['grade=math:5'], summary: '', unparsed: [] });
+  assert.deepEqual(restored[0].unparsed, [], '«не разобрано» у старой записи — пусто');
 });
 
 test('turn reload preserves accumulated teacher relations instead of preset defaults', () => {

@@ -25,7 +25,8 @@
 import { cloneState, findSubject, pushJournal } from './state.mjs';
 import { addGrade } from './gradebook.mjs';
 import { mark } from './attendance.mjs';
-import { changeRelation } from './relations.mjs';
+import { changeRelation, findPerson } from './relations.mjs';
+import { SCENE_KINDS, SCENE_RECEIPTS, applySceneEvent, revertSceneEvent } from './scene.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { planEvent } from './holidays.mjs';
 import { addDays } from './time.mjs';
@@ -52,7 +53,9 @@ export function completionReceipt(before, after, subjectIds) {
  * @param {Object} state
  * @param {{kind: string}} ev событие `grade` / `rel` / `attendance`
  * @param {Object} preset
- * @param {{day?: string}} [opts] день того ответа; нет — сегодняшний
+ * @param {{day?: string, src?: string, token?: string, stop?: *}} [opts] день того
+ *   ответа (нет — сегодняшний); для фактов курса — отпечаток ответа, токен и
+ *   стоп-лист (`core/scene`)
  * @returns {{state: Object, receipt: ?Object}} квитанция `null` — ничего не легло
  */
 export function applyCorrection(state, ev, preset, opts = {}) {
@@ -77,22 +80,31 @@ export function applyCorrection(state, ev, preset, opts = {}) {
   }
 
   if (ev.kind === 'rel') {
-    const teacher = (state.teachers || []).find((t) => t.id === ev.teacherId);
+    // Преподаватель или однокурсник (шаг 2): у `rel=` одно пространство id.
+    const teacher = findPerson(state, ev.teacherId);
     if (!teacher) return { state, receipt: null };
     const before = teacher.relation;
     const r = changeRelation(state, { teacherId: ev.teacherId, delta: ev.delta, reason: ev.reason || null }, preset);
-    const after = ((r.state.teachers || []).find((t) => t.id === ev.teacherId) || {}).relation;
+    const after = (findPerson(r.state, ev.teacherId) || {}).relation;
     const applied = Number(after) - Number(before);
     return { state: r.state, receipt: { kind: 'rel', teacherId: ev.teacherId, applied: Number.isFinite(applied) ? applied : 0 } };
   }
 
   // Событие в планы — от дня того ответа: «через три дня бал», сказанное
   // позавчера, — бал завтра. Уже прошедшее событие тоже ложится: оно просто
-  // окажется в списке прошедшим.
+  // окажется в списке прошедшим. Уже записанное в те же дни — квитанция
+  // `known`: плашка скажет «уже в планах», а снятие разбора не тронет чужую
+  // запись (без квитанции оно снимало бы по имени и дню — то самое событие).
   if (ev.kind === 'event') {
     const r = planEvent(state, preset, ev, day);
-    if (!r.ok) return { state, receipt: null };
+    if (!r.ok) return { state, receipt: r.duplicate ? { kind: 'event', known: true, name: ev.name } : null };
     return { state: r.state, receipt: { kind: 'event', id: r.event.id, name: r.event.name, from: r.event.from } };
+  }
+
+  // Факты курса (шаг 3): кто был, стычка, слух, новое имя, дело — со своей
+  // квитанцией из `core/scene`.
+  if (SCENE_KINDS.includes(ev.kind)) {
+    return applySceneEvent(state, ev, preset, { ...opts, day });
   }
 
   if (ev.kind === 'attendance') {
@@ -116,6 +128,7 @@ export function applyCorrection(state, ev, preset, opts = {}) {
  */
 export function revertCorrection(state, receipt, preset) {
   if (!receipt || typeof receipt !== 'object') return state;
+  if (SCENE_RECEIPTS.includes(receipt.kind)) return revertSceneEvent(state, receipt);
   let next = cloneState(state);
 
   if (receipt.kind === 'completion') {
@@ -173,6 +186,7 @@ export function revertCorrection(state, receipt, preset) {
   }
 
   if (receipt.kind === 'event') {
+    if (receipt.known) return next;
     const list = Array.isArray(next.events) ? next.events : [];
     const at = list.findIndex((e) => e && (receipt.id ? e.id === receipt.id : e.name === receipt.name && e.from === receipt.from));
     if (at >= 0) list.splice(at, 1);
