@@ -1364,6 +1364,28 @@
   color: var(--ac-mute);
 }
 
+/* Зона касания от 36px (третий прогон 08.10) — невидимым полем вокруг: сама
+   кнопка остаётся маленькой, и плашка не раздувается. Нажатие на поле —
+   нажатие на кнопку (`::after` — часть её коробки). */
+.academy-mes-action,
+.academy-mes-drop,
+.academy-mes-panel .academy-mes-btn {
+  position: relative;
+  overflow: visible;
+}
+
+.academy-mes-action::after,
+.academy-mes-drop::after,
+.academy-mes-panel .academy-mes-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 36px);
+  height: max(100%, 36px);
+  transform: translate(-50%, -50%);
+}
+
 .academy-mes-action:hover,
 .academy-mes-drop:hover {
   border-color: var(--ac-line-strong);
@@ -1445,9 +1467,6 @@
   color: var(--ac-mute);
 }
 
-.academy-mes-tokens li > span:first-child {
-  flex: 1 1 auto;
-}
 
 .academy-mes-section-head {
   display: flex;
@@ -1477,35 +1496,74 @@
   padding: 0 0 0 20px;
 }
 
+/* Строка плашки (третий прогон 08.10): кружок, текст с «о чём» под ним и
+   колонка кнопок. Текст — единственный гибкий ребёнок с `min-width: 0` и
+   переносом в любом месте: длинное слово без пробелов и ник в 32 знака
+   переносятся, а не уезжают за край; ✕ всегда в правом верхнем углу. */
 .academy-mes-tokens li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  display: block;
+  min-width: 0;
   border-bottom: 1px solid var(--ac-line);
+}
+
+.academy-mes-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.academy-mes-line > .academy-ava {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.academy-mes-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.academy-mes-text {
+  display: inline;
+}
+
+/* «О чём» пост — своей строкой под текстом, мелко и серым. */
+.academy-mes-body .academy-mes-on {
+  display: block;
+  margin-top: 1px;
+  line-height: 1.25;
+}
+
+.academy-mes-acts {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* Человек из списка — имя жирным; маска и «без подписи» — серым курсивом. */
+.academy-mes-who {
+  font-weight: 600;
+}
+
+.academy-mes-who.academy-mes-who-mask {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ac-mute);
 }
 
 .academy-mes-tokens li:last-child {
   border-bottom: 0;
 }
 
-/* Ответы под постом — с отступом, отдельной строкой под ним: строка поста
-   переносится, ветка занимает всю ширину. */
-.academy-mes-tokens li.academy-mes-has-thread {
-  flex-wrap: wrap;
-}
-
+/* Ответы под постом — с отступом, отдельным блоком под строкой поста. */
 .academy-mes-tokens .academy-mes-thread {
-  flex: 1 1 100%;
-  margin: 0;
+  margin: 0 0 2px;
   padding-left: 14px;
   border-left: 2px solid var(--ac-line);
-}
-
-/* Маска — серым: это не человек из списка. */
-.academy-mes-nick > span:first-child {
-  color: var(--ac-mute);
-  font-style: italic;
 }
 
 .academy-mes-list {
@@ -2495,6 +2553,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: clamp(0.85em, 2.6vw, 1em);
+  }
+
+  /* Третий прогон 08.10: на 390 пикселях «Достижения» (61 px) не влезало во
+     вкладку (56 px) и обрезалось. Шрифт ярлыка — по ширине вкладки и самому
+     длинному слову (`--academy-tab-chars`, ставит `ui/panel.js`): слово
+     ужимается целиком, фраза переносится по словам на две строки. Без
+     контейнерных единиц остаётся строчка выше. */
+  @supports (width: 1cqi) {
+    .academy-panel .academy-tab {
+      container-type: inline-size;
+    }
+
+    .academy-panel .academy-tab-label {
+      font-size: max(8px, min(1em, calc((100cqi - 2px) / (var(--academy-tab-chars, 8) * 0.62))));
+    }
   }
 }
 

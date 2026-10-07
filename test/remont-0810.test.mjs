@@ -74,7 +74,7 @@ test('В: автор реакции сопоставляется мягко — 
   assert.equal(tokenText(parsed.tokens.find((t) => t.includes('А кто это')), lex), 'кто-то с курса: «А кто это?»');
   const names = unparsedNames(parsed.rejected);
   assert.deepEqual(names, ['glebov', 'petrov']);
-  assert.equal(unparsedText(names), 'Не разобрано: «glebov», «petrov» — таких людей нет в списках. Добавьте человека или поправьте имя и разберите заново.');
+  assert.equal(unparsedText(names), 'Не разобрано: «Glebov», «Petrov» — таких людей нет в списках. Добавьте их или поправьте имена и разберите заново.');
   assert.equal(unparsedText([]), '');
   assert.deepEqual(unparsedNames([{ raw: 'x', reason: 'пустое значение' }]), []);
 });
@@ -206,8 +206,8 @@ test('З: часть имени из общего слова ключом не �
 
 test('З: имя чат-лорбука сохраняет кириллицу, запрещённые в имени файла знаки — «_»', () => {
   const ctx = (chatId) => ({ chatMetadata: {}, getCurrentChatId: () => chatId });
-  assert.equal(bookName(ctx('Вера - 2026-10-07@12h30m')), 'Academy Вера - 2026-10-07_12h30m');
-  assert.equal(bookName(ctx('a/b:c')), 'Academy a_b_c');
+  assert.equal(bookName(ctx('Вера - 2026-10-07@12h30m')), 'Академия — Вера');
+  assert.equal(bookName(ctx('a/b:c')), 'Академия — a_b_c');
 });
 
 // --- А, Д: здоровье неполного состояния, прочитанное только на виду -------------------------

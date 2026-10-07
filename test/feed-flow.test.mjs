@@ -279,7 +279,7 @@ test('вид «Потока»: два канала, автор анонимки 
   assert.deepEqual(v.items.map((i) => i.id), ['old', 'b@x', 'a#1'], 'новые сверху');
   const talk = v.items.find((i) => i.id === 'a#1');
   assert.equal(talk.who, 'Мила Орлова');
-  assert.equal(talk.about, 'по поводу: прогул: аналитическая химия');
+  assert.equal(talk.about, 'прогул: аналитическая химия', 'о чём — без «по поводу»');
   assert.equal(talk.tag, 'обсуждают', 'реплика в чате — обсуждение, а не «факт»');
   assert.equal(v.items.find((i) => i.id === 'b@x').tag, 'факт');
   assert.equal(talk.dayLine.length > 0, true);

@@ -539,11 +539,17 @@ function renderPlanTable(host, view, preset, open = false) {
   const X = extraLabels(preset);
   const status = el('div', { class: 'academy-status' });
   // Рабочая копия: правки живут здесь до нажатия «сохранить», чтобы
-  // недописанная строка не роняла состояние.
-  const draft = {
+  // недописанная строка не роняла состояние. Она переживает перерисовку
+  // вкладки, пока списки в состоянии те же: правка анкеты выше сохраняет
+  // черновик и перерисовывает панель, и добавленный, но ещё не сохранённый
+  // наставник или предмет раньше молча пропадал (третий прогон 08.10).
+  const base = JSON.stringify({ subjects: view.subjects, teachers: view.teachers });
+  const kept = mounted.planDraft && mounted.planDraft.base === base ? mounted.planDraft.draft : null;
+  const draft = kept || {
     subjects: view.subjects.map((s) => ({ ...s })),
     teachers: view.teachers.map((t) => ({ ...t })),
   };
+  mounted.planDraft = { base, draft };
 
   const body = el('div', { class: 'academy-plan-table' });
 
@@ -675,9 +681,11 @@ function renderPlanTable(host, view, preset, open = false) {
             setStatus(status, 'error', res.errors.map((x) => x.text).join(' '));
             return;
           }
-          await runAction(e.currentTarget, status,
+          const saved = await runAction(e.currentTarget, status,
             () => call(host, 'setSubjects', { subjects: res.subjects, teachers: res.teachers }),
             'Таблица сохранена.');
+          // Сохранено — рабочая копия своё отслужила: дальше таблица идёт от состояния.
+          if (saved && saved.ok !== false) mounted.planDraft = null;
           renderPanel(host);
         },
       }),

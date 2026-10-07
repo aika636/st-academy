@@ -31,7 +31,7 @@ import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
-import { SCENE_KINDS, sceneText, personWord } from './scene.mjs';
+import { SCENE_KINDS, sceneText, sceneAbout, personWord } from './scene.mjs';
 import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, nickWord, recentPosts, postRef, NICK_MAX } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
@@ -784,6 +784,9 @@ export function effectiveText(text, tokens) {
   return `${keepMarkerKinds(src, ['time'])}\n${analysisMarker(tokens.filter(isFactToken))}`;
 }
 
+/** Подпись анонимки без маски — одна на плашку, ленту и ответы. */
+export const ANON_WHO = 'без подписи';
+
 /**
  * Токен словами — для плашки под сообщением: «оценка: аналитическая химия — 5»,
  * «Петрова: теплее (немного) — помогла с опытом», «прогул: история».
@@ -806,13 +809,13 @@ export function tokenText(token, lexicon, { known = false, brief = false } = {})
     if (!r) return String(token);
     // Анонимка без автора — и на плашке: кто пустил слух, курс не знает.
     // Маска видна и там: она и есть подпись анонимки.
-    if (r.chan === 'anon') return r.nick ? `анонимка, ${nickWord(r.nick)}: «${r.text}»` : `анонимка: «${r.text}»`;
+    if (r.chan === 'anon') return r.nick ? `${nickWord(r.nick)}: «${r.text}»` : `${ANON_WHO}: «${r.text}»`;
     return `${authorWord(r, people, heroine, lexicon)}: «${r.text}»`;
   }
   if (isReplyToken(token)) {
     const a = replyOf(token);
     if (!a) return String(token);
-    const who = a.chan === 'anon' && !a.nick ? 'без подписи' : authorWord(a, people, heroine, lexicon);
+    const who = a.chan === 'anon' && !a.nick ? ANON_WHO : authorWord(a, people, heroine, lexicon);
     return `${who}: «${a.text}»`;
   }
   if (isLoudToken(token)) {
@@ -846,6 +849,36 @@ export function tokenText(token, lexicon, { known = false, brief = false } = {})
     return `${who}: ${dir}${how ? ` (${how})` : ''}${ev.reason ? ` — ${ev.reason}` : ''}`;
   }
   return String(token);
+}
+
+/**
+ * Реакция или ответ в ветке по частям — для плашки, где автор и реплика
+ * стоят разными узлами: человек — имя жирным, маска и «без подписи» — серым
+ * курсивом (`style`: 'person' | 'mask' | 'anon'). Не реплика — `null`.
+ */
+export function talkParts(token, lexicon) {
+  const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
+  const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
+  const r = isReactToken(token) ? reactionOf(token) : isReplyToken(token) ? replyOf(token) : null;
+  if (!r) return null;
+  if (r.nick) return { who: nickWord(r.nick), say: r.text, style: 'mask' };
+  if (r.chan === 'anon') return { who: ANON_WHO, say: r.text, style: 'anon' };
+  const who = authorWord(r, people, heroine, lexicon);
+  return { who, say: r.text, style: r.who === SOMEONE || !r.who ? 'anon' : 'person' };
+}
+
+/**
+ * «О чём» пост — подпись под реакцией на плашке и во вкладке ленты: факт
+ * курса своей фразой (`scene.sceneAbout`), прочее — краткой строкой разбора.
+ */
+export function tokenAbout(token, lexicon) {
+  const ev = tokenEvent(token, lexicon);
+  if (ev && SCENE_KINDS.includes(ev.kind)) {
+    const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
+    const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
+    return sceneAbout(ev, people, heroine);
+  }
+  return tokenText(token, lexicon, { brief: true });
 }
 
 /** Автор реплики словами: маска — «@школьный бес», человек — имя, иначе «кто-то с курса». */

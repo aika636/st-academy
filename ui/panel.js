@@ -150,8 +150,14 @@ function panelApi(host) {
       // Панель снята со страницы — помнить, что в ней было раскрыто, больше не
       // о чем. Копия в меню расширений живёт отдельно и своей памяти не теряет.
       for (const k of [...sectionOpen.keys()]) if (k.startsWith('panel::')) sectionOpen.delete(k);
+      mounted.planDraft = null;
     },
   };
+}
+
+/** Длина самого длинного слова ярлыка (не меньше 4: короткие не раздуваются). */
+export function longestWord(label) {
+  return Math.max(4, ...String(label || '').split(/\s+/).map((w) => w.length));
 }
 
 function openPanel(host) {
@@ -236,7 +242,9 @@ export function renderPanel(host) {
       },
     }, [
       el('i', { class: `fa-solid ${TAB_ICONS[t.id] || 'fa-circle'} academy-tab-icon`, 'aria-hidden': 'true' }),
-      el('span', { class: 'academy-tab-label', text: t.label }),
+      // Самое длинное слово ярлыка — для шрифта на телефоне (style.css): ярлык
+      // ужимается под ширину вкладки, а не обрезается («Достиже…»).
+      el('span', { class: 'academy-tab-label', text: t.label, style: `--academy-tab-chars: ${longestWord(t.label)}` }),
       t.id === 'feed' && unread > 0 ? el('span', { class: 'academy-tab-badge', text: unread > 99 ? '99+' : String(unread) }) : null,
     ]));
   }

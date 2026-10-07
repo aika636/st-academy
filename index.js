@@ -19,11 +19,11 @@ import {
 import {
   buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent, tokenOf,
   dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf,
-  unparsedNames, repliesOf, replyOf, isReplyToken,
+  unparsedNames, repliesOf, replyOf, isReplyToken, tokenAbout, talkParts,
 } from './core/analysis.mjs';
 import { applySceneEvents, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
-  reactionCap, carryFeedMarks, markRead, markPlayed, setLoudness, toggleReact, recentPosts, postByRef,
+  reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, recentPosts, postByRef,
 } from './core/feed.mjs';
 import {
   emptyPlot, takeHook, dropHook, draftHook, hookPrompt, onGeneration, onPlayerSent, onReply, expireHooks,
@@ -1299,6 +1299,10 @@ async function rollbackLatest(turn, mesId, reason = 'swipe') {
   // Люди, добавленные и поправленные руками после ответа, — решение игрока,
   // а не событие ответа: откат их не отменяет (`classmates.carryRoster`).
   turn.before = carryRoster(live.state, turn.before);
+  // Отметки игрока на уходящем варианте ответа («своё», «прочитано»,
+  // «взято») запоминаются ходом: вернётся игрок на этот свайп — вернутся и
+  // они (`feed.rememberFeedMarks`, решение владелицы 08.10).
+  turn.marks = rememberFeedMarks(turn.marks, live.state);
   // «Прочитано» и жизнь поводов ставились после снимка — переносятся с собой
   // (`feed.carryFeedMarks`); «сыграно» от откатываемого ответа снимается.
   await commit(carryFeedMarks(live.state, turn.before, was || ''));
@@ -1461,7 +1465,9 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   state = sceneOfTurn(state, text, tokens, mark, c);
   // Пересчёт идёт от снимка «до ответа»: отметки ленты, поставленные после
   // него (прочитано, взято, истекло), переносятся с прошлой версии.
-  state = carryFeedMarks(live.state, state, mark);
+  // Память свайпов хода — то, что игрок отметил на этом же варианте до ухода
+  // с него.
+  state = carryFeedMarks(live.state, state, mark, fresh ? [] : turn.marks);
   // Поводы (шаг 4): пришедший ответ получил взведённый повод; новый ответ —
   // ещё один шаг к истечению неотыгранного.
   if (source === 'received') live.plot = onReply(live.plot, { fresh });
@@ -1692,7 +1698,8 @@ function sceneOfTurn(state, text, tokens, mark, c) {
 
 /** Реакции разбора с подписью «к какому факту» — для вкладки «Поток» и фона. */
 function reactionsWithFacts(tokens, lexicon) {
-  return reactionsOf(tokens).map((r) => ({ ...r, factText: tokenText(r.fact, lexicon, { brief: true }) }));
+  // Подпись «о чём» — фразой факта, без «по поводу» (`analysis.tokenAbout`).
+  return reactionsOf(tokens).map((r) => ({ ...r, factText: tokenAbout(r.fact, lexicon) }));
 }
 
 /**
@@ -1780,8 +1787,10 @@ function panelTokens(list, lexicon, entry, isDraft) {
       const fact = r && r.fact ? list.indexOf(r.fact) : -1;
       return {
         text: tokenText(t, lexicon), brief: '', kind: 'react', nick: Boolean(r && r.nick),
+        // Автор и реплика порознь: имя человека — жирным, маска — серым курсивом.
+        parts: talkParts(t, lexicon),
         avatar: r ? tokenAvatar(r) : null,
-        ...(fact >= 0 ? { fact, about: tokenText(list[fact], lexicon) } : {}),
+        ...(fact >= 0 ? { fact, about: tokenAbout(list[fact], lexicon) } : {}),
       };
     }
     // Ответ в ветке: под своим постом этого разбора (`post` — номер строки)
@@ -1792,6 +1801,7 @@ function panelTokens(list, lexicon, entry, isDraft) {
       const old = a && a.feed && live.state ? postByRef(live.state, a.feed) : null;
       return {
         text: tokenText(t, lexicon), brief: '', kind: 'reply', nick: Boolean(a && a.nick),
+        parts: talkParts(t, lexicon),
         avatar: a ? tokenAvatar(a) : null,
         ...(post >= 0 ? { post } : {}),
         ...(old ? { onPost: old.text } : {}),

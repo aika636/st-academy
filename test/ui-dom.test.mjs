@@ -101,6 +101,8 @@ const TEACHERS = [{ id: 'petrova', name: 'Петрова Анна Сергеев
 /** Подсказка поля «Имя» в таблице наставников — по ней оно и находится в дереве. */
 const U_TEACHER_HINT = ui.uiLabels(preset).teacherNameHint;
 const U_TEACHER_NONE = ui.uiLabels(preset).teacherNone;
+/** Подсказка первого поля анкеты. */
+const SURVEY_HINT = 'современность, фэнтези, киберпанк, 1980-е';
 
 const started = (() => {
   const s = createState(preset, {
@@ -1080,6 +1082,43 @@ test('таблица плана: корпус и аудитория доходя
   api.destroy();
 });
 
+test('таблица плана: несохранённый наставник переживает правку анкеты и доезжает до setSubjects', async () => {
+  // Третий прогон 08.10: правка поля анкеты сохраняет черновик анкеты, хост
+  // перерисовывает панель — и добавленный выше, но не сохранённый наставник
+  // пропадал. Если добавить его после правки — оставался.
+  const saved = [];
+  const host = fakeHost(started, {}, LOREBOOK_FULL, {
+    setSubjects: async (plan) => { saved.push(plan); return { ok: true }; },
+  });
+  const { api, node } = mount(host);
+  host.setSettings = () => api.render();
+  let body = openTab(node, 'settings');
+  await click(findNode(body, (n) => n.textContent === ui.uiLabels(preset).addTeacher));
+  body = node.querySelector('.academy-body');
+  const names = () => {
+    const out = [];
+    walk(node.querySelector('.academy-body'), (n) => { if (n.tagName === 'INPUT' && n.attrs.placeholder === U_TEACHER_HINT) out.push(n); });
+    return out;
+  };
+  assert.equal(names().length, 2, 'строка добавилась');
+  const fresh = names()[1];
+  fresh.value = 'Зоя Ивановна Крылова';
+  for (const fn of fresh.listeners.input || []) fn();
+  for (const fn of fresh.listeners.change || []) fn();
+  // Правка анкеты — с перерисовкой, как у настоящего хоста.
+  let era = null;
+  walk(body, (n) => { if (n.tagName === 'INPUT' && n.attrs.placeholder === SURVEY_HINT && !era) era = n; });
+  assert.ok(era, 'поля анкеты нет');
+  era.value = 'современность';
+  for (const fn of era.listeners.change || []) await fn();
+  assert.equal(names().length, 2, 'наставник не пропал после правки анкеты');
+  assert.equal(names()[1].attrs.value, 'Зоя Ивановна Крылова');
+  await click(findNode(node.querySelector('.academy-body'), (n) => n.textContent === 'Сохранить таблицу'));
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].teachers.map((t) => t.name), ['Петрова Анна Сергеевна', 'Зоя Ивановна Крылова']);
+  api.destroy();
+});
+
 test('«Люди» → «Курс»: подсказка пустого курса, добавление, правка и удаление с вопросом', async () => {
   const sent = [];
   const empty = fakeHost(started, {}, LOREBOOK_FULL, {
@@ -1156,7 +1195,7 @@ test('«Поток»: счётчик на ярлыке, два канала, «�
   body = openTab(node, 'feed');
   const texts = allTexts(body);
   assert.ok(texts.includes('Вера Соколова'), texts.join(' | '));
-  assert.ok(texts.includes('по поводу: прогул: химия'));
+  assert.ok(texts.includes('прогул: химия'));
   assert.equal(texts.includes('Говорят, подстроила'), false, 'анонимка — своим каналом');
   assert.deepEqual(sent[0], ['read', ['m#1']], 'открытый канал помечается прочитанным');
   assert.ok(findNode(body, (n) => /academy-feed-unread/.test(n.className)), 'новое выделено');

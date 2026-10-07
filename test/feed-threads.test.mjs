@@ -320,7 +320,7 @@ test('повод от поста с веткой: суть плюс «в вет�
   const s = semester();
   const next = applyAll(s, SCANDAL).next;
   const c = hookCore(next, 'm1#1', { heroine: 'Аня', preset });
-  assert.equal(c.core, 'кто-то с курса говорит: «Опять Соколова орёт на всю аудиторию»; в ветке отвечают');
+  assert.equal(c.core, 'кто-то с курса пишет в чате: «Опять Соколова орёт на всю аудиторию»; в ветке спорят');
   assert.doesNotMatch(c.core, /бес|@|~/);
   assert.equal(threadTone(['Да ладно, неправда', 'ерунда']), 'argue');
   assert.equal(threadTone(['Поддерживаю', 'точно']), 'back');
@@ -348,5 +348,5 @@ test('плашка: ответы под своим постом, к старой
     { kind: 'course', index: 0, text: 'факт' },
   ]);
   assert.deepEqual(groups.posts.map((p) => [p.index, p.replies.map((a) => a.index)]), [[1, [2]]]);
-  assert.deepEqual(groups.elsewhere.map((a) => [a.index, a.about]), [[3, 'в ветке «старый пост»']]);
+  assert.deepEqual(groups.elsewhere.map((a) => [a.index, a.about]), [[3, 'ответ на «старый пост»']]);
 });

@@ -32,7 +32,7 @@ import {
 import { normalizePlot } from '../core/plot.mjs';
 import { authorAvatar } from '../core/masks.mjs';
 import { HEROINE } from '../core/parse-marker.mjs';
-import { dealText } from '../core/scene.mjs';
+import { dealText, shortName } from '../core/scene.mjs';
 import {
   extraLabels, fill, formatDate, el, runAction, setStatus, call, renderPanel, mounted, safe, avatarNode,
 } from './common.js';
@@ -55,9 +55,13 @@ export function repliesWord(n) {
 function nameOf(id, state, X, heroine) {
   if (id === HEROINE) return heroine || 'героиня';
   if (!id || id === 'someone') return X.feedSomeone;
-  const people = [...((state && state.teachers) || []), ...((state && state.classmates) || [])];
+  const teachers = (state && state.teachers) || [];
+  const people = [...teachers, ...((state && state.classmates) || [])];
   const p = people.find((x) => x && x.id === id);
-  return (p && (p.name || p.id)) || X.feedSomeone;
+  if (!p) return X.feedSomeone;
+  // В чате — коротко, как подписываются: преподаватель фамилией, однокурсник
+  // без отчества (`scene.shortName`, третий прогон 08.10).
+  return shortName(p.name || p.id, { teacher: teachers.includes(p) }) || p.id;
 }
 
 /**
@@ -100,7 +104,7 @@ export function feedView(state, preset, opts = {}) {
   // имя, анонимка без маски — «без подписи».
   const author = (x) => {
     if (x.nick) return { who: nickWord(x.nick), nick: true };
-    if (x.chan === 'anon') return { who: X.feedAnonWho, nick: false };
+    if (x.chan === 'anon') return { who: X.feedAnonWho, nick: false, anon: true };
     return { who: nameOf(x.who, state, X, opts.heroine), nick: false };
   };
   // Значки записи — все из набора, со счётом; ноль показывается значком без
@@ -128,6 +132,7 @@ export function feedView(state, preset, opts = {}) {
         id: x.id,
         who: who.who,
         nick: who.nick,
+        anon: who.anon === true,
         // Кружок автора: у факта из сцены автора нет — и кружка нет.
         avatar: fact ? null : authorAvatar(state, x, { heroine: opts.heroine }),
         text: x.text,
@@ -253,9 +258,10 @@ export function renderFeed(host, view, preset) {
 
 /** Автор: человек — имя жирным, маска — «@ник» курсивом, с подсказкой. */
 function whoNode(it, X) {
-  return it.nick
-    ? el('span', { class: 'academy-feed-who academy-feed-nick', text: it.who, title: X.feedNickHint })
-    : el('span', { class: 'academy-feed-who', text: it.who });
+  if (it.nick) return el('span', { class: 'academy-feed-who academy-feed-nick', text: it.who, title: X.feedNickHint });
+  // «Без подписи» — не имя: серым курсивом, как маска, а не жирным, как человек.
+  if (it.anon) return el('span', { class: 'academy-feed-who academy-feed-nick academy-feed-anon', text: it.who });
+  return el('span', { class: 'academy-feed-who', text: it.who });
 }
 
 function feedCard(host, it, X) {

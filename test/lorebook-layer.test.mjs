@@ -87,7 +87,7 @@ test('без updateWorldInfoList слой всё равно работает: о
 test('имя лорбука: привязанный к чату старше настройки и старше умолчания', () => {
   assert.equal(bookName(tavern({ metadata: { [METADATA_KEY]: 'Чужой лорбук' } }), { book: 'Мой' }), 'Чужой лорбук');
   assert.equal(bookName(tavern(), { book: 'Мой' }), 'Мой');
-  assert.equal(bookName(tavern({ chatId: 'a/b:c' })), 'Academy a_b_c');
+  assert.equal(bookName(tavern({ chatId: 'a/b:c' })), 'Академия — a_b_c');
 });
 
 test('без открытого чата имени нет — и лорбук не заводится', async () => {

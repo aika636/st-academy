@@ -919,7 +919,7 @@ test('9.1.4 лорбук: привязка нового лорбука не ло
   assert.equal(res.reason, lorebook.CHAT_CHANGED);
   assert.equal(md.world_info, undefined, 'привязка не записана');
   assert.equal(tavern.flushes, 0, 'и текущий (уже чужой) чат не сохранён');
-  assert.deepEqual(saved, ['Academy chat-1'], 'пустой файл остаётся — прошлый чат его просто привяжет');
+  assert.deepEqual(saved, ['Академия — chat-1'], 'пустой файл остаётся — прошлый чат его просто привяжет');
 });
 
 test('9.1.4 лорбук: удаление сирот после смены чата не удаляет ничего', async () => {

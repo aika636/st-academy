@@ -579,10 +579,13 @@ export function unreadCount(state, chan = null) {
  * @param {string} [src] отпечаток пересчитываемого ответа
  * @returns {Object} `next` или его копия с перенесёнными отметками
  */
-export function carryFeedMarks(prev, next, src = '') {
+export function carryFeedMarks(prev, next, src = '', memory = []) {
   const old = prev && prev.feed && Array.isArray(prev.feed.items) ? prev.feed.items : [];
-  if (!old.length || !next || typeof next !== 'object') return next;
-  const byId = new Map(old.filter(Boolean).map((x) => [x.id, x]));
+  // Память свайпов — снизу, живая лента — сверху: что игрок поменял на
+  // нынешнем варианте, важнее того, что помнится с ушедшего.
+  const byId = new Map((Array.isArray(memory) ? memory : []).filter((m) => m && m.id).map((m) => [m.id, m]));
+  for (const x of old) if (x && x.id) byId.set(x.id, x);
+  if (!byId.size || !next || typeof next !== 'object') return next;
   const feed = normalizeFeed(next.feed);
   let changed = false;
   for (const x of feed.items) {
@@ -610,6 +613,43 @@ export function carryFeedMarks(prev, next, src = '') {
     }
   }
   return changed ? { ...next, feed } : next;
+}
+
+/** Сколько отметок помнит память свайпов (`rememberFeedMarks`). */
+export const MARKS_MAX = 2 * FEED_MAX;
+
+/**
+ * Память отметок игрока поверх свайпов (решение владелицы 08.10).
+ *
+ * Свайп откатывает ленту к снимку «до ответа» — и записи ушедшего варианта
+ * уходят вместе со «своим» значком, «прочитано» и «взято». Вернулся игрок на
+ * тот же вариант — записи те же (id от отпечатка ответа), и отметки должны
+ * вернуться с ними. Поэтому перед откатом отметки живой ленты кладутся сюда, а
+ * пересчёт отдаёт их `carryFeedMarks` четвёртым аргументом. У другого
+ * варианта свои id — чужие отметки к ним не прилипают.
+ *
+ * @param {Array} memory прежняя память (не правится)
+ * @param {Object} state живое состояние
+ * @returns {Array<{id, read, mine, status, playedSrc}>} новая память
+ */
+export function rememberFeedMarks(memory, state) {
+  const byId = new Map();
+  for (const m of Array.isArray(memory) ? memory : []) {
+    if (m && typeof m.id === 'string' && m.id) byId.set(m.id, m);
+  }
+  for (const x of feedItems(state)) {
+    if (!x || !x.id) continue;
+    // Перезапись сдвигает запись в конец: свежее вытесняется последним.
+    byId.delete(x.id);
+    byId.set(x.id, {
+      id: x.id,
+      read: x.read === true,
+      mine: str(x.mine),
+      status: STATUSES.includes(x.status) ? x.status : 'new',
+      playedSrc: str(x.playedSrc),
+    });
+  }
+  return [...byId.values()].slice(-MARKS_MAX);
 }
 
 /**
@@ -713,6 +753,16 @@ function pointOf(x) {
 }
 
 /**
+ * Реплика ленты в фоне — сутью своего факта: слух — «Ренее встречается с
+ * преподом (слух)», стычка — «Вера и Ренее поссорились (из-за конспекта) —
+ * обсуждают». Сути нет — подпись факта, как у самого факта.
+ */
+function factPoint(fact) {
+  const text = clipWords(fact.gist || fact.text, BACKGROUND_TEXT_MAX);
+  return fact.rumor ? { kind: 'rumor', text } : { kind: 'talk', text, quoted: false };
+}
+
+/**
  * Фон потока курса: до `max` свежих пунктов, что героиня может знать.
  * Один пункт на факт (реакции одного факта — одно «обсуждают»). Порядок —
  * про героиню первым, потом громче, потом новее. Пусто — норма.
@@ -732,13 +782,19 @@ export function feedBackground(state, opts = {}) {
   items.sort((a, b) => (Number(b.x.heroine) - Number(a.x.heroine))
     || ((b.x.loud ?? 1) - (a.x.loud ?? 1))
     || (b.i - a.i));
+  // Факт, к которому реплика: в фон идёт его суть, а не сама реплика —
+  // «У неё роман с физруком» без того, о ком речь, читалось загадкой
+  // (третий прогон 08.10).
+  const factOf = new Map(feedItems(state).filter((x) => x.kind === 'fact').map((x) => [`${x.src}|${x.factRef}`, x]));
   const out = [];
   const facts = new Set();
   for (const { x } of items) {
     const key = `${x.src}|${x.factRef || x.id}`;
     if (facts.has(key)) continue;
     facts.add(key);
-    out.push({ ...pointOf(x), heroine: x.heroine, id: x.id });
+    const fact = x.kind === 'reaction' ? factOf.get(key) : null;
+    const point = fact ? factPoint(fact) : pointOf(x);
+    out.push({ ...point, heroine: x.heroine, id: x.id });
     if (out.length >= max) break;
   }
   return out;

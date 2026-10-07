@@ -48,7 +48,7 @@ test('формулировка: мягкая рамка, слух помечен
   const gossip = draftHook(s, 'm1#2');
   assert.equal(gossip.rumor, true);
   // «ходит слух: «Говорят, Вера…»» читалось дважды — «Говорят,» снимается.
-  assert.match(gossip.text, /^Если уместно, можно вплести в сцену \(необязательная находка, не приказ\): ходит слух: «Вера всё подстроила»\./);
+  assert.match(gossip.text, /^Если уместно, можно вплести в сцену \(необязательная находка, не приказ\): пишут без подписи: «Вера всё подстроила»\./);
   assert.match(gossip.text, /Это слух — правда ли, неизвестно\./);
   // Пол героя в настройках не задан — слова нейтральные.
   assert.match(gossip.text, /слова и решения персонажа игрока оставь игроку/);
@@ -70,7 +70,7 @@ test('формулировка: мягкая рамка, слух помечен
   const fact = draftHook(s, 'm1@a');
   assert.equal(fact.rumor, false);
   assert.doesNotMatch(fact.text, /слух/i);
-  assert.match(draftHook(s, 'm1#1').core, /^Мила Орлова говорит: «Пусть сама пишет свои конспекты»$/);
+  assert.match(draftHook(s, 'm1#1').core, /^Мила Орлова пишет в чате: «Пусть сама пишет свои конспекты»$/);
   const deal = openDeal(s, { a: 'sokolova', b: '@heroine', what: 'конспект' });
   // Без стрелок и двойных тире: кто кому должен — словами.
   const dealCore = draftHook(s, deal.id, { heroine: 'Аня' }).core;
@@ -79,7 +79,7 @@ test('формулировка: мягкая рамка, слух помечен
   // «Кто-то с курса» — словом пресета.
   const school = { vocab: { someone: 'кто-то из класса' } };
   addFeedItem(s, { id: 'm1#4', src: 'm1', at: { day: DAY }, kind: 'reaction', chan: 'chat', who: 'someone', text: 'Ну и дела' });
-  assert.match(draftHook(s, 'm1#4', { preset: school }).core, /^кто-то из класса говорит/);
+  assert.match(draftHook(s, 'm1#4', { preset: school }).core, /^кто-то из класса пишет в чате/);
   for (const t of [gossip.text, fact.text]) {
     assert.doesNotMatch(t, /MUST|EVERY|STRICTLY|ОБЯЗАТЕЛЬНО/);
   }
@@ -183,7 +183,7 @@ test('сыграно: секретарь отмечает по id повода; 
   const p = turn(taken.plot);
   const hooks = secretaryHooks(p, taken.state);
   assert.deepEqual(hooks.map((h) => h.id), ['p1']);
-  assert.match(hooks[0].text, /ходит слух/);
+  assert.match(hooks[0].text, /пишут без подписи/);
   assert.deepEqual(knownHooks(p).map((h) => h.id), ['p1']);
   const refs = playedRefs(p, ['p1', 'p9']);
   assert.deepEqual(refs, ['m1#2'], 'незнакомый id — мимо');

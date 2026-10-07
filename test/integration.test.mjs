@@ -638,7 +638,7 @@ test('лорбук: записи созданы и привязаны к чат�
 
   const name = tavern.chatMetadata.world_info;
   assert.equal(typeof name, 'string');
-  assert.ok(name.startsWith('Academy '), `лорбук чата, а не глобальный: ${name}`);
+  assert.ok(name.startsWith('Академия — '), `лорбук чата, а не глобальный: ${name}`);
 
   const entries = bookEntries(tavern);
   const uids = entries.map((e) => e.academy.uid);
@@ -1091,7 +1091,7 @@ test('галочка лорбука включается из панели, и �
   assert.equal(tavern.seam.host.getSettings().lorebook.enabled, true);
   const view = tavern.seam.host.getLorebook();
   assert.equal(view.enabled, true);
-  assert.ok(view.name.startsWith('Academy '), 'лорбук завёлся и назван: ' + view.name);
+  assert.ok(view.name.startsWith('Академия — '), 'лорбук завёлся и назван: ' + view.name);
   assert.ok(bookEntries(tavern).length > 0, 'записи появились от самой галочки, а не после экзамена');
   assert.ok(view.measure && Number.isFinite(view.measure.tokens), 'замер есть, панели есть что показать');
   assert.equal(view.measure.withinCap, true);

@@ -50,14 +50,19 @@ export const PANEL_TEXT = {
   talk: 'Что говорят',
   // `{crowdIn}` и `{tab}` — слова пресета: «в классе», «Молва».
   talkHint: 'Что говорят {crowdIn} о том, что было. Ничего не меняет — появится во вкладке «{tab}». Вычеркнутый факт уносит свои реакции, вычеркнутый пост — свои ответы.',
+  // После «Сохранить» — уже не «появится»: записи легли (третий прогон 08.10).
+  talkHintSaved: 'Что говорят {crowdIn} о том, что было. Ничего не меняет — уже во вкладке «{tab}». Вычеркнутый факт уносит свои реакции, вычеркнутый пост — свои ответы.',
   // Ответ под постом ленты, которого в этом разборе нет.
-  inThread: 'в ветке «{post}»',
+  inThread: 'ответ на «{post}»',
   nickHint: 'ник-маска: это не человек из списка',
   talkNone: 'никто не обсуждает',
   toCourse: 'Добавить',
   toCourseHint: 'Добавить этого человека в раздел «{course}» вкладки «Люди».',
-  onFact: 'по поводу: {fact}',
-  unparsed: 'Не разобрано: {names} — таких людей нет в списках. Добавьте человека или поправьте имя и разберите заново.',
+  // «О чём» пост — фразой факта, без «по поводу» (`analysis.tokenAbout`).
+  onFact: '{fact}',
+  // Сырой id секретаря («petrov-igor») — человеческой формой («Petrov Igor»).
+  unparsed: 'Не разобрано: кто-то по имени {names} — такого человека нет в списках. Добавьте человека или поправьте имя и разберите заново.',
+  unparsedMany: 'Не разобрано: {names} — таких людей нет в списках. Добавьте их или поправьте имена и разберите заново.',
 };
 
 /** Слова заведения по умолчанию — если хост их не передал (`view.labels`). */
@@ -304,25 +309,45 @@ function buildPanel(host, mesId, view) {
   }
 
   const tokens = (view.tokens || []).map((t, index) => ({ ...(typeof t === 'string' ? { text: t, kind: 'other' } : t), index }));
+  // Строка плашки (третий прогон 08.10): кружок, автор и текст — одним
+  // переносимым блоком, под ним мелким серым «о чём»; кнопки — своей колонкой
+  // справа, ✕ всегда в правом верхнем углу строки. Ничего не вылезает: длинное
+  // слово и ник в 32 знака переносятся внутри блока (style.css).
+  const textNode = (t) => {
+    const p = t.parts;
+    if (!p) return el('span', { class: 'academy-mes-text', text: t.text });
+    const who = el('span', {
+      class: `academy-mes-who${p.style === 'person' ? '' : ' academy-mes-who-mask'}`,
+      text: p.who,
+      ...(p.style === 'mask' ? { title: PANEL_TEXT.nickHint } : {}),
+    });
+    return el('span', { class: 'academy-mes-text' }, [who, `: «${p.say}»`]);
+  };
   const tokenRow = (t) => el('li', t.nick ? { class: 'academy-mes-nick', title: PANEL_TEXT.nickHint } : {}, [
-    t.avatar ? miniAvatar(t.avatar) : null,
-    el('span', { text: t.text }),
-    t.about ? el('span', { class: 'academy-mes-about', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
-    t.candidate && host.confirmCandidate ? el('button', {
-      type: 'button',
-      class: 'menu_button academy-mes-btn academy-mes-confirm',
-      title: fillText(PANEL_TEXT.toCourseHint, labels),
-      disabled: busy,
-      onclick: () => run(host.confirmCandidate(mesId, t.candidate)),
-    }, [icon('fa-user-plus'), el('span', { text: PANEL_TEXT.toCourse })]) : null,
-    el('button', {
-      type: 'button',
-      class: 'academy-mes-drop',
-      title: PANEL_TEXT.drop,
-      'aria-label': PANEL_TEXT.drop,
-      disabled: busy,
-      onclick: () => run(host.dropToken(mesId, t.index)),
-    }, [icon('fa-xmark')]),
+    el('div', { class: 'academy-mes-line' }, [
+      t.avatar ? miniAvatar(t.avatar) : null,
+      el('div', { class: 'academy-mes-body' }, [
+        textNode(t),
+        t.about ? el('div', { class: 'academy-mes-about academy-mes-on', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
+      ]),
+      el('div', { class: 'academy-mes-acts' }, [
+        t.candidate && host.confirmCandidate ? el('button', {
+          type: 'button',
+          class: 'menu_button academy-mes-btn academy-mes-confirm',
+          title: fillText(PANEL_TEXT.toCourseHint, labels),
+          disabled: busy,
+          onclick: () => run(host.confirmCandidate(mesId, t.candidate)),
+        }, [icon('fa-user-plus'), el('span', { text: PANEL_TEXT.toCourse })]) : null,
+        el('button', {
+          type: 'button',
+          class: 'academy-mes-drop',
+          title: PANEL_TEXT.drop,
+          'aria-label': PANEL_TEXT.drop,
+          disabled: busy,
+          onclick: () => run(host.dropToken(mesId, t.index)),
+        }, [icon('fa-xmark')]),
+      ]),
+    ]),
   ]);
   for (const s of SECTIONS) {
     const mine = tokens.filter((t) => t.kind === s.kind);
@@ -357,7 +382,10 @@ function buildPanel(host, mesId, view) {
       talk.length || elsewhere.length
         ? el('ul', { class: 'academy-mes-tokens' }, [...talk.map(postRow), ...elsewhere.map(tokenRow)])
         : el('div', { class: 'academy-mes-none', text: PANEL_TEXT.talkNone }),
-      talk.length || elsewhere.length ? el('div', { class: 'academy-mes-note academy-mes-small', text: fillText(PANEL_TEXT.talkHint, { crowdIn: labels.crowdIn, tab: labels.feedTab }) }) : null,
+      talk.length || elsewhere.length ? el('div', {
+        class: 'academy-mes-note academy-mes-small',
+        text: fillText(view.analyzed && !view.draft ? PANEL_TEXT.talkHintSaved : PANEL_TEXT.talkHint, { crowdIn: labels.crowdIn, tab: labels.feedTab }),
+      }) : null,
     ]));
   }
 
@@ -434,10 +462,22 @@ export function talkGroups(tokens) {
   return { posts, elsewhere, replies };
 }
 
-/** «Не разобрано: «sokolova», «Глеб» — таких людей нет в списках…» */
+/**
+ * «Не разобрано: кто-то по имени «Petrov Igor» — такого человека нет в
+ * списках…». Id латиницей через дефис или подчёркивание — словами с большой
+ * буквы: «petrov-igor» → «Petrov Igor»; одинаковые после этого — один раз.
+ */
 export function unparsedText(names) {
-  const list = (names || []).filter(Boolean).map((n) => `«${n}»`).join(', ');
-  return list ? fillText(PANEL_TEXT.unparsed, { names: list }) : '';
+  const list = [...new Set((names || []).filter(Boolean).map(humanName).filter(Boolean))];
+  if (!list.length) return '';
+  return fillText(list.length > 1 ? PANEL_TEXT.unparsedMany : PANEL_TEXT.unparsed, { names: list.map((n) => `«${n}»`).join(', ') });
+}
+
+/** Сырой id латиницей — человеческой формой; прочее — как есть. */
+export function humanName(raw) {
+  const s = String(raw || '').trim();
+  if (!/^[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*$/.test(s)) return s;
+  return s.split(/[-_.]+/).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
 }
 
 /** Действие с кнопки: отказ хоста не должен ронять обработчик клика. */

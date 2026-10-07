@@ -28,6 +28,7 @@
 
 import { METADATA_KEY, SCHEMA_VERSION, migrate, validateState } from './core/state.mjs';
 import { normalizePlot } from './core/plot.mjs';
+import { MARKS_MAX } from './core/feed.mjs';
 // Словарь панели — за словами заведения. Направление импорта необычное (данные
 // зовут интерфейс), но словарь один на всё расширение, и второй копии у него
 // быть не должно: этим же путём за словами ходит `commands.js`. Цикла нет —
@@ -385,9 +386,26 @@ export function readTurns(raw, preset) {
       oneShot: typeof t.oneShot === 'string' ? t.oneShot : '',
       // Каким разбором секретаря ход посчитан (`null` — без разбора).
       analysis: typeof t.analysis === 'string' ? t.analysis : null,
+      marks: readMarks(t.marks),
     });
   }
   return out.slice(-TURN_HISTORY);
+}
+
+/**
+ * Память отметок ленты у хода (`feed.rememberFeedMarks`): `{id, read, mine,
+ * status, playedSrc}`. Чужое на неё не похожее выбрасывается молча — это
+ * украшение, а не данные семестра.
+ */
+export function readMarks(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((m) => m && typeof m.id === 'string' && m.id).slice(-MARKS_MAX).map((m) => ({
+    id: m.id,
+    read: m.read === true,
+    mine: typeof m.mine === 'string' ? m.mine : '',
+    status: typeof m.status === 'string' ? m.status : 'new',
+    playedSrc: typeof m.playedSrc === 'string' ? m.playedSrc : '',
+  }));
 }
 
 /** История ходов текущего чата. Пустой список — «откатывать не к чему». */
@@ -414,6 +432,8 @@ export function saveTurns(ctx, list) {
     oneShotBefore: t.oneShotBefore || '',
     oneShot: t.oneShot || '',
     analysis: typeof t.analysis === 'string' ? t.analysis : null,
+    // Отметки ленты с ушедших свайпов (`feed.rememberFeedMarks`).
+    marks: readMarks(t.marks),
   }));
   md[TURNS_KEY] = { v: TURNS_FORMAT, list: turns };
   c.saveMetadataDebounced();

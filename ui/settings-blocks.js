@@ -932,8 +932,8 @@ export function renderFeedBlock(host, preset, settings) {
   background.addEventListener('change', () => safe(() => host.setSettings({ feed: { background: background.checked } }), null));
   return section(U.tabFeed, [
     el('label', { class: 'academy-check' }, [hooks, el('span', { text: X.feedHooksToggle })]),
-    el('label', { class: 'academy-check' }, [auto, el('span', { text: X.feedAutoToggle })]),
     el('label', { class: 'academy-check' }, [background, el('span', { text: X.feedBackgroundToggle })]),
+    el('label', { class: 'academy-check' }, [auto, el('span', { text: X.feedAutoToggle })]),
     el('p', { class: 'academy-note', text: X.feedSettingsNote }),
   ]);
 }

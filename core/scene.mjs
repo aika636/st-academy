@@ -71,6 +71,65 @@ export function sceneText(ev, people, heroine = '') {
   return '';
 }
 
+/** Отчество: «Сергеевна», «Ильич», «Петрович». */
+const PATRONYMIC = /^[А-ЯЁ][а-яё]+(?:овна|евна|ична|инична|ович|евич|ич)$/u;
+
+/** Русская фамилия по окончанию: «Орлова», «Громов», «Вяземский». */
+const SURNAME = /^[А-ЯЁ][а-яё-]+(?:ова|ева|ёва|ина|ына|ов|ев|ёв|ин|ын|ский|ская|цкий|цкая|ской|ых|их|ко|ук|юк|ец)$/u;
+
+/**
+ * Короткое имя для слов рассказчику и ленты (третий прогон 08.10): полное
+ * ФИО в каждом поводе читалось как ведомость. Преподаватель — фамилией
+ * («Орлова Марина Сергеевна» → «Орлова», «Марина Сергеевна Орлова» →
+ * «Орлова»); однокурсник — имя и фамилия без отчества. Не узнали, где
+ * фамилия, — имя как есть: лучше длинно, чем чужим словом.
+ *
+ * @param {string} name
+ * @param {{teacher?: boolean}} [opts]
+ */
+export function shortName(name, { teacher = false } = {}) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return words.join(' ');
+  const pat = words.findIndex((w, i) => i > 0 && PATRONYMIC.test(w));
+  // Без отчества: «Имя Фамилия» или «Фамилия Имя».
+  const rest = pat >= 0 ? words.filter((_, i) => i !== pat) : words.slice();
+  let surname = '';
+  if (pat === 1 && words.length >= 3) surname = words[2];
+  else if (pat === 2) surname = words[0];
+  else if (rest.length === 2) surname = rest.find((w) => SURNAME.test(w)) || '';
+  if (teacher) return surname || words.join(' ');
+  if (rest.length === 2) return rest.join(' ');
+  return words.join(' ');
+}
+
+/** Причина стычки, которая сама начинается предлогом: «из-за конспекта». */
+const REASON_LEAD = /^(?:из-за|из|за|по|в|во|на|о|об|обо|при|после|у|с|со|насчёт|насчет|ради)\s/iu;
+
+/**
+ * «О чём» под постом ленты — мелкой серой строкой на плашке и во вкладке:
+ * «Вера Соколова и Ренее — стычка из-за конспекта», «Никита Громов был в
+ * сцене», «Вера Соколова — списала контрольную (слух)». Без «по поводу» и
+ * без второго двоеточия: подпись поста — не строка протокола (третий прогон
+ * 08.10).
+ */
+export function sceneAbout(ev, people, heroine = '') {
+  const who = (id) => personWord(id, people, heroine);
+  if (!ev) return '';
+  if (ev.kind === 'clash') {
+    const reason = String(ev.reason || '').trim();
+    const why = !reason ? '' : REASON_LEAD.test(reason) ? ` ${reason}` : `: ${reason}`;
+    return `${who(ev.a)} и ${who(ev.b)} — стычка${why}`;
+  }
+  if (ev.kind === 'met') {
+    const name = who(ev.personId);
+    const g = ev.personId === HEROINE ? 'f' : genderOfName(name);
+    return g === 'f' ? `${name} была в сцене` : g === 'm' ? `${name} был в сцене` : `в сцене — ${name}`;
+  }
+  if (ev.kind === 'rumor') return `${who(ev.about)} — ${ev.text} (слух)`;
+  if (ev.kind === 'deal') return dealText(ev, people, heroine);
+  return sceneText(ev, people, heroine);
+}
+
 /**
  * Суть факта одной фразой — для записи лорбука и фона: «Вера Соколова
  * списала контрольную», «Мила Орлова и Вера Соколова поссорились (из-за

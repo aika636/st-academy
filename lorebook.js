@@ -204,14 +204,22 @@ export function worldInfo(ctx) {
 /**
  * Имя лорбука для этого чата.
  *
- * Приоритет: уже привязанный к чату → заданный в настройках → по имени чата.
+ * Приоритет: уже привязанный к чату → заданный в настройках → старое имя,
+ * если такой лорбук уже есть → новое по чату. Уже привязанное имя не меняется.
+ *
+ * Новое имя (третий прогон 08.10) — «Академия — Тест Героиня»: из id чата
+ * снимается отметка времени таверны («- 2026-10-08@01h13m03s201ms»), с ней
+ * имя было громоздким. Без отметки имя у чатов одной карточки совпадает, поэтому
+ * занятое другим лорбуком получает короткий номер: «Академия — Тест Героиня 2».
+ * Старое имя «Academy <id чата>» уникально само; чат, чей лорбук заведён под
+ * ним, находит его и второго не заводит.
+ *
  * Отсев символов — как у чат-лорбука таверны из слэш-команды
- * (`world-info.js:1178`), но буквы любого алфавита остаются: там стоит
- * `[^a-z0-9]`, и чат «Вера - 2026-10-07…» превращался в «Academy _ - 2026…» —
- * по такому имени свой лорбук не найти. Имя уезжает в имя файла, а сервер
- * санирует его сам (`src/endpoints/worldinfo.js:151`, `sanitize-filename`) и
- * кириллицу пропускает; запрещённые в именах файлов знаки (`/`, `:`, `@`)
- * по-прежнему становятся `_`. Уже привязанное имя не меняется.
+ * (`world-info.js:1178`), но буквы любого алфавита (и длинное тире) остаются:
+ * там стоит `[^a-z0-9]`, и по такому имени свой лорбук не найти. Имя уезжает в
+ * имя файла, а сервер санирует его сам (`src/endpoints/worldinfo.js:151`,
+ * `sanitize-filename`) и кириллицу пропускает; запрещённые в именах файлов
+ * знаки (`/`, `:`, `@`) по-прежнему становятся `_`.
  */
 export function bookName(ctx, s = {}) {
   const md = (ctx && ctx.chatMetadata) || {};
@@ -220,7 +228,77 @@ export function bookName(ctx, s = {}) {
   if (s.book) return s.book;
   const chatId = ctx && typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : '';
   if (!chatId) return '';
-  return `Academy ${chatId}`.replace(/[^\p{L}\p{N} -]/gu, '_').replace(/_{2,}/g, '_').substring(0, 64);
+  let names = [];
+  try {
+    names = typeof ctx.getWorldInfoNames === 'function' ? (ctx.getWorldInfoNames() || []) : [];
+  } catch { names = []; }
+  const legacy = legacyBookName(chatId);
+  if (names.includes(legacy)) return legacy;
+  const base = freshBookName(ctx, chatId);
+  let name = base;
+  for (let n = 2; names.includes(name) && n < 100; n += 1) name = `${base} ${n}`;
+  return name;
+}
+
+/** Ключ в файле лорбука: id чата, для которого Академия его завела. */
+export const BOOK_OWNER_KEY = 'academy_chat';
+
+/** Новое имя без номера: «Академия — Тест Героиня». */
+function freshBookName(ctx, chatId) {
+  return cleanBookName(`${BOOK_PREFIX}${chatTitle(ctx, chatId)}`).substring(0, 60).trim();
+}
+
+/**
+ * Имя ещё не привязанного лорбука — с проверкой, чей он. Занятое имя
+ * пропускается, если лорбук завела Академия для другого чата
+ * (`BOOK_OWNER_KEY`) или его завёл кто-то другой; свой же — берётся: привязка
+ * могла не дойти до диска, и второй лорбук заводить незачем.
+ *
+ * @returns {Promise<{name: string, exists: boolean}>}
+ */
+async function claimBookName(ctx, wi, s) {
+  const name = bookName(ctx, s);
+  const md = (ctx && ctx.chatMetadata) || {};
+  const chatId = ctx && typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : '';
+  const names = wi.names();
+  const fixed = (typeof md[METADATA_KEY] === 'string' && md[METADATA_KEY].trim()) || s.book
+    || names.includes(legacyBookName(chatId));
+  if (fixed || !chatId) return { name, exists: names.includes(name) };
+  const base = freshBookName(ctx, chatId);
+  for (let n = 1; n < 100; n += 1) {
+    const candidate = n === 1 ? base : `${base} ${n}`;
+    if (!names.includes(candidate)) return { name: candidate, exists: false };
+    let data = null;
+    try {
+      data = await wi.load(candidate);
+    } catch { data = null; }
+    if (data && data[BOOK_OWNER_KEY] === chatId) return { name: candidate, exists: true };
+  }
+  return { name, exists: names.includes(name) };
+}
+
+/** Начало имени чат-лорбука. */
+export const BOOK_PREFIX = 'Академия — ';
+
+/** Имя чат-лорбука до 08.10: «Academy <id чата>». */
+export function legacyBookName(chatId) {
+  return cleanBookName(`Academy ${chatId}`).substring(0, 64);
+}
+
+/** Отсев знаков, которые нельзя в имени файла (см. `bookName`). */
+function cleanBookName(raw) {
+  return String(raw).replace(/[^\p{L}\p{N} —-]/gu, '_').replace(/_{2,}/g, '_');
+}
+
+/** Отметка времени таверны в конце id чата: «- 2026-10-08@01h13m03s201ms». */
+const CHAT_STAMP = /\s*-\s*\d{4}-\d{1,2}-\d{1,2}\s*[@_ ]\s*\d{1,2}h\s*\d{1,2}m(?:\s*\d{1,2}s)?(?:\s*\d{1,3}ms)?\s*$/iu;
+
+/** Как назвать чат в имени лорбука: id без отметки времени, иначе имя карточки. */
+function chatTitle(ctx, chatId) {
+  const bare = String(chatId).replace(CHAT_STAMP, '').trim();
+  if (bare) return bare;
+  const card = ctx && typeof ctx.name2 === 'string' ? ctx.name2.trim() : '';
+  return card || String(chatId);
 }
 
 // --- снимок ------------------------------------------------------------------
@@ -479,17 +557,19 @@ export async function forgetClassmate(ctx, id, opts = {}) {
  */
 async function ensureBook(ctx, wi, s, opts = {}) {
   const md = ctx && ctx.chatMetadata;
-  const name = bookName(ctx, s);
-  if (!name) return { name: '', created: false };
+  if (!bookName(ctx, s)) return { name: '', created: false };
 
   const bound = md && typeof md[METADATA_KEY] === 'string' && md[METADATA_KEY].trim();
-  if (bound) return { name, created: false };
+  if (bound) return { name: bound, created: false };
 
-  // Лорбук с таким именем уже есть — значит это наш прошлый (или чей-то с тем
-  // же именем). Перезаписать его пустым было бы разрушением: только привязываем.
-  const exists = wi.names().includes(name);
+  // Лорбук с таким именем уже есть — значит это наш прошлый (старое имя,
+  // заданное в настройках или заведённое для этого чата, `claimBookName`).
+  // Перезаписать его пустым было бы разрушением: только привязываем.
+  const { name, exists } = await claimBookName(ctx, wi, s);
+  if (!stillHere(opts)) return { name, created: false, changed: true };
   if (!exists) {
-    await wi.save(name, { entries: {} }, true);
+    const chatId = typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : '';
+    await wi.save(name, { entries: {}, ...(chatId ? { [BOOK_OWNER_KEY]: chatId } : {}) }, true);
     if (wi.refresh) await wi.refresh();
   }
 
