@@ -32,7 +32,7 @@ import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
 import { SCENE_KINDS, sceneText, sceneAbout, personWord } from './scene.mjs';
-import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, nickWord, recentPosts, postRef, NICK_MAX } from './feed.mjs';
+import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, feedExtras, feedNickExamples, nickWord, recentPosts, postRef, NICK_MAX } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
 export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event', ...SCENE_KINDS];
@@ -44,13 +44,14 @@ const SYSTEM = [
   'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку, списки предметов, преподавателей и её курса.',
   'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось — с героиней и людьми вокруг неё. Ничего не додумываешь.',
   'Отвечаешь двумя блоками: «Что было» — строка служебной метки, «Что сочинено» — как это обсуждают на курсе; затем строка «Кратко:».',
+  'В «Что сочинено» ты уже не секретарь, а голоса курса: события не придумываешь, а характеры — да, ярко.',
 ].join(' ');
 
 /** Потолки разбора курса на один ответ: больше — шум, а не сцена. */
 export const SOCIAL_LIMITS = { met: 8, clash: 4, rumor: 3, new: 3, deal: 4 };
 
 /** Реакция: длина реплики и сколько курс держит в промпте секретаря. */
-export const REACTION_LIMITS = { text: 140, minLetters: 3 };
+export const REACTION_LIMITS = { text: 200, minLetters: 3 };
 
 /** Кто реагирует, если не из состава: «кто-то с курса» словом пресета. */
 export const SOMEONE = 'someone';
@@ -105,6 +106,7 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     return `- ${c.id} — ${c.name || c.id}${about ? ` — ${about}` : ''}`;
   });
   const cap = reactionCap(preset);
+  const nicks = feedNickExamples(preset).map((n) => `${NICK_MARK}${n}`);
   const values = ((preset.grades && preset.grades.values) || []).map((g) => g.value);
 
   const lines = [];
@@ -168,10 +170,13 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     '- loud — насколько громко то, что было: 0 — тихо (обычная оценка, разговор), курс почти не замечает; 1 — заметно; 2 — громко (прогул при всех, ссора); 3 — скандал.',
     `- Реакций столько, сколько стоит событие: при loud=0 — ни одной или одна от того, кому это важно; при 2 — одна-три; при 3 — до ${cap}. Пустой блок «Что сочинено» — нормально.`,
     '- Номер факта — порядковый номер ключа в метке блока 1, считая с 1. Реакция без факта не нужна.',
-    `- Кто — id из курса или преподаватель: с основных аккаунтов пишут только люди из списков выше. Все остальные пишут под смешными никами, которые выдают их интерес или характер: ${NICK_MARK}школьный бес, ${NICK_MARK}альфа футбольной команды, ${NICK_MARK}я-люблю-никки-из-11-класса. Ник начинается с ${NICK_MARK}, до ${NICK_MAX} знаков, без двоеточия. Ник — не человек из сцены и не новое имя: в блок 1 его не пиши. Не ${heroine}.`,
-    `- chat — чат курса: люди из списков и ники с фейковых аккаунтов обсуждают то, что было. anon — анонимка: автора не видно — пишут под ником или без подписи (someone, «${someoneWord(preset)}»); это слух, он может преувеличивать или перевирать.`,
-    `- reply — ответ в ветке под постом: короткая реплика — спор, поддержка, подкол. Куда — номер строки react в этом блоке, считая с 1${posts.length ? ', или id поста из списка «Недавно в ленте»' : ''}. Кто — как у react; ник может ответить ещё раз в своей же ветке. Под одним постом — до ${REPLY_LIMITS.perPost} ответов, всего — до ${REPLY_LIMITS.total} и не больше, чем реакций стоит событие. Можно ни одного.`,
-    '- Реакция — то, как люди обсуждают факт, а не новое событие. Не выдумывай событий, которых не было в сцене, — только реакции на них. Одна реплика — одно короткое предложение.',
+    `- Кто — id из курса или преподаватель: с основных аккаунтов пишут только люди из списков выше. Все остальные пишут под смешными никами, которые выдают их интерес или характер. Ник начинается с ${NICK_MARK}, до ${NICK_MAX} знаков, без двоеточия; после ника в скобках — типаж: ${nicks.join(', ')}. Ник — не человек из сцены и не новое имя: в блок 1 его не пиши. Не ${heroine}.`,
+    `- Ники — статисты: плоские, зато яркие типажи с одним интересом и своей манерой речи. Бери самые узнаваемые архетипы этого мира: ${feedExtras(preset).join(', ')} — или похожие, но из этого мира, а не из чужого. Разные реакции — разные типажи.${posts.length ? ' Ник из «Недавно в ленте» — тот же статист: держи его характер.' : ''}`,
+    '- Статист говорит о себе: ревнует, завидует, злорадствует, надеется, строит планы, сравнивает с тем, каким человек был раньше. Факт сцены для него только повод. Голос живого чата: сленг, восклицания, обиды, преувеличения, грубость, если она в характере. Сухой пересказ («говорят, он сдал зачёт») не нужен.',
+    '- Примеры тона, не копируй: завистница — «я его полгода окучивала, а он на эту выскочку засмотрелся?! да я его настоящим видела!»; ботан — «видели, как он билеты щёлкал? позвать его к нам в клуб, как думаете? нам одного не хватает»; старый знакомый — «наконец этот придурок стал нормальным, смотреть, как умный строит из себя идиота, было больно».',
+    `- chat — чат курса: люди из списков и ники с фейковых аккаунтов обсуждают то, что было. anon — анонимка: автора не видно — пишут под ником или без подписи (someone, «${someoneWord(preset)}»); это слух, он может преувеличивать или перевирать. В чате курса каждый пишет со своего аккаунта — человек из списков или ник; без подписи — только в анонимке.`,
+    `- reply — ответ в ветке под постом: короткая реплика — спор, поддержка, подкол. Куда — номер строки react в этом блоке, считая с 1${posts.length ? ', или id поста из списка «Недавно в ленте»' : ''}. Кто — как у react, но не автор поста: отвечает другой типаж. Автор возвращается в свою ветку только после чужого ответа — огрызнуться или поспорить. Под одним постом — до ${REPLY_LIMITS.perPost} ответов, всего — до ${REPLY_LIMITS.total} и не больше, чем реакций стоит событие. Можно ни одного.`,
+    '- Реакция — то, как люди обсуждают факт, а не новое событие. Не выдумывай событий, которых не было в сцене, — только реакции на них. Одна реплика — одно-два коротких предложения.',
     '',
     'Последней строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини и людьми вокруг (пары, оценки, преподаватели, прогулы, курс) — или «к учёбе не относится».',
   );
@@ -189,7 +194,7 @@ function classmateLine(c) {
 /** Автор поста для секретаря: «Вера Соколова, чат», «~школьный бес, анонимка». */
 function postAuthor(p, people) {
   const where = p.chan === 'anon' ? 'анонимка' : 'чат';
-  if (p.nick) return `${NICK_MARK}${p.nick}, ${where}`;
+  if (p.nick) return `${NICK_MARK}${p.nick}${p.type ? ` (${p.type})` : ''}, ${where}`;
   if (p.chan === 'anon' || !p.who || p.who === SOMEONE) return `без подписи, ${where}`;
   return `${personWord(p.who, people)}, ${where}`;
 }
@@ -343,6 +348,9 @@ export function parseAnalysis(raw, lexicon) {
   // Ответы в ветках: родитель — реакция этого блока или недавний пост ленты.
   const replies = [];
   const perPost = new Map();
+  // Кто уже ответил под постом в этом блоке: автор возвращается в свою ветку
+  // только после чужого ответа — иначе он отвечает сам себе.
+  const voices = new Map();
   const replyMax = replyCap(loud === null ? 1 : loud);
   for (const value of reactionValues(text, REPLY_WORDS)) {
     const raw = `reply=${value}`;
@@ -364,8 +372,15 @@ export function parseAnalysis(raw, lexicon) {
       rejected.push({ raw, reason: `под одним постом — до ${REPLY_LIMITS.perPost} ответов` });
       continue;
     }
+    const me = voiceOf(a.who, a.nick);
+    const heard = voices.get(a.parent) || [];
+    if (me && me === a.parentVoice && !a.answered && !heard.some((v) => v !== me)) {
+      rejected.push({ raw, reason: 'автор поста отвечает сам себе' });
+      continue;
+    }
     seenText.add(key);
     perPost.set(a.parent, (perPost.get(a.parent) || 0) + 1);
+    voices.set(a.parent, [...heard, me]);
     replies.push(replyToken(a));
   }
   if (reactions.length || replies.length) tokens.push(...reactions, ...replies, `loud=${loud === null ? 1 : loud}`);
@@ -461,7 +476,7 @@ function readReaction(value, tokens, byNumber, lexicon) {
   if (author.error) return { error: author.error };
   const text = reactionText(rest.join(':'));
   if ((text.match(/\p{L}/gu) || []).length < REACTION_LIMITS.minLetters) return { error: 'у реакции нет текста' };
-  return { fact, who: author.id, nick: author.nick, chan, text };
+  return { fact, who: author.id, nick: author.nick, type: author.type, chan, text };
 }
 
 /**
@@ -475,6 +490,8 @@ function readReply(value, slots, lexicon) {
   const ref = fields[0].replace(/[#№[\]()«»"]/g, '').trim().toLowerCase();
   let parent;
   let chan;
+  let parentVoice;
+  let answered = false;
   const own = /^(?:r|р|реакция\s*)?(\d{1,2})$/u.exec(ref);
   const old = /^(?:f|ф)\s*(\d{1,2})$/u.exec(ref);
   if (own) {
@@ -483,12 +500,17 @@ function readReply(value, slots, lexicon) {
     const post = slots[n - 1];
     if (!post) return { error: `пост номер ${n} не записан — ответ без ветки` };
     parent = `r.${hash(post)}`;
-    chan = reactionOf(post).chan;
+    const r = reactionOf(post);
+    chan = r.chan;
+    parentVoice = voiceOf(r.who, r.nick);
   } else if (old) {
     const post = arr(lexicon && lexicon.feedPosts).find((p) => p && p.ref === `f${Number(old[1])}`);
     if (!post) return { error: `нет поста «${ref}» в ленте — ответ без ветки` };
     parent = `f.${postRef(post.id)}`;
     chan = post.chan === 'anon' ? 'anon' : 'chat';
+    parentVoice = voiceOf(post.who, post.nick);
+    // В старой ветке уже кто-то отвечал — автору есть кому ответить.
+    answered = Number(post.replies) > 0;
   } else {
     return { error: 'ответ без поста' };
   }
@@ -504,7 +526,17 @@ function readReply(value, slots, lexicon) {
   if (author.error) return { error: author.error };
   const text = reactionText(rest.join(':'));
   if ((text.match(/\p{L}/gu) || []).length < REACTION_LIMITS.minLetters) return { error: 'у ответа нет текста' };
-  return { parent, who: author.id, nick: author.nick, chan, text };
+  return { parent, who: author.id, nick: author.nick, type: author.type, chan, text, parentVoice, answered };
+}
+
+/**
+ * Голос автора для сравнения: id или `~ник` без регистра. «Кто-то с курса» и
+ * без подписи — не голос: два анонима не обязательно один человек.
+ */
+function voiceOf(who, nick) {
+  const n = cleanNick(nick);
+  if (n) return `${NICK_MARK}${n.toLowerCase().replace(/ё/g, 'е')}`;
+  return who && who !== SOMEONE ? who : '';
 }
 
 /**
@@ -520,14 +552,18 @@ function readReply(value, slots, lexicon) {
  * @returns {{id: string, nick: string} | {error: string}}
  */
 function authorOf(raw, lexicon) {
-  const w = String(raw || '').replace(/[[\]()«»"]/g, '').trim();
+  // Типаж — в скобках после ника: «~альфа (футболист-альфа)». Человеку из
+  // списков он не нужен и теряется.
+  const typed = /^([^()]*)\(([^()]*)\)\s*$/.exec(String(raw || ''));
+  const type = typed ? cleanType(typed[2]) : '';
+  const w = String(typed ? typed[1] : raw || '').replace(/[[\]()«»"]/g, '').trim();
   const low = w.toLowerCase().replace(/ё/g, 'е');
   if (!w || SOMEONE_WORDS.includes(low) || low === someoneWord(lexicon).toLowerCase().replace(/ё/g, 'е')) return { id: SOMEONE, nick: '' };
   if (w.startsWith(NICK_MARK) || w.startsWith('～')) {
     const nick = cleanNick(w);
     if (!nick) return { id: SOMEONE, nick: '' };
     if (partyOf(nick, lexicon).id === HEROINE) return { error: 'героиня — не реакция курса' };
-    return { id: '', nick };
+    return { id: '', nick, type };
   }
   const party = partyOf(w, lexicon);
   if (party.id === HEROINE) return { error: 'героиня — не реакция курса' };
@@ -535,7 +571,7 @@ function authorOf(raw, lexicon) {
   // Незнакомое имя — не новый человек: в ленте это «кто-то с курса» или маска.
   const masky = /^[а-яё]/.test(w) || (/\s/.test(w) && !/^[A-ZА-ЯЁ]/.test(w));
   const nick = masky ? cleanNick(w) : '';
-  return nick ? { id: '', nick } : { id: SOMEONE, nick: '' };
+  return nick ? { id: '', nick, type } : { id: SOMEONE, nick: '' };
 }
 
 /** Реплика: одна строка, без кавычек и знаков метки, с потолком по слову. */
@@ -578,25 +614,27 @@ export function factRef(token) {
   return hash(String(token || ''));
 }
 
-/** Автор в токене: id, `~ник` или `someone`. */
-function authorField(who, nick) {
+/** Автор в токене: id, `~ник`, `~ник(типаж)` или `someone`. */
+function authorField(who, nick, type) {
   const n = cleanNick(nick);
-  return n ? `${NICK_MARK}${n}` : (who || SOMEONE);
+  const t = n ? cleanType(type) : '';
+  return n ? `${NICK_MARK}${n}${t ? `(${t})` : ''}` : (who || SOMEONE);
 }
 
 /** Автор из токена: `{who, nick}`. */
 function authorFrom(field) {
   const f = String(field || '');
   if (f.startsWith(NICK_MARK)) {
-    const nick = cleanNick(f);
-    if (nick) return { who: '', nick };
+    const typed = /^([^()]*)\(([^()]*)\)$/.exec(f);
+    const nick = cleanNick(typed ? typed[1] : f);
+    if (nick) return { who: '', nick, type: typed ? cleanType(typed[2]) : '' };
   }
-  return { who: f || SOMEONE, nick: '' };
+  return { who: f || SOMEONE, nick: '', type: '' };
 }
 
 /** Реакция → канонический токен `react=отпечаток факта:кто:канал:текст`; кто — id или `~ник`. */
-export function reactionToken({ fact, who, nick, chan, text }) {
-  return `react=${factRef(fact)}:${authorField(who, nick)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
+export function reactionToken({ fact, who, nick, type, chan, text }) {
+  return `react=${factRef(fact)}:${authorField(who, nick, type)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
 }
 
 /**
@@ -604,8 +642,8 @@ export function reactionToken({ fact, who, nick, chan, text }) {
  * токена реакции>` (реакция этого же разбора) или `f.<отпечаток id записи>`
  * (пост ленты: в id есть двоеточия, `feed.postRef`).
  */
-export function replyToken({ parent, who, nick, chan, text }) {
-  return `reply=${parent}:${authorField(who, nick)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
+export function replyToken({ parent, who, nick, type, chan, text }) {
+  return `reply=${parent}:${authorField(who, nick, type)}:${chan === 'anon' ? 'anon' : 'chat'}:${reactionText(text)}`;
 }
 
 export function isReactToken(token) {
@@ -638,7 +676,7 @@ export function repliesOf(tokens) {
   const list = Array.isArray(tokens) ? tokens : [];
   return list.filter(isReplyToken).map((t) => replyOf(t, list)).filter((a) => a && (a.post || a.feed)).map((a) => ({
     parent: a.post ? { token: a.post } : { ref: a.feed },
-    who: a.nick ? '' : a.who, nick: a.nick, chan: a.chan, text: a.text,
+    who: a.nick ? '' : a.who, nick: a.nick, type: a.type, chan: a.chan, text: a.text,
   }));
 }
 

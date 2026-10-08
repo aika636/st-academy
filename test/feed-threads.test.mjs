@@ -157,6 +157,39 @@ test('секретарь: потолок ответов — до двух под
   assert.deepEqual(quiet.tokens, ['grade=chemistry:5'], 'ни реакций, ни ответов — норма');
 });
 
+test('секретарь: автор поста не отвечает сам себе — только после чужого ответа', () => {
+  const s = semester();
+  const res = parseAnalysis([
+    '<!-- [ACADEMY clash=sokolova:@heroine:из-за конспекта] -->',
+    'loud=3',
+    'react=1:~альфа футбольной команды:chat:Он зачёты за минуты разнёс',
+    'react=1:orlova:chat:Аня вообще-то права',
+    'reply=1:~Альфа футбольной команды:Ещё бы, попробуй подойди',
+    'reply=2:orlova:И ещё раз скажу',
+    'reply=2:sokolova:Да кто тебя спрашивал',
+    'reply=2:orlova:Ты и спрашивала',
+  ].join('\n'), lexicon(s));
+  assert.deepEqual(repliesOf(res.tokens).map((a) => [a.who, a.nick, a.text]), [
+    ['sokolova', '', 'Да кто тебя спрашивал'],
+    ['orlova', '', 'Ты и спрашивала'],
+  ], 'ник сравнивается без регистра; после чужого ответа автор возвращается');
+  assert.equal(res.rejected.filter((r) => /отвечает сам себе/.test(r.reason)).length, 2);
+  // Два «кто-то с курса» — не один голос.
+  const anon = parseAnalysis([
+    '<!-- [ACADEMY clash=sokolova:@heroine:из-за конспекта] -->',
+    'loud=2',
+    'react=1:someone:anon:Говорят, опять поругались',
+    'reply=1:someone:Да они каждый день',
+  ].join('\n'), lexicon(s));
+  assert.equal(repliesOf(anon.tokens).length, 1);
+  // Старая ветка, где уже отвечали, — автору есть кому ответить.
+  const posts = [{ ref: 'f1', id: 'm0#1', who: '', nick: 'школьный бес', chan: 'chat', text: 'Пост', replies: 0 }];
+  const lone = parseAnalysis('<!-- [ACADEMY met=sokolova] -->\nloud=1\nreply=f1:~школьный бес:Я же говорил', lexicon(s, { feedPosts: posts }));
+  assert.equal(repliesOf(lone.tokens).length, 0);
+  const busy = parseAnalysis('<!-- [ACADEMY met=sokolova] -->\nloud=1\nreply=f1:~школьный бес:Я же говорил', lexicon(s, { feedPosts: [{ ...posts[0], replies: 1 }] }));
+  assert.equal(repliesOf(busy.tokens).length, 1);
+});
+
 test('секретарь: недавние посты ленты в промпте, ответ продолжает старую ветку', () => {
   const s = semester();
   const old = applyAll(s, SCANDAL, 'm0').next;
@@ -330,6 +363,52 @@ test('повод от поста с веткой: суть плюс «в вет�
   // Авто-режим ответов не берёт: повод — пост.
   const auto = autoPick(emptyPlot(), next, { enabled: true });
   assert.ok(auto.id === null || !next.feed.items.find((x) => x.id === auto.plot.queue[0].ref).parent);
+});
+
+test('типаж под ником: в ленте ник, рассказчику и секретарю — типаж', () => {
+  const s = semester();
+  const res = applyAll(s, [
+    '<!-- [ACADEMY clash=sokolova:@heroine:из-за конспекта] -->',
+    'loud=2',
+    'react=1:~альфа футбольной команды (футболист-альфа):chat:Ещё бы, попробуй подойди к ней',
+    'reply=1:~королева коридоров (королева школы):Тоже мне героиня',
+    'reply=1:Вера Соколова (староста):Отстаньте от неё',
+  ].join('\n'));
+  const [post, reply, vera] = res.next.feed.items.filter((x) => x.kind === 'reaction');
+  assert.deepEqual([post.nick, post.type], ['альфа футбольной команды', 'футболист-альфа']);
+  assert.deepEqual([reply.nick, reply.type], ['королева коридоров', 'королева школы']);
+  assert.deepEqual([vera.who, vera.nick, vera.type], ['sokolova', '', ''], 'у человека из списков типажа нет');
+  const c = hookCore(res.next, post.id, { heroine: 'Аня', preset });
+  assert.match(c.core, /^футболист-альфа пишет в чате: «Ещё бы, попробуй подойди к ней»/);
+  assert.doesNotMatch(c.core, /альфа футбольной|@|~/);
+  // Секретарь видит ник с типажом и держит характер.
+  const posts = recentPosts(res.next);
+  assert.equal(posts[0].type, 'футболист-альфа');
+  const { user } = buildAnalysisPrompt(res.next, preset, { reply: '…', heroine: 'Аня' });
+  assert.match(user, /~альфа футбольной команды \(футболист-альфа\), чат/);
+});
+
+test('типажи и примеры ников — из своего сеттинга: в космосе нет чирлидерши', () => {
+  const load = (id) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
+  const s = semester();
+  const prompt = (p) => buildAnalysisPrompt(s, p, { reply: '…', heroine: 'Аня' }).user;
+  const space = prompt(load('space-academy'));
+  assert.match(space, /механик-ворчун/);
+  assert.match(space, /~из реакторного отсека \(механик-ворчун\)/);
+  assert.doesNotMatch(space, /чирлидер|футбол|никки|школьный бес|королева школы/);
+  assert.match(prompt(load('us-highschool')), /чирлидерша.*~альфа футбольной команды|~альфа футбольной команды[\s\S]*чирлидерша/);
+  // Пресет без своих списков — общие слова, без примет школы.
+  const bare = { ...preset, feed: undefined };
+  const plain = prompt(bare);
+  assert.match(plain, /завистница, сплетница/);
+  assert.doesNotMatch(plain, /чирлидер|футбол|школ/);
+  // У каждого пресета списки свои и годные.
+  for (const id of ['cadet-academy', 'cn-highschool', 'dark-academia', 'hero-academy', 'jp-highschool', 'magic-academy',
+    'ru-school', 'ru-university', 'space-academy', 'us-college', 'us-highschool', 'xianxia-sect']) {
+    const p = load(id);
+    assert.ok(p.feed.extras.length >= 8, id);
+    assert.ok(p.feed.nickExamples.every((n) => /^[^():~]+ \([^()]+\)$/.test(n)), `${id}: ник (типаж)`);
+  }
 });
 
 test('фон: ответы в ветках не звучат отдельно, ник в фон не идёт', () => {

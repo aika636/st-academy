@@ -410,7 +410,7 @@ export function normalizeFeedBlock(preset) {
   const warnings = [];
   const block = preset.feed;
   if (block === undefined) return { errors, warnings };
-  if (!isPlain(block)) return { errors: ['feed: нужен объект {reactionCap}'], warnings };
+  if (!isPlain(block)) return { errors: ['feed: нужен объект {reactionCap, extras, nickExamples}'], warnings };
   if (block.reactionCap !== undefined) {
     const [lo, hi] = CAP_BOUNDS;
     if (!isInt(block.reactionCap)) {
@@ -420,6 +420,16 @@ export function normalizeFeedBlock(preset) {
       const n = Math.min(hi, Math.max(lo, block.reactionCap));
       warnings.push(`feed.reactionCap: ${block.reactionCap} за рамками ${lo}–${hi}, взято ${n}`);
       block.reactionCap = n;
+    }
+  }
+  // Типажи статистов и примеры ников (`feed.extras`, `feed.nickExamples`) —
+  // списки строк; мусор не отвергает пресет, лента берёт общие слова.
+  for (const key of ['extras', 'nickExamples']) {
+    const list = block[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list) || !list.every((v) => typeof v === 'string' && v.trim())) {
+      warnings.push(`feed.${key}: нужен список строк — взяты общие`);
+      delete block[key];
     }
   }
   return { errors, warnings };

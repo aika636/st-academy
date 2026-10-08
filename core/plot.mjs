@@ -277,9 +277,9 @@ export function hookCore(state, ref, opts = {}) {
     let core;
     if (item.kind === 'fact') core = item.rumor && item.gist ? fill(P.rumorFact, { gist: bare(item.gist) }) : item.text;
     else if (item.chan === 'anon') core = fill(P.gossip, { text: bare(unsaid(item.text)) });
-    // Маска — не человек: рассказчику она «кто-то с курса», без ника, чтобы
-    // из ника не вырос персонаж.
-    else core = fill(P.said, { who: item.nick ? P.someone : nameOf(item.who, state, P, heroine), text: bare(item.text) });
+    // Маска — не человек: рассказчику она типаж («футболист-альфа») или «кто-то
+    // с курса», но не ник — из ника вырос бы персонаж, а типаж — эпизодник.
+    else core = fill(P.said, { who: item.nick ? (item.type || P.someone) : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     // Ветка — одной фразой: о чём спорят или что поддерживают, без реплик.
     const thread = threadPhrase(threadTone(items.filter((x) => x.parent === item.id).map((x) => x.text)), P);
     if (thread) core = `${bare(core)}${P.threadGlue}${thread}`;

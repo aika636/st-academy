@@ -43,6 +43,10 @@
 //   С основных аккаунтов пишут только люди из состава (`who`); остальные — под
 //   ником. Ник не человек: в состав, кандидаты, «был в сцене», лорбук и
 //   отношения он не идёт — у записи с ником `who` пустой.
+// - **Типаж** (`type`) — кто под ником: «футболист-альфа», «завистница».
+//   На экране его нет, ник говорит сам; он нужен рассказчику в поводе
+//   (`plot.hookCore`) вместо безликого «кто-то с курса» и секретарю, чтобы
+//   ник держал характер. Персонажем типаж не становится, как и ник.
 // - **Значки** под постом (😂 12, 👀 7) считает код, без модели: от id записи,
 //   громкости и числа ответов (`reactCounts`), так что пересчёт и перерисовка
 //   их не меняют. У ответа в ветке значков меньше и счёт скромнее — первые
@@ -123,6 +127,37 @@ export function reactionCap(preset) {
   return Math.max(CAP_BOUNDS[0], Math.min(CAP_BOUNDS[1], Math.round(n)));
 }
 
+/**
+ * Типажи статистов под никами (`feed.extras`): в космической академии нет
+ * чирлидерши, в секте — футболиста. Пресет без своих — общие, без примет
+ * школы или мира.
+ */
+export const DEFAULT_EXTRAS = [
+  'завистница', 'сплетница', 'ботан', 'тихоня', 'сердцеед', 'сноб', 'задира',
+  'вечный двоечник', 'старый знакомый', 'фанатка', 'шутник',
+];
+
+/** Примеры ников с типажом в скобках (`feed.nickExamples`); пресет без своих — общие. */
+export const DEFAULT_NICK_EXAMPLES = ['всё-видел (сплетник)', 'не скажу кто (завистница)', 'вечно второй (ботан)'];
+
+/** Список строк пресета: без пустых и повторов, с потолком; пусто — умолчание. */
+function presetList(raw, fallback, max) {
+  const out = [];
+  for (const v of Array.isArray(raw) ? raw : []) {
+    const t = oneLine(v, 48);
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.length ? out.slice(0, max) : fallback;
+}
+
+export function feedExtras(preset) {
+  return presetList(preset && preset.feed && preset.feed.extras, DEFAULT_EXTRAS, 16);
+}
+
+export function feedNickExamples(preset) {
+  return presetList(preset && preset.feed && preset.feed.nickExamples, DEFAULT_NICK_EXAMPLES, 4);
+}
+
 /** Сколько реакций допускает громкость при потолке пресета. */
 export function loudCap(loud, cap = REACTION_CAP) {
   const row = LOUDNESS.find((l) => l.level === loud) || LOUDNESS[1];
@@ -181,6 +216,7 @@ export function normalizeItem(raw) {
     // Под маской автора нет: ник не человек и в состав не ведёт.
     who: nick ? '' : str(raw.who),
     nick,
+    type: nick ? cleanType(raw.type) : '',
     // Ответ в ветке — только реакция и только к другому посту.
     parent,
     chan,
@@ -226,6 +262,11 @@ export function cleanNick(raw) {
     .slice(0, NICK_MAX)
     .trim();
   return (t.match(/\p{L}/gu) || []).length >= 2 ? t : '';
+}
+
+/** Типаж под ником: «футболист-альфа». Те же правила, что у ника. */
+export function cleanType(raw) {
+  return cleanNick(raw);
 }
 
 /** Ник на экране: «@школьный бес» — видно, что это маска, а не человек. */
@@ -327,8 +368,8 @@ export function removeBySource(state, src, kind = null) {
  *
  * @param {Object} state
  * @param {string} src отпечаток ответа
- * @param {Array<{fact: string, token?: string, who?: string, nick?: string, chan?: string, text: string, rumor?: boolean, about?: string[], heroine?: boolean}>} reactions
- * @param {{day?: string, time?: string, cap?: number, loud?: number, replies?: Array<{parent: {token?: string, feed?: string}, who?: string, nick?: string, text: string}>}} [opts]
+ * @param {Array<{fact: string, token?: string, who?: string, nick?: string, type?: string, chan?: string, text: string, rumor?: boolean, about?: string[], heroine?: boolean}>} reactions
+ * @param {{day?: string, time?: string, cap?: number, loud?: number, replies?: Array<{parent: {token?: string, feed?: string}, who?: string, nick?: string, type?: string, text: string}>}} [opts]
  * @returns {string[]} id легших записей
  */
 export function putReactions(state, src, reactions, opts = {}) {
@@ -347,6 +388,7 @@ export function putReactions(state, src, reactions, opts = {}) {
       kind: 'reaction',
       who: r.who || '',
       nick: r.nick || '',
+      type: r.type || '',
       chan: r.chan,
       text: r.text,
       rumor: r.rumor === true || r.chan === 'anon',
@@ -377,6 +419,7 @@ export function putReactions(state, src, reactions, opts = {}) {
       parent: post.id,
       who: a.who || '',
       nick: a.nick || '',
+      type: a.type || '',
       chan: post.chan,
       text: a.text,
       rumor: post.chan === 'anon',
@@ -482,13 +525,13 @@ export const RECENT_POSTS = 4;
  * (`reply=f2:…`). Только реплики-посты (не факты и не ответы), не истёкшие;
  * свежие первыми, с короткими ссылками f1, f2…
  *
- * @returns {Array<{ref: string, id: string, who: string, nick: string, chan: string, text: string, replies: number}>}
+ * @returns {Array<{ref: string, id: string, who: string, nick: string, type: string, chan: string, text: string, replies: number}>}
  */
 export function recentPosts(state, max = RECENT_POSTS) {
   const items = feedItems(state);
   const posts = items.filter((x) => x.kind === 'reaction' && !x.parent && x.status !== 'expired').slice(-max).reverse();
   return posts.map((x, i) => ({
-    ref: `f${i + 1}`, id: x.id, who: x.who, nick: x.nick, chan: x.chan, text: x.text,
+    ref: `f${i + 1}`, id: x.id, who: x.who, nick: x.nick, type: x.type || '', chan: x.chan, text: x.text,
     replies: items.filter((y) => y.parent === x.id).length,
   }));
 }

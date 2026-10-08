@@ -2410,12 +2410,22 @@
   color: var(--academy-accent);
 }
 
-.academy-panel .academy-feed-take,
 .academy-panel .academy-feed-drop,
 .academy-panel .academy-feed-buttons .academy-btn {
   width: 100%;
   min-height: 40px;
   justify-content: center;
+}
+
+/* «Взять в сюжет» стоит под каждым постом — во всю ширину она перекрикивала
+ * сам пост. Небольшая, справа, но палец по ней ещё попадает. */
+.academy-panel .academy-feed-take {
+  display: flex;
+  width: fit-content;
+  min-height: 32px;
+  margin: 2px 0 0 auto;
+  padding: 2px 12px;
+  font-size: 0.85em;
 }
 
 .academy-feed-preview {
