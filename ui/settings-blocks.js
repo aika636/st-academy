@@ -3,6 +3,7 @@
 // выгрузка, звук, отладка.
 
 import { PRESET_MAX_BYTES } from '../core/preset.mjs';
+import { personFromLine, personLine } from '../core/card-cast.mjs';
 import {
   fill, PRESET_TEXT, extraLabels, uiLabels, mounted, el, clear, runAction, setStatus, section, sectionScope,
   call, safe, renderPanel, renderSettingsBlock,
@@ -893,6 +894,78 @@ function askConfirm(box, U, { reasons, current, incoming, onYes, onNo, question 
  * только после жеста на странице, и человек, включивший галочку, должен иметь
  * способ убедиться, что звук вообще есть, не дожидаясь следующей вехи.
  */
+/**
+ * Персонаж карточки (`core/card-cast.mjs`): кого играет бот. Название карточки
+ * в таверне — не всегда имя («Your Himbo Roommate»), и без имени персонаж бота
+ * приходил кандидатом в сокурсники. Список — по карточке, не по чату. Раскрыт,
+ * пока человек его не проверил.
+ */
+export function renderCardCastBlock(host, preset) {
+  const X = extraLabels(preset);
+  const U = uiLabels(preset);
+  const info = safe(() => (host.getCardCast ? host.getCardCast() : null), null) || {};
+  if (info.group) return section(X.castSection, [el('p', { class: 'academy-note', text: X.castGroup })]);
+  if (!info.available) return section(X.castSection, [el('p', { class: 'academy-note', text: X.castNone })]);
+  const cast = info.cast || { people: [], source: 'auto', checked: false };
+  const status = el('div', { class: 'academy-status' });
+  const rows = el('div', { class: 'academy-cast-rows' });
+
+  const addRow = (person) => {
+    const input = el('input', {
+      type: 'text', class: 'text_pole academy-input', value: personLine(person) || '', placeholder: X.castNamePlaceholder,
+    });
+    const role = el('select', { class: 'text_pole academy-input academy-cast-role' }, [
+      el('option', { value: 'main', text: X.castRoleMain }),
+      el('option', { value: 'npc', text: X.castRoleNpc }),
+    ]);
+    role.value = person && person.role === 'npc' ? 'npc' : 'main';
+    const row = el('div', { class: 'academy-row academy-cast-row' }, [input, role]);
+    row.append(el('div', {
+      class: 'menu_button academy-btn academy-btn-small',
+      text: X.castRemove,
+      onclick: () => row.remove(),
+    }));
+    row.read = () => personFromLine(input.value, role.value);
+    rows.append(row);
+  };
+  for (const p of cast.people) addRow(p);
+  if (!cast.people.length) addRow(null);
+
+  let note = '';
+  if (!cast.checked) {
+    if (!cast.people.length) note = X.castEmpty;
+    else note = cast.source === 'model' ? X.castModel : X.castAuto;
+  }
+
+  return section(X.castSection, [
+    el('p', { class: 'academy-note', text: fill(X.castNote, { title: info.title || '—', course: U.classmatesTitle }) }),
+    note ? el('p', { class: 'academy-note academy-note-warn', text: note }) : null,
+    rows,
+    el('p', { class: 'academy-note', text: X.castHint }),
+    el('div', { class: 'academy-row academy-row-buttons' }, [
+      el('div', { class: 'menu_button academy-btn academy-btn-small', text: X.castAdd, onclick: () => addRow(null) }),
+      el('div', {
+        class: 'menu_button academy-btn academy-btn-small',
+        text: X.castGuess,
+        onclick: async (e) => {
+          const res = await runAction(e.currentTarget, status, () => call(host, 'guessCardCast'), X.castGuessOk);
+          if (res && res.ok !== false) renderPanel(host);
+        },
+      }),
+      el('div', {
+        class: 'menu_button academy-btn academy-btn-main',
+        text: X.castSave,
+        onclick: async (e) => {
+          const people = [...rows.children].map((r) => (typeof r.read === 'function' ? r.read() : null)).filter(Boolean);
+          const res = await runAction(e.currentTarget, status, () => call(host, 'saveCardCast', people), X.castSaved);
+          if (res && res.ok !== false) renderPanel(host);
+        },
+      }),
+    ]),
+    status,
+  ], !cast.checked);
+}
+
 export function renderSoundBlock(host, preset, settings) {
   const X = extraLabels(preset);
   const status = el('div', { class: 'academy-status' });

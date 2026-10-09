@@ -702,6 +702,44 @@
   font-size: 0.85em;
 }
 
+/* Просьба проверить: персонаж карточки угадан, но не подтверждён. */
+.academy-note-warn {
+  color: var(--SmartThemeQuoteColor, var(--academy-dim));
+  font-weight: 600;
+}
+
+/* Персонаж карточки: имя с написаниями, роль, «Убрать» — одной строкой. */
+.academy-cast-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.academy-cast-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.academy-cast-row > input {
+  flex: 1 1 14em;
+  min-width: 0;
+}
+
+.academy-cast-role {
+  flex: 0 1 auto;
+  width: auto;
+}
+
+/* Однокурсник, похожий на персонажа бота. */
+.academy-cast-hit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+
 .academy-survey {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

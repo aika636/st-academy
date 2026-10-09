@@ -38,7 +38,8 @@ import {
 import { readTime } from './core/time-source.mjs';
 import { readDiceRoll, readTimeSkip, readPhoneTurn } from './core/cues.mjs';
 import { diffMilestones, milestoneName, milestones, recordTally } from './core/milestones.mjs';
-import { stopList, filterPeople } from './core/stop-names.mjs';
+import { stopList, filterPeople, stopHit } from './core/stop-names.mjs';
+import { normalizeCast, castNames, guessCastLocal } from './core/card-cast.mjs';
 import { addClassmate, updateClassmate, removeClassmate } from './core/classmates.mjs';
 import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName, carryRoster } from './core/classmates.mjs';
 import { buildSchedule } from './core/schedule.mjs';
@@ -429,6 +430,8 @@ function reloadState() {
   live.ledger = storage.loadLedger(ctx());
   live.plot = storage.loadPlot(ctx());
   live.analysisErrors.clear();
+  primeCardCast();
+  if (live.state) dropCastCandidates().catch((err) => console.warn(`[${MODULE}] кандидаты не почищены:`, err));
   primeMilestones();
   return report;
 }
@@ -1257,7 +1260,101 @@ function sceneNames(c) {
       if (names.length) char = names;
     }
   } catch { /* имена — страховка, не условие разбора */ }
+  // Персонаж бота по имени (`core/card-cast.mjs`): название карточки — не
+  // всегда имя («Your Himbo Roommate» — это Джаспер Мираж).
+  const cast = castMainNames(c);
+  if (cast.length) char = [...[].concat(char == null ? [] : char), ...cast];
   return { user, char };
+}
+
+// --- персонаж карточки (core/card-cast.mjs) -----------------------------------
+//
+// Список «кто в карточке» живёт по карточке, а не по чату: в настройках
+// расширения под аватаром (`settings.cardCasts[avatar]`). Персонаж тот же во
+// всех чатах с ней — спрашивать о нём заново в каждом чате незачем.
+
+/** Аватары карточек этого чата: одна карточка или все участники группы. */
+function castAvatars(c) {
+  try {
+    if (c && c.groupId !== undefined && c.groupId !== null && Array.isArray(c.groups)) {
+      const group = c.groups.find((g) => g && String(g.id) === String(c.groupId));
+      return (group && Array.isArray(group.members) ? group.members : []).map(String).filter(Boolean);
+    }
+    const chars = Array.isArray(c && c.characters) ? c.characters : [];
+    const ch = c && c.characterId !== undefined && c.characterId !== null ? chars[c.characterId] : null;
+    return ch && ch.avatar ? [String(ch.avatar)] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Список карточки или `null`, если её ещё не смотрели. */
+function castOf(avatar) {
+  try {
+    const all = storage.loadSettings(ctx()).cardCasts || {};
+    return all[avatar] ? normalizeCast(all[avatar]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Все написания персонажей бота во всех карточках чата. */
+function castMainNames(c) {
+  return castAvatars(c).flatMap((a) => castNames(castOf(a)));
+}
+
+function saveCast(avatar, cast) {
+  const clean = normalizeCast(cast);
+  // Присвоением, а не слиянием: убранный человек не должен пережить сохранение.
+  const all = storage.loadSettings(ctx()).cardCasts || {};
+  all[avatar] = clean;
+  storage.saveSettings({}, ctx());
+  return clean;
+}
+
+/**
+ * Догадка без модели при открытии чата: карточку ещё не смотрели — самое
+ * частое имя в её тексте (`guessCastLocal`). Записывается и пустая догадка:
+ * иначе каждый заход в чат перечитывал бы карточку. Групповой чат не
+ * угадывается — там имена участников и так в стоп-листе.
+ */
+function primeCardCast() {
+  try {
+    const c = ctx();
+    const avatars = castAvatars(c);
+    if (avatars.length !== 1 || castOf(avatars[0])) return;
+    const read = api.readCharacterCard(c);
+    if (!read.ok) return;
+    saveCast(avatars[0], guessCastLocal(read.card));
+  } catch (err) {
+    console.warn(`[${MODULE}] персонаж карточки не угадан:`, err);
+  }
+}
+
+/** Стоп-лист из одних персонажей бота — для кандидатов и пометки в «Людях». */
+function castStop(c) {
+  const names = castMainNames(c);
+  return names.length ? stopList({ char: names }) : [];
+}
+
+/** Однокурсники, похожие на персонажа бота: панель предлагает их убрать. */
+function castClassmateHits() {
+  const stop = castStop(ctx());
+  if (!stop.length || !live.state) return [];
+  return (live.state.classmates || []).filter((p) => p && stopHit(p.name, stop)).map((p) => p.id);
+}
+
+/** Персонаж бота среди кандидатов в курс — ошибка разбора: убрать молча. */
+async function dropCastCandidates() {
+  const stop = castStop(ctx());
+  if (!stop.length || !live.state) return;
+  const list = live.state.classmateCandidates || [];
+  if (!list.some((p) => p && stopHit(p.name, stop))) return;
+  const next = cloneState(live.state);
+  next.classmateCandidates = list.filter((p) => !(p && stopHit(p.name, stop)));
+  await commit(next);
+  refreshPanel();
+  renderPanels();
 }
 
 /** Индекс последнего сообщения, которое может быть ходом, либо `-1`. */
@@ -2559,6 +2656,23 @@ const host = {
   }),
   getSettings: () => storage.loadSettings(ctx()),
   /**
+   * Персонаж карточки для «Настроек»: название карточки, список и можно ли его
+   * править (в групповом чате — нет: там стоп-лист и так знает всех участников).
+   */
+  getCardCast: () => {
+    const c = ctx();
+    const avatars = castAvatars(c);
+    const group = Boolean(c && c.groupId !== undefined && c.groupId !== null);
+    return {
+      group,
+      available: avatars.length === 1 && !group,
+      title: String((c && c.name2) || ''),
+      cast: avatars.length === 1 ? (castOf(avatars[0]) || null) : null,
+    };
+  },
+  /** id однокурсников, похожих на персонажа бота (пометка в «Людях»). */
+  getCardCastHits: () => castClassmateHits(),
+  /**
    * С какого дня предложить начать семестр и откуда эта дата взялась. Панель
    * показывает её в поле, а не подставляет молча: год календаря — решение,
    * которое до сих пор принимали системные часы (см. `startDayHint`).
@@ -2666,6 +2780,31 @@ const host = {
   // Панель показывает текст ошибки рядом с кнопкой и не блокируется: пустой
   // экран вместо объяснения — худшее, что может случиться с анкетой (3.6).
   actions: {
+    /** Сохранить персонажей карточки руками: `people` — `[{name, aliases, role}]`. */
+    async saveCardCast(people) {
+      const avatars = castAvatars(ctx());
+      if (avatars.length !== 1) return { ok: false, error: 'карточка не выбрана' };
+      const cast = saveCast(avatars[0], { people, source: 'manual', checked: true });
+      await dropCastCandidates();
+      refreshPanel();
+      return { ok: true, cast };
+    },
+
+    /** Найти персонажей карточки моделью и записать как догадку на проверку. */
+    async guessCardCast() {
+      const c = ctx();
+      const avatars = castAvatars(c);
+      if (avatars.length !== 1) return { ok: false, error: 'карточка не выбрана' };
+      const op = captureOperation();
+      const res = await api.guessCardCast(live.preset, storage.apiSettings(c), c);
+      if (!isCurrent(op)) return chatChanged('карточка читалась');
+      if (!res.ok) return { ok: false, error: res.error || 'запрос не удался', code: res.code, raw: res.raw };
+      const cast = saveCast(avatars[0], res.cast);
+      await dropCastCandidates();
+      refreshPanel();
+      return { ok: true, cast };
+    },
+
     async startTerm(survey, opts = {}) {
       // Таблица предметов и преподавателей набирается ДО старта — генерацией
       // или руками — и ложится в состояние отдельным действием (`setSubjects`).

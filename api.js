@@ -38,6 +38,7 @@
 
 import { buildPlanPrompt, parsePlanResponse, validatePlan, extractJson, fill, balancedBlock } from './core/plan-gen.mjs';
 import { emptySurvey } from './core/state.mjs';
+import { buildCastPrompt, castFromModel } from './core/card-cast.mjs';
 
 /** Умолчания таймаутов, мс. Данные, не логика. */
 export const TIMEOUTS = {
@@ -78,6 +79,8 @@ export const TIMEOUTS = {
 export const TOKEN_BUDGETS = {
   ping: 8,
   survey: 1024,
+  // Кто в карточке (`guessCardCast`): несколько имён с написаниями.
+  cast: 768,
   plan: 4096,
   // Разбор ответа (секретарь, `core/analysis`): строка метки, до шести строк
   // реакций курса (шаг 3) и «Кратко»; остальное — запас на размышление
@@ -1334,4 +1337,42 @@ export async function guessSurvey(preset, api, ctx, opts = {}) {
   }
 
   return { ok: false, ...last, warnings, attempts: made };
+}
+
+/**
+ * Кто живёт в карточке (`core/card-cast.mjs`): персонаж бота и названные люди,
+ * с написаниями на языке чата. Состояние не пишется — список сохраняет хост.
+ * Один повтор на неразобранный ответ, как у анкеты.
+ *
+ * @returns {Promise<{ok: true, cast: Object, raw: string}
+ *   | {ok: false, code: string, error: string, raw: string}>}
+ */
+export async function guessCardCast(preset, api, ctx, opts = {}) {
+  const read = readCharacterCard(ctx);
+  if (!read.ok) return { ok: false, code: read.code, error: read.message, raw: '' };
+  const text = [cardToText(read.card), read.card.firstMessage ? `Первое сообщение: ${read.card.firstMessage}` : '']
+    .filter(Boolean).join('\n');
+  const { system, user } = buildCastPrompt(text, { title: read.card.name, lang: preset && preset.lang });
+  let last = { code: 'parse', error: 'Ответ модели не разобрался в список.', raw: '' };
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const res = await complete(api, {
+      system,
+      user: attempt === 1 ? user : `${user}\n\nПредыдущий ответ не разобрался. Верни только JSON.`,
+      ctx,
+      signal: opts.signal,
+      timeout: opts.timeout,
+      maxTokens: budgetOf(opts.maxTokens, TOKEN_BUDGETS.cast),
+    });
+    if (!res.ok) return { ok: false, code: res.code, error: res.message, raw: res.detail || '' };
+    const data = extractJson(res.text);
+    const cast = data === undefined ? null : castFromModel(data);
+    if (cast && cast.people.length) return { ok: true, cast, raw: res.text };
+    last = {
+      code: cast ? 'empty' : 'parse',
+      error: cast ? 'Модель не нашла в карточке ни одного имени — впишите персонажа вручную.' : last.error,
+      raw: res.text,
+    };
+    if (cast || res.truncated) break;
+  }
+  return { ok: false, ...last };
 }

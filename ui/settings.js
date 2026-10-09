@@ -16,7 +16,7 @@ import {
 } from './common.js';
 import {
   renderApiBlock, renderAnalysisBlock, renderModeBlock, renderPresetBlock, renderLorebookBlock,
-  renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDrawBlock, renderDebugBlock,
+  renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDrawBlock, renderDebugBlock, renderCardCastBlock,
 } from './settings-blocks.js';
 
 /** Шесть полей анкеты (3.6). Порядок — как в таблице плана. */
@@ -426,6 +426,9 @@ export function renderSettings(host) {
     planStatus,
   ], setup));
   mounted.planStatus = planStatus;
+
+  // --- персонаж карточки --------------------------------------------------
+  box.append(renderCardCastBlock(host, preset));
 
   // --- таблица предметов и преподавателей ---------------------------------
   box.append(renderPlanTable(host, view, preset, setup));

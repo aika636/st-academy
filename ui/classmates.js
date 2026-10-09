@@ -12,7 +12,7 @@ import { MEMORY_SIZE, relationLabel, relationMemory, relationOf } from '../core/
 import { personAvatar } from '../core/masks.mjs';
 import { isPortrait } from '../core/portraits.mjs';
 import {
-  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel, avatarNode,
+  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel, avatarNode, safe,
 } from './common.js';
 import { photoEditor, drawPending } from './photo.js';
 
@@ -113,12 +113,32 @@ export function renderClassmates(host, view, preset) {
   const X = extraLabels(preset);
   const box = el('div', { class: 'academy-classmates' });
   if (!view.people.length) box.append(el('div', { class: 'academy-silent', text: view.none }));
-  for (const p of view.people) box.append(classmateCard(host, p, view, X));
+  // Похожие на персонажа бота (`core/card-cast.mjs`): попали сюда до того, как
+  // расширение узнало его имя. Молча не удаляются — человек мог держать их нарочно.
+  const hits = new Set(safe(() => (host.getCardCastHits ? host.getCardCastHits() : []), []) || []);
+  const course = uiLabels(preset).classmatesTitle;
+  for (const p of view.people) box.append(classmateCard(host, p, view, X, hits.has(p.id) ? course : ''));
   box.append(classmateForm(host, null, view, X));
   return box;
 }
 
-function classmateCard(host, p, view, X) {
+function castWarning(host, p, X, course) {
+  const status = el('div', { class: 'academy-status' });
+  return el('div', { class: 'academy-cast-hit' }, [
+    el('span', { class: 'academy-note academy-note-warn', text: fill(X.castHit, { course }) }),
+    el('div', {
+      class: 'menu_button academy-btn academy-btn-small',
+      text: X.castHitRemove,
+      onclick: async (e) => {
+        const res = await runAction(e.currentTarget, status, () => call(host, 'removeClassmate', p.id), X.cmRemoved);
+        if (res && res.ok !== false) renderPanel(host);
+      },
+    }),
+    status,
+  ]);
+}
+
+function classmateCard(host, p, view, X, castCourse = '') {
   const line = (label, text) => (text
     ? el('div', { class: 'academy-cm-line' }, [
       el('span', { class: 'academy-cm-label', text: `${label}: ` }),
@@ -132,6 +152,7 @@ function classmateCard(host, p, view, X) {
       el('span', { class: 'academy-relation', text: p.relationText }),
       p.club ? el('span', { class: 'academy-post', text: p.club }) : null,
     ]),
+    castCourse ? castWarning(host, p, X, castCourse) : null,
     line(X.cmDesire, p.desire),
     line(X.cmTie, p.tieText),
     line(X.cmProblem, p.problem),

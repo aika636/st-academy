@@ -111,7 +111,8 @@ export function stopHit(name, stop) {
 
   let best = null;
   for (const s of list) {
-    const hit = s.norm === n || (partial && tokens.every((t) => s.tokens.includes(t)));
+    const hit = s.norm === n || (partial && tokens.every((t) => s.tokens.includes(t)))
+      || (s.kind === STOP_CHAR && partial && charHit(tokens, s.tokens));
     if (!hit) continue;
     if (!best || rank(s.kind) < rank(best.kind)) best = s;
   }
@@ -157,6 +158,62 @@ export function strictest(hits) {
   let best = null;
   for (const h of hits || []) if (h && (!best || rank(h.kind) < rank(best.kind))) best = h;
   return best;
+}
+
+// --- персонаж карточки -----------------------------------------------------
+//
+// Для карточки правила совпадения шире, чем для героини, по двум причинам.
+//
+// 1. **В обе стороны.** Карточка «Джаспер», а модель пишет «Джаспер Мираж»:
+//    лишнее слово в имени из сцены — фамилия, а не другой человек. Для героини
+//    обратное запрещено нарочно («Анна» не должна выбивать «Анну Петрову»), но
+//    карточка — мягкий стоп: она отсекает только кандидатов, а человек, которого
+//    держат в таблице, остаётся (`filterPeople`, `keep`). Ошибиться здесь —
+//    значит не предложить кандидата, а не потерять наставника.
+// 2. **Сквозь алфавит.** Карточка английская («Jasper Mirage»), ролка русская
+//    («Джаспер Мираж»). Слова сравниваются ещё и «скелетом» — согласными
+//    транслитерации (`nameSkeleton`): jspr = jspr, mrj = mrj.
+
+/** Совпадение имени из сцены с именем карточки по словам (см. выше). */
+function charHit(tokens, stopTokens) {
+  const same = (a, b) => a === b || (a.length >= MIN_TOKEN && b.length >= MIN_TOKEN && skeletonEq(a, b));
+  const inside = (xs, ys) => xs.every((x) => ys.some((y) => same(x, y)));
+  const long = stopTokens.filter((t) => t.length >= MIN_TOKEN);
+  return inside(tokens, stopTokens) || (long.length > 0 && long.length === stopTokens.length && inside(long, tokens));
+}
+
+const RU_LAT = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+  н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch',
+  ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Согласный «скелет» слова для сравнения латиницы с кириллицей: транслитерация,
+ * сведение похожих звуков (дж/ж/j/g → j, c/ck/q → k, ph → f, w → v, x → ks),
+ * без гласных и удвоений. «Джаспер» и «Jasper» → `jspr`, «Мираж» и «Mirage» →
+ * `mrj`. Короче трёх согласных скелет не считается: «Ли» и «Lee» слишком
+ * похожи на что угодно.
+ */
+export function nameSkeleton(word) {
+  let s = String(word == null ? '' : word).toLowerCase().replace(/ё/g, 'е');
+  s = s.replace(/[а-я]/g, (ch) => (RU_LAT[ch] === undefined ? ch : RU_LAT[ch]));
+  s = s.replace(/[^a-z]/g, '')
+    .replace(/dzh|dj|zh|g(?=[eiy])|j|g$/g, 'J')
+    .replace(/ck|q|c(?![eiyh])/g, 'k')
+    .replace(/c/g, 's')
+    .replace(/ph/g, 'f')
+    .replace(/th/g, 't')
+    .replace(/w/g, 'v')
+    .replace(/x/g, 'ks')
+    .replace(/[aeiouyh]/g, '')
+    .replace(/(.)\1+/g, '$1');
+  return s.toLowerCase();
+}
+
+function skeletonEq(a, b) {
+  const x = nameSkeleton(a);
+  return x.length >= MIN_TOKEN && x === nameSkeleton(b);
 }
 
 // --- мелочи -----------------------------------------------------------------
