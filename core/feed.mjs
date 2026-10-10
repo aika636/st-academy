@@ -14,12 +14,15 @@
 //     deals: [ { id, src, a, b, what, open, since, closedOn } ],
 //     cast:  [ { id, nick, type, interest, goal, manner, ally, rival } ],
 //     threads: [ { id, topic, members: [id…], dispute, stage, source, since } ],
+//     molva: { issue, since, facts: [factId…], at: {day, time} },
 //   }
 //
 // `cast` — постоянные статисты молвы (до 8), `threads` — сюжетики массовки
 // (до 3): шаг 1 плана «Молва» (`etap-molva.md`). Что с ними делать — в
 // `core/feed-cast.mjs` и `core/feed-threads.mjs`; здесь только форма и
 // нормализация, чтобы они жили в `state.feed` и откатывались со всей лентой.
+// `molva` — счёт выпусков (шаг 2, `core/molva.mjs`): номер выпуска, сколько
+// ответов бота прошло с прошлого и какие факты уже стали темой.
 //
 // Четыре решения.
 //
@@ -194,7 +197,7 @@ export function loudCap(loud, cap = REACTION_CAP) {
 
 /** Пустая лента. */
 export function emptyFeed() {
-  return { items: [], seen: {}, deals: [], cast: [], threads: [] };
+  return { items: [], seen: {}, deals: [], cast: [], threads: [], molva: emptyMolva() };
 }
 
 /**
@@ -222,7 +225,7 @@ export function normalizeFeed(raw) {
   const deals = (Array.isArray(src.deals) ? src.deals : []).map(normalizeDeal).filter(Boolean).slice(-DEALS_MAX);
   // Каст сперва: сюжетики держатся за его id, а ссылка на ушедшего снимается.
   const cast = normalizeCastList(src.cast);
-  return { items, seen: trimSeen(seen), deals, cast, threads: normalizeThreads(src.threads, cast) };
+  return { items, seen: trimSeen(seen), deals, cast, threads: normalizeThreads(src.threads, cast), molva: normalizeMolva(src.molva) };
 }
 
 /** Запись ленты; без текста или без id — `null`. */
@@ -270,6 +273,8 @@ export function normalizeItem(raw) {
     // что пересказывают лорбук и фон после «говорят, что…» (`scene.sceneGist`).
     gist: kind === 'fact' ? oneLine(raw.gist, FEED_TEXT_MAX) : '',
     playedSrc: raw.status === 'played' ? str(raw.playedSrc) : '',
+    // Сцена без свидетелей: в молву она идёт только слухом (`core/molva.mjs`).
+    ...(kind === 'fact' && raw.private === true ? { private: true } : {}),
   };
 }
 
@@ -457,6 +462,26 @@ export function normalizeThreads(raw, cast) {
     if (out.length >= THREADS_MAX) break;
   }
   return out;
+}
+
+/** Сколько фактов-тем выпусков помнит счёт: старые давно вышли из «нового». */
+export const MOLVA_FACTS_MAX = 60;
+
+/** Счёт выпусков молвы: ни одного, ни одного ответа с тех пор, ни одного факта. */
+export function emptyMolva() {
+  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' } };
+}
+
+/** Счёт выпусков к форме; битое поле — пустой счёт. */
+export function normalizeMolva(raw) {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const num = (v) => (Number.isInteger(v) && v >= 0 ? v : 0);
+  return {
+    issue: num(src.issue),
+    since: num(src.since),
+    facts: (Array.isArray(src.facts) ? src.facts : []).map(str).filter(Boolean).slice(-MOLVA_FACTS_MAX),
+    at: { day: str(src.at && src.at.day), time: str(src.at && src.at.time) },
+  };
 }
 
 // --- записи -------------------------------------------------------------------------

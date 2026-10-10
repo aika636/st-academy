@@ -143,7 +143,7 @@ function clip(s, max) {
 }
 
 /** Темы календаря: ближайшие праздники и события чата, не дальше `CALENDAR_HORIZON` дней. */
-function calendarTopics(state, preset) {
+export function calendarTopics(state, preset) {
   const day = state && state.calendar && state.calendar.day;
   if (!day) return [];
   return holidaysAhead(preset, day, CALENDAR_HORIZON, state).map(({ holiday, days }) => ({
@@ -152,7 +152,7 @@ function calendarTopics(state, preset) {
 }
 
 /** Темы учёбы: ближайшие контрольные и объявления итогов; нет их — предмет дня. */
-function studyTopics(state, preset) {
+export function studyTopics(state, preset) {
   const day = state && state.calendar && state.calendar.day;
   if (!day) return [];
   const subjects = new Map(((state && state.subjects) || []).filter((s) => s && s.id).map((s) => [s.id, s.name || s.id]));

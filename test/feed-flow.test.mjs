@@ -314,7 +314,7 @@ test('вид «Потока»: два канала, автор анонимки 
   // Пусто — по-человечески.
   v = feedView(semester(), preset);
   assert.equal(v.empty, true);
-  assert.equal(v.emptyText, 'Пока тихо. Здесь появится то, что говорят, — после сохранённого разбора секретаря.');
+  assert.equal(v.emptyText, 'Пока тихо. Молва появится сама через несколько ответов — или нажмите «Обновить молву».');
 
   // Лопнуло и истекло.
   assert.equal(feedStatusText({ status: 'expired', rumor: true }, X), 'лопнуло');

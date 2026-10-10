@@ -29,6 +29,7 @@
 import { METADATA_KEY, SCHEMA_VERSION, migrate, validateState } from './core/state.mjs';
 import { normalizePlot } from './core/plot.mjs';
 import { MARKS_MAX } from './core/feed.mjs';
+import { readDeltas } from './core/molva.mjs';
 // Словарь панели — за словами заведения. Направление импорта необычное (данные
 // зовут интерфейс), но словарь один на всё расширение, и второй копии у него
 // быть не должно: этим же путём за словами ходит `commands.js`. Цикла нет —
@@ -128,6 +129,14 @@ export const DEFAULT_SETTINGS = {
     auto: false,
     /** Фон курса в строке состояния («на курсе говорят: …», слой 1). */
     background: true,
+    /**
+     * Молва (шаг 2 плана «Молва»): обновлять раз в столько ответов бота. От
+     * единицы; единица — каждый ответ. `molvaManual` — только по кнопке
+     * «Обновить молву». Это привычка человека и цена (второй вызов модели),
+     * а не факт семестра — поэтому здесь.
+     */
+    molvaEvery: 3,
+    molvaManual: false,
   },
   /**
    * «Нарисовать портрет» (шаг 4): чем рисовать, модель на каждый путь, стиль
@@ -393,6 +402,8 @@ export function readTurns(raw, preset) {
       // Каким разбором секретаря ход посчитан (`null` — без разбора).
       analysis: typeof t.analysis === 'string' ? t.analysis : null,
       marks: readMarks(t.marks),
+      // Выпуски молвы, вышедшие после этого ответа (`core/molva.readDeltas`).
+      molva: readDeltas(t.molva),
     });
   }
   return out.slice(-TURN_HISTORY);
@@ -440,6 +451,7 @@ export function saveTurns(ctx, list) {
     analysis: typeof t.analysis === 'string' ? t.analysis : null,
     // Отметки ленты с ушедших свайпов (`feed.rememberFeedMarks`).
     marks: readMarks(t.marks),
+    molva: readDeltas(t.molva),
   }));
   md[TURNS_KEY] = { v: TURNS_FORMAT, list: turns };
   c.saveMetadataDebounced();

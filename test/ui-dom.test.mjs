@@ -1454,3 +1454,63 @@ test('«Люди»: «Нарисовать» — «Рисую…» с отмен
   assert.ok(allTexts(openTab(second.node, 'settings')).includes(X.drawNoRoute));
   second.api.destroy();
 });
+
+/* --- выпуск молвы (шаг 2) ------------------------------------------------------ */
+
+test('«Молва»: в настройках один блок — частота, цена, кнопка, каст внутри; на ленте кнопка есть всегда', async () => {
+  const X = ui.extraLabels(preset);
+  const sent = [];
+  const host = fakeHost(started, { feed: { molvaEvery: 5, molvaManual: false } }, LOREBOOK_FULL, {
+    refreshMolva: async () => { sent.push('refresh'); return { ok: true, posts: 3, replies: 2, skipped: 0 }; },
+  });
+  host.setSettings = (patch, opts) => sent.push(['set', patch, opts]);
+  host.getPlot = () => null;
+  host.getHeroine = () => 'Аня';
+  const { api, node } = mount(host);
+  const body = openTab(node, 'settings');
+  const block = findSection(body, ui.uiLabels(preset).tabFeed);
+  assert.ok(block, 'блок молвы на месте');
+  assert.equal(findSection(body, X.mobSection), null, 'отдельного блока статистов больше нет');
+  const texts = allTexts(block);
+  for (const want of [X.molvaWhen, X.molvaEvery, X.molvaEveryUnit, X.molvaManual, X.molvaPrice, X.molvaButton, X.mobSection]) {
+    assert.ok(texts.includes(want), `в блоке нет: ${want}`);
+  }
+  const every = findNode(block, (n) => String(n.className).includes('academy-molva-every'));
+  assert.equal(every.attrs.value, '5');
+  every.value = '0';
+  every.listeners.change[0]();
+  assert.deepEqual(sent.find((x) => x[0] === 'set')[1], { feed: { molvaEvery: 1 } }, 'меньше единицы — единица');
+  const manualLabel = findNode(block, (n) => n.tagName === 'LABEL' && n.children.some((c) => c.textContent === X.molvaManual));
+  const manual = manualLabel.children[0];
+  manual.checked = true;
+  manual.listeners.change[0]();
+  assert.deepEqual(sent.filter((x) => x[0] === 'set').pop()[1], { feed: { molvaManual: true } }, 'только по кнопке');
+  const button = findNode(block, (n) => n.textContent === X.molvaButton && n.listeners.click);
+  await button.listeners.click[0]({ currentTarget: button });
+  assert.ok(sent.includes('refresh'));
+  // Вкладка ленты: кнопка при пустой ленте тоже.
+  const feed = openTab(node, 'feed');
+  assert.ok(allTexts(feed).includes(X.molvaButton), 'кнопка «Обновить молву» есть всегда');
+  api.destroy();
+});
+
+test('«Пересобрать каст»: блок перерисовывается сразу — статисты видны, «пока нет» пропадает (баг 53)', async () => {
+  const X = ui.extraLabels(preset);
+  let live = { ...started, feed: { items: [], seen: {}, deals: [], cast: [], threads: [] } };
+  const host = fakeHost(null, {}, LOREBOOK_FULL, {
+    rebuildFeedCast: async () => {
+      live = { ...started, feed: { items: [], seen: {}, deals: [], threads: [], cast: [{ id: 'cast1', nick: 'всё-видел', type: 'сплетник' }, { id: 'cast2', nick: 'вечно второй', type: 'ботан' }] } };
+      return { ok: true, cast: live.feed.cast, warnings: [] };
+    },
+  });
+  host.getState = () => live;
+  const { api, node } = mount(host);
+  let body = openTab(node, 'settings');
+  assert.ok(allTexts(body).includes(X.mobEmpty));
+  const button = findNode(body, (n) => n.textContent === X.mobRebuild && n.listeners.click);
+  await button.listeners.click[0]({ currentTarget: button });
+  body = node.querySelector('.academy-body');
+  assert.ok(!allTexts(body).includes(X.mobEmpty), 'пустая подсказка осталась');
+  assert.ok(allTexts(body).some((t) => t.includes('всё-видел')));
+  api.destroy();
+});

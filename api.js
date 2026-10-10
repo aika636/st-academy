@@ -89,6 +89,9 @@ export const TOKEN_BUDGETS = {
   // thinking): на 2048 каст то зависал, то «не разбирался» — ответ рвался на
   // середине строки, а обрыв по длине на пути таверны не был виден.
   feedCast: 4096,
+  // Выпуск молвы (`generateMolva`): три-четыре слота по посту и ответу, до
+  // шестисот знаков выдачи, остальное — запас на размышление думающей модели.
+  molva: 4096,
   // Живой прогон 10.10: на 4096 план упёрся в обрыв, и половина дисциплин
   // пропала. Рассуждение думающей модели съедает часть потолка до текста
   // ответа, а платят за выданное, не за разрешённое — поэтому запас щедрый.
@@ -1528,7 +1531,7 @@ export async function guessCardCast(preset, api, ctx, opts = {}) {
   const text = [cardToText(read.card), read.card.firstMessage ? `Первое сообщение: ${read.card.firstMessage}` : '']
     .filter(Boolean).join('\n');
   const { system, user } = buildCastPrompt(text, { title: read.card.name, lang: preset && preset.lang });
-  let last = { code: 'parse', error: 'Ответ модели не разобрался в список.', raw: '' };
+  let last = { code: 'parse', error: 'Не удалось собрать список из ответа модели.', raw: '' };
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const res = await complete(api, {
       system,
@@ -1579,4 +1582,31 @@ export async function generateFeedCast(input, api, ctx, opts = {}) {
     return res.ok ? { ok: true, text: res.text, truncated: res.truncated === true } : { ok: false, code: res.code, message: res.message };
   };
   return assembleCast(input, ask);
+}
+
+/**
+ * Выпуск молвы (`core/molva.mjs`): один запрос — реплики по готовой повестке.
+ * Повестку и проверки ответа делает ядро; здесь только транспорт. Состояние не
+ * пишется. `ask` — подмена запроса (тесты).
+ *
+ * @param {{system: string, user: string}} prompt `molva.buildMolvaPrompt`
+ * @param {Object} api {endpoint, key, model}
+ * @param {Object} [ctx] контекст таверны
+ * @param {{signal?: AbortSignal, timeout?: number, maxTokens?: number, ask?: Function}} [opts]
+ * @returns {Promise<{ok: true, text: string, truncated: boolean} | {ok: false, code: string, error: string}>}
+ */
+export async function generateMolva(prompt, api, ctx, opts = {}) {
+  const res = typeof opts.ask === 'function'
+    ? await opts.ask(prompt)
+    : await complete(api, {
+      system: prompt.system,
+      user: prompt.user,
+      ctx,
+      signal: opts.signal,
+      timeout: opts.timeout,
+      temperature: 0.95,
+      maxTokens: budgetOf(opts.maxTokens, TOKEN_BUDGETS.molva),
+    });
+  if (!res || !res.ok) return { ok: false, code: (res && res.code) || 'api', error: (res && (res.message || res.error)) || 'запрос не удался' };
+  return { ok: true, text: String(res.text || ''), truncated: res.truncated === true };
 }
