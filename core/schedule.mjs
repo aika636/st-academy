@@ -22,7 +22,7 @@
 //    лекционную сетку нельзя.
 
 import { findSubject, teacherOfSubject } from './state.mjs';
-import { addDays, bellsOf, dayOfWeek, isStudyDay, minutesOf, phaseOf, periodPosition } from './time.mjs';
+import { addDays, bellsOf, weekdayIn, isStudyDay, minutesOf, phaseOf, periodPosition } from './time.mjs';
 
 /** Горизонт поиска следующей пары в днях: две недели, дальше искать бессмысленно. */
 const NEXT_LOOKAHEAD = 14;
@@ -77,7 +77,7 @@ export function dayPlan(state, preset, day = state.calendar.day) {
   if (!isStudyDay(preset, day, state)) return [];
   if (phaseOf(preset, state, day) !== 'study') return [];
 
-  const row = state.schedule ? state.schedule[String(dayOfWeek(day))] : null;
+  const row = state.schedule ? state.schedule[String(weekdayIn(state, day))] : null;
   if (!Array.isArray(row) || !row.length) return [];
 
   // Пар в дне не больше, чем мест в сетке пресета: строка расписания могла
@@ -190,7 +190,7 @@ export function nextPeriod(state, preset) {
  * @returns {Object<string, Array>} день недели `'1'`…`'7'` → как в `dayPlan`
  */
 export function weekGrid(state, preset) {
-  const monday = addDays(state.calendar.day, 1 - dayOfWeek(state.calendar.day));
+  const monday = addDays(state.calendar.day, 1 - weekdayIn(state, state.calendar.day));
   const out = {};
   for (let i = 0; i < 7; i += 1) {
     const day = addDays(monday, i);

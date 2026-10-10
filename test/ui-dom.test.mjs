@@ -1158,7 +1158,7 @@ test('«Люди» → «Курс»: подсказка пустого курс�
   body = node.querySelector('.academy-body');
   assert.ok(allTexts(body).includes(ui.DEFAULT_UI.classmatesNone), allTexts(body).join(' | '));
   const byHint = (root, hint) => findNode(root, (n) => n.tagName === 'INPUT' && n.attrs.placeholder === hint);
-  byHint(body, ui.EXTRA_UI.cmNameHint).value = 'Вера Соколова';
+  byHint(body, ui.extraLabels(preset).cmNameHint).value = 'Вера Соколова';
   byHint(body, ui.EXTRA_UI.cmDesireHint).value = 'стипендия';
   await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmAdd && n.listeners.click));
   assert.deepEqual(sent, [['add', {
@@ -1514,4 +1514,54 @@ test('«Пересобрать каст»: блок перерисовывает
   assert.ok(!allTexts(body).includes(X.mobEmpty), 'пустая подсказка осталась');
   assert.ok(allTexts(body).some((t) => t.includes('всё-видел')));
   api.destroy();
+});
+
+// --- прогон 10.10, третий: п. 74 (свиток) и п. 78 (значки, плейсхолдеры) -----
+
+test('«Свиток успехов»: предметы без оценок сводятся в одну строку в конце (п. 74)', async () => {
+  const subjects = [
+    { id: 'a', name: 'Алхимия', teacherId: 'petrova' },
+    { id: 'b', name: 'Травы', teacherId: 'petrova' },
+    { id: 'c', name: 'Руны', teacherId: 'petrova' },
+    { id: 'd', name: 'Полёты', teacherId: 'petrova' },
+  ];
+  const s = createState(preset, { subjects, teachers: TEACHERS, schedule: buildSchedule(subjects, preset) });
+  s.started = true;
+  const { addGrade } = await import('../core/gradebook.mjs');
+  const withGrade = addGrade(s, { subjectId: 'a', value: '5' }, preset).state;
+  const { api, node } = mount(fakeHost(withGrade, {}, { enabled: false }));
+  const texts = allTexts(openTab(node, 'gradebook'));
+  const U = ui.uiLabels(preset);
+  assert.ok(!texts.includes(U.noGrades), 'подряд «оценок пока нет» больше нет');
+  assert.ok(texts.includes('Ещё без оценок: Травы, Руны, Полёты.'), texts.join(' | '));
+  api.destroy();
+});
+
+test('значки разделов Настроек не повторяются ни в одном пресете (п. 78)', () => {
+  for (const id of ['ru-university', 'jp-highschool', 'magic-academy', 'xianxia-sect', 'dark-academia', 'space-academy']) {
+    const p = load(id);
+    const U = ui.uiLabels(p);
+    const X = ui.extraLabels(p);
+    const titles = [U.surveySection, U.startSection, U.planSection, U.presetSection, U.transferSection,
+      U.lorebookSection, U.tabFeed, X.castSection, X.soundSection, X.mobSection, X.drawSection,
+      'API для генерации', 'Секретарь и правило экзаменов', 'Источник времени'];
+    const icons = titles.map((t) => ui.sectionIcon(t));
+    assert.equal(new Set(icons).size, icons.length, `${id}: ${titles.map((t, i) => `${t}=${icons[i]}`).join(', ')}`);
+    assert.ok(!icons.includes('fa-circle-dot'), `${id}: остался значок-заглушка`);
+  }
+  assert.equal(ui.sectionIcon('Молва'), 'fa-comments');
+  assert.equal(ui.sectionIcon('Начало круга'), 'fa-flag-checkered');
+});
+
+test('плейсхолдеры формы сокурсника берутся из пресета, умолчание нейтральное (п. 78)', () => {
+  for (const id of ['magic-academy', 'cadet-academy', 'cn-highschool', 'dark-academia', 'hero-academy', 'jp-highschool',
+    'ru-school', 'ru-university', 'space-academy', 'us-college', 'us-highschool', 'xianxia-sect']) {
+    const p = load(id);
+    for (const k of ['cmNameHint', 'cmClubHint', 'cmProblemHint']) {
+      assert.ok(p.ui[k], `${id}: нет ui.${k}`);
+      assert.equal(ui.extraLabels(p)[k], p.ui[k]);
+    }
+  }
+  const plain = ui.extraLabels({});
+  assert.doesNotMatch(`${plain.cmNameHint} ${plain.cmClubHint} ${plain.cmProblemHint}`, /Соколов|шахмат|физик/);
 });

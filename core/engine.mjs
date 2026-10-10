@@ -737,7 +737,7 @@ export function resolveHeldJump(state, preset, accept = true) {
   const fromPos = posOf(state);
   // Подпись источника — та, что придержала прыжок: A+ остаётся A+ и после
   // «принять». Старые прыжки, придержанные до правки, подписи не несут — это A.
-  const r = setAbsolute(state, { day: held.day, time: held.time, daypart: held.daypart }, held.source || 'A', preset, { force: true });
+  const r = setAbsolute(state, { day: held.day, time: held.time, daypart: held.daypart, weekday: held.weekday }, held.source || 'A', preset, { force: true });
   let s = cloneState(r.state);
   s.calendar.heldJump = null;
   if (!r.applied) return { state: s, applied: false, reason: r.reason, counted: 0 };
@@ -1135,7 +1135,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
     if (!(hit.day || hit.time)) return false;
     // A+ и A — одна ветка и один вызов: различаются они только подписью.
     const who = hit.source === 'A+' ? 'A+' : 'A';
-    const r = setAbsolute(s, { day: hit.day, time: hit.time, daypart: hit.daypart }, who, jumpPreset);
+    const r = setAbsolute(s, { day: hit.day, time: hit.time, daypart: hit.daypart, weekday: hit.weekday }, who, jumpPreset);
     s = r.state;
     source = who;
     via = hit.via || null;

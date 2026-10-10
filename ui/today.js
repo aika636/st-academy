@@ -2,7 +2,7 @@
 // времени и ручная установка часов.
 
 import { currentPeriod, dayPlan, nextPeriod } from '../core/schedule.mjs';
-import { isStalled, phaseOf, termAt, weekIndex } from '../core/time.mjs';
+import { dayOfWeek, isStalled, phaseOf, termAt, weekdayShiftOf, weekIndex } from '../core/time.mjs';
 import { gradeInfo, isPassing } from '../core/exams.mjs';
 import {
   uiLabels, fill, TIME_VIA, stateHealth, formatDate, formatWeek, termTitle, capNumbers, plural,
@@ -40,6 +40,12 @@ export function todayView(state, preset) {
 
   const U = uiLabels(preset);
   const cal = state.calendar;
+  const shift = weekdayShiftOf(state);
+  // Прыжок-цитата показывается днём недели из самой истории, пока сдвиг не
+  // установлен: иначе рядом стоят два дня недели для одной даты (п. 75).
+  const heldShift = cal.heldJump && cal.heldJump.weekday && !shift
+    ? (((cal.heldJump.weekday - dayOfWeek(cal.heldJump.day)) % 7) + 7) % 7
+    : shift;
   const phase = phaseOf(preset, state, cal.day);
   // Пресет обязателен: без него счёт недель идёт сквозной от начала года, и
   // панель во втором триместре сказала бы «20-я неделя» там, где строка
@@ -119,7 +125,7 @@ export function todayView(state, preset) {
       when: sameDay
         ? (nextSlot && nextSlot.start ? fill(U.nextToday, { start: nextSlot.start }) : U.nextSoon)
         : fill(nextSlot && nextSlot.start ? U.nextDay : U.nextDayNoTime,
-          { date: formatDate(nxt.day), start: nextSlot && nextSlot.start }),
+          { date: formatDate(nxt.day, 'full', shift), start: nextSlot && nextSlot.start }),
     };
   }
 
@@ -145,7 +151,7 @@ export function todayView(state, preset) {
 
   // Сводные числа по убыванию важности. Слова (фаза, преподаватель) не в счёт.
   const raw = [
-    { key: 'date', text: formatDate(cal.day) },
+    { key: 'date', text: formatDate(cal.day, 'full', shift) },
     hasClock ? { key: 'time', text: cal.time } : null,
     { key: 'week', text: formatWeek(week, preset, at.scope) },
     termLine && !termIsWord ? { key: 'term', text: termLine } : null,
@@ -162,7 +168,7 @@ export function todayView(state, preset) {
     action: null,
     errors: [],
     day: cal.day,
-    dateLine: formatDate(cal.day),
+    dateLine: formatDate(cal.day, 'full', shift),
     weekLine: formatWeek(week, preset, at.scope),
     week,
     // Период: имя на экране, номер и охват — для тех, кто решает сам.
@@ -199,8 +205,11 @@ export function todayView(state, preset) {
     heldJump: cal.heldJump
       ? {
         day: cal.heldJump.day,
-        dateLine: formatDate(cal.heldJump.day),
-        fromLine: formatDate(cal.heldJump.from || cal.day),
+        // Цитата истории показывается её собственным днём недели («в истории —
+        // вторник»), а не нашим счётом: два разных дня рядом с одной датой
+        // противоречат друг другу (живой прогон 10.10, п. 75).
+        dateLine: formatDate(cal.heldJump.day, 'full', heldShift),
+        fromLine: formatDate(cal.heldJump.from || cal.day, 'full', shift),
         time: cal.heldJump.time || null,
         days: Number(cal.heldJump.jump) || 0,
         matched: String(cal.heldJump.matched || '').trim(),

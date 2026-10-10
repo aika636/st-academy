@@ -33,6 +33,12 @@ const SECTION_ICONS = [
   [/звук/i, 'fa-bell'],
   [/ремонт|поправ/i, 'fa-screwdriver-wrench'],
   [/портрет/i, 'fa-palette'],
+  // Начало семестра («круга», «терма», «цикла»…) — флажок старта; лента — слово
+  // вкладки «Поток»/«Молва»/«Шёпот»; массовка — «Статисты и сюжетики». У каждого
+  // раздела свой значок: общая точка у соседей читалась как повтор (п. 78).
+  [/начал|старт/i, 'fa-flag-checkered'],
+  [/^(?:молва|поток|шёпот|шепот|лент)/i, 'fa-comments'],
+  [/статист|сюжетик/i, 'fa-users'],
 ];
 
 export function sectionIcon(title) {
@@ -440,12 +446,12 @@ export function stateHealth(state, preset) {
 }
 
 /** «понедельник, 2 сентября». Без года: год на экране — лишнее число. */
-export function formatDate(day, form = 'full') {
+export function formatDate(day, form = 'full', shift = 0) {
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return '';
   const { m, d } = parseDay(day);
   // `short` — «пн, 13 апреля» для узких строк; `gen` — «среды, 6 мая» после «до».
   const names = form === 'short' ? WEEKDAYS_SHORT : form === 'gen' ? WEEKDAYS_GEN : WEEKDAYS;
-  return `${names[dayOfWeek(day)]}, ${d} ${MONTHS[m] || ''}`.trim();
+  return `${names[dayOfWeek(day, shift)]}, ${d} ${MONTHS[m] || ''}`.trim();
 }
 
 /**
@@ -782,9 +788,10 @@ export const EXTRA_UI = {
   // --- курс: карточка однокурсника и форма (шаг 2) ---------------------------
   // Подписи без канцелярита: человек пишет про человека, а не заполняет анкету.
   cmName: 'Имя',
-  cmNameHint: 'Вера Соколова',
+  noGradesRest: 'Ещё без оценок: {names}.',
+  cmNameHint: 'Имя и фамилия',
   cmClub: 'Кружок',
-  cmClubHint: 'театральный, шахматы — если есть',
+  cmClubHint: 'кружок или секция — если есть',
   cmDesire: 'Чего хочет',
   cmDesireHint: 'попасть в тройку лучших',
   cmTie: 'С кем связан',
@@ -797,7 +804,7 @@ export const EXTRA_UI = {
   cmTieUnknown: 'кто-то',
   cmTieLine: '{who} — {what}',
   cmProblem: 'Что не ладится',
-  cmProblemHint: 'висит долг по физике',
+  cmProblemHint: 'что не ладится или тревожит',
   cmRelation: 'К героине',
   cmAddTitle: 'Добавить человека',
   cmAdd: 'Добавить',

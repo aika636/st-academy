@@ -901,6 +901,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Дженна Миллер",
+    "cmClubHint": "чирлидинг, школьная газета — если есть",
+    "cmProblemHint": "не сдан проект по химии"
   }
 }

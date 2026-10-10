@@ -895,6 +895,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Вера Соколова",
+    "cmClubHint": "театральный, шахматы — если есть",
+    "cmProblemHint": "висит долг по физике"
   }
 }

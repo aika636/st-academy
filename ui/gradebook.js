@@ -212,10 +212,19 @@ export function renderGradebook(host, view, preset) {
   const noGradesAtAll = view.subjects.every((s) => !s.grades.length);
   if (noGradesAtAll) box.append(el('div', { class: 'academy-silent', text: U.noGradesAll }));
 
+  // Предметы без оценок, за которыми больше нечего показать (ни хвоста, ни
+  // прогулов, ни повода у наставника), сводятся в одну строку в конце: подряд
+  // стоящие «оценок пока нет» читались как шум (живой прогон 10.10, п. 74).
+  // Одинокий такой предмет остаётся строкой — сводить одного незачем.
+  const bare = (s) => !s.grades.length && !s.debt && !s.passed && !s.attendanceText && !s.reason;
+  const bareList = noGradesAtAll ? [] : view.subjects.filter(bare);
+  const folded = bareList.length >= 2 ? new Set(bareList.map((s) => s.id)) : new Set();
+  const rows = view.subjects.filter((s) => !folded.has(s.id));
+
   // Одно и то же дерево: на широком экране `style.css` кладёт его строками
   // таблицы, на узком — карточками. Второй вёрстки нет (3.9).
   box.append(el('div', { class: 'academy-table academy-table-grades' },
-    view.subjects.map((s) => el('div', { class: s.debt ? 'academy-tr academy-tr-debt' : 'academy-tr' }, [
+    rows.map((s) => el('div', { class: s.debt ? 'academy-tr academy-tr-debt' : 'academy-tr' }, [
       el('div', { class: 'academy-td academy-td-name' }, [
         el('span', { class: 'academy-subject', text: s.name }),
         s.debt ? el('span', { class: 'academy-tag academy-tag-debt', text: U.debtTag }) : null,
@@ -237,6 +246,13 @@ export function renderGradebook(host, view, preset) {
         s.grades.length ? el('span', { class: 'academy-avg', text: fill(U.cmdAverage, { value: s.averageText }) }) : null,
       ]),
     ]))));
+
+  if (folded.size) {
+    box.append(el('div', {
+      class: 'academy-silent academy-grades-rest',
+      text: fill(extraLabels(preset).noGradesRest, { names: bareList.map((s) => s.name).join(', ') }),
+    }));
+  }
 
   const X = extraLabels(preset);
   if ((view.awaiting || []).length) {

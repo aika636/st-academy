@@ -855,6 +855,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Октавия Вэйн",
+    "cmClubHint": "общество латинистов, поэтический кружок — если есть",
+    "cmProblemHint": "не дописана работа по Овидию"
   }
 }

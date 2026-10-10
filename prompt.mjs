@@ -28,7 +28,7 @@
 //    `preset.vocab`. Хогвартс меняет пресет, а не этот файл.
 
 import { labelFor } from './core/state.mjs';
-import { weekIndex, phaseOf, dayOfWeek, termAt } from './core/time.mjs';
+import { weekIndex, phaseOf, weekdayIn, termAt } from './core/time.mjs';
 import { dayPlan, currentPeriod } from './core/schedule.mjs';
 import { debts, overallScore } from './core/gradebook.mjs';
 import { relationLabel } from './core/relations.mjs';
@@ -280,7 +280,7 @@ function segmentsOf(state, preset, L) {
 /** «Вторник, 3-я неделя» — плюс слово фазы, когда день не учебный. */
 function daySegment(state, preset, L) {
   const day = state.calendar.day;
-  const weekday = (L.weekdays || [])[dayOfWeek(day) - 1] || '';
+  const weekday = (L.weekdays || [])[weekdayIn(state, day) - 1] || '';
   // Номер недели — внутри своего учебного периода: во втором триместре человек
   // читает «3-я неделя триместра», а не «20-я». Поэтому пресет передаётся.
   const week = weekIndex(state, day, preset);
@@ -359,7 +359,7 @@ function nearSegment(state, preset, L) {
   if (!list.length) return '';
   const parts = [];
   for (const ev of list) {
-    const when = nearWhen(ev, L);
+    const when = nearWhen(ev, L, state);
     if (!when) continue;
     if (ev.kind === 'exam') {
       const subject = ev.subjectId ? subjectName(state, ev.subjectId) : '';
@@ -384,7 +384,7 @@ function holidaySegment(state, preset, L, part) {
   if (part === 'now') return holidayPhrase(bg.now.map((h) => ({ h, note: bare(h.today) })), L, L.holidayNow, L.holidayNowBare, {});
   const first = bg.aheadAll[0];
   if (!first) return '';
-  const when = first.days > 6 ? L.holidaySoon : nearWhen({ days: first.days, day: first.day }, L);
+  const when = first.days > 6 ? L.holidaySoon : nearWhen({ days: first.days, day: first.day }, L, state);
   if (!when) return '';
   return holidayPhrase(bg.aheadAll.map((a) => ({ h: a.holiday, note: bare(a.holiday.buzz) })), L, L.holidayAhead, L.holidayAheadBare, { when });
 }
@@ -431,10 +431,10 @@ function holidayPhrase(items, L, full, short, vars) {
 }
 
 /** «сегодня» / «завтра» / «в пятницу». */
-function nearWhen(ev, L) {
+function nearWhen(ev, L, state) {
   if (ev.days === 0) return L.nearToday;
   if (ev.days === 1) return L.nearTomorrow;
-  return (L.weekdaysOn || [])[dayOfWeek(ev.day) - 1] || '';
+  return (L.weekdaysOn || [])[weekdayIn(state, ev.day) - 1] || '';
 }
 
 function subjectName(state, id) {

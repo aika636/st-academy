@@ -8,6 +8,7 @@ import { achievementsView, renderAchievements } from './achievements.js';
 import { peopleView, renderPeople } from './people.js';
 import { feedView, renderFeed } from './feed.js';
 import { unreadCount } from '../core/feed.mjs';
+import { weekdayShiftOf } from '../core/time.mjs';
 import { gradebookView, renderGradebook } from './gradebook.js';
 import { todayView, renderToday } from './today.js';
 import { debugView, renderDebug } from './debug.js';
@@ -254,7 +255,7 @@ export function renderPanel(host) {
   if (sub) {
     const st = safe(() => h.getState(), null);
     const cal = st && st.started && st.calendar;
-    sub.textContent = cal ? [formatDate(cal.day), cal.time].filter(Boolean).join(' · ') : '';
+    sub.textContent = cal ? [formatDate(cal.day, 'full', weekdayShiftOf(st)), cal.time].filter(Boolean).join(' · ') : '';
   }
 
   const body = clear(mounted.panel.querySelector('.academy-body'));

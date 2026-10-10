@@ -864,6 +864,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Артём Воронцов",
+    "cmClubHint": "оркестр, стрелковая секция — если есть",
+    "cmProblemHint": "висит наряд, не сдан норматив по строевой"
   }
 }

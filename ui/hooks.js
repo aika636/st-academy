@@ -4,7 +4,7 @@
 import { labelFor } from '../core/state.mjs';
 import { debts } from '../core/gradebook.mjs';
 import { reasonText } from '../core/relations.mjs';
-import { dayOfWeek } from '../core/time.mjs';
+import { dayOfWeek, weekdayShiftOf } from '../core/time.mjs';
 import { awaitingAnnouncement, gradeInfo, isPassing, publicView } from '../core/exams.mjs';
 import { WEEKDAYS, uiLabels, fill, whereText } from './common.js';
 import { todayView } from './today.js';
@@ -30,7 +30,7 @@ export function hookNow(state) {
     day: c.day,
     time: c.precision === 'datetime' && c.time ? c.time : null,
     precision: c.precision,
-    weekday: WEEKDAYS[dayOfWeek(c.day)] || '',
+    weekday: WEEKDAYS[dayOfWeek(c.day, weekdayShiftOf(state))] || '',
   };
 }
 
@@ -67,7 +67,7 @@ export function hookToday(state, preset) {
   return {
     day: v.day,
     dateLine: v.dateLine,
-    weekday: WEEKDAYS[dayOfWeek(v.day)] || '',
+    weekday: WEEKDAYS[dayOfWeek(v.day, weekdayShiftOf(state))] || '',
     time: v.time,
     week: v.week,
     weekLine: v.weekLine,
@@ -99,7 +99,7 @@ export function hookSummary(state, preset) {
   const vocab = (preset && preset.vocab) || {};
   const parts = [];
   if (v.termLine) parts.push(v.termLine);
-  parts.push(WEEKDAYS[dayOfWeek(v.day)] || v.dateLine);
+  parts.push(WEEKDAYS[dayOfWeek(v.day, weekdayShiftOf(state))] || v.dateLine);
   if (v.now && v.now.status === 'now') parts.push(fill(U.slot, { ordinal: v.now.ordinal }));
   else if (v.phase && v.phase !== 'study') parts.push(v.phaseLabel);
   // Долги — по миру (9.4.3): хвост от необъявленного итога сосед узнать не

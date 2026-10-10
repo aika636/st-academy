@@ -852,6 +852,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Тали Вэнс",
+    "cmClubHint": "команда пилотов, оранжерея на борту — если есть",
+    "cmProblemHint": "провалила зачёт по навигации"
   }
 }

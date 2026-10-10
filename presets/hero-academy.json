@@ -858,6 +858,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Кацу Хикари",
+    "cmClubHint": "клуб спасателей, тренировки в зале — если есть",
+    "cmProblemHint": "не слушается причуда, висит зачёт по практике"
   }
 }

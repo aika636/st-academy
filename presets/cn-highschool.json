@@ -892,6 +892,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Ли Мэйлин",
+    "cmClubHint": "кружок каллиграфии, шахматы вэйци — если есть",
+    "cmProblemHint": "не успевает по математике перед гаокао"
   }
 }

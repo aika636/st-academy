@@ -78,10 +78,27 @@ export function diffDays(a, b) {
   return Math.round((dayToStamp(b) - dayToStamp(a)) / 86400000);
 }
 
-/** День недели: 1 — понедельник, 7 — воскресенье (ISO, не как у `Date.getUTCDay`). */
-export function dayOfWeek(day) {
+/**
+ * День недели: 1 — понедельник, 7 — воскресенье (ISO, не как у `Date.getUTCDay`).
+ * `shift` — сдвиг истории (`calendar.weekdayShift`): в вымышленном году бот
+ * называет «24/10/1248, Вторник», а григорианский счёт даёт субботу.
+ */
+export function dayOfWeek(day, shift = 0) {
   const js = new Date(dayToStamp(day)).getUTCDay();
-  return js === 0 ? 7 : js;
+  const iso = js === 0 ? 7 : js;
+  const k = Number.isInteger(shift) ? ((shift % 7) + 7) % 7 : 0;
+  return ((iso - 1 + k) % 7) + 1;
+}
+
+/** Сдвиг дня недели, принятый в состоянии (0, если не установлен). */
+export function weekdayShiftOf(state) {
+  const k = state && state.calendar ? Number(state.calendar.weekdayShift) : 0;
+  return Number.isInteger(k) ? ((k % 7) + 7) % 7 : 0;
+}
+
+/** День недели с учётом сдвига истории этого чата. */
+export function weekdayIn(state, day) {
+  return dayOfWeek(day, weekdayShiftOf(state));
 }
 
 /** Понедельник той недели, в которую попадает день. Опора для нумерации недель. */
@@ -258,7 +275,7 @@ export function isVacation(preset, day, state = null) {
 export function isStudyDay(preset, day, state = null) {
   if (isVacation(preset, day, state)) return false;
   const days = (preset.week && preset.week.studyDays) || [];
-  return days.includes(dayOfWeek(day));
+  return days.includes(weekdayIn(state, day));
 }
 
 /**
@@ -287,7 +304,7 @@ export function phaseOf(preset, state, day = state.calendar.day) {
   if (!at.inside) return at.scope === 'between' ? 'break' : 'vacation';
 
   const days = (preset.week && preset.week.studyDays) || [];
-  if (!days.includes(dayOfWeek(day))) return 'weekend';
+  if (!days.includes(weekdayIn(state, day))) return 'weekend';
 
   if (!at.term) return 'study';
   return at.week <= at.term.studyWeeks ? 'study' : 'exams';
@@ -561,7 +578,7 @@ function advancePeriods(next, n, preset) {
  * Абсолютное время из источника A (или ручной правки).
  *
  * @param {Object} state
- * @param {{day?: string, time?: ?string, daypart?: ?string}} at
+ * @param {{day?: string, time?: ?string, daypart?: ?string, weekday?: ?number}} at
  * @param {'A+'|'A'|'B'|'manual'} source
  * @param {Object} preset
  * @param {{force?: boolean}} [opts] `force` снимает защиту от отката — это
@@ -651,9 +668,11 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
       state: next,
       applied: false,
       reason,
-      held: { day, time: rawTime || null, daypart: payload.daypart || null, jump, from: cal.day },
+      held: { day, time: rawTime || null, daypart: payload.daypart || null, ...(payload.weekday ? { weekday: payload.weekday } : {}), jump, from: cal.day },
     };
   }
+
+  if (payload.day !== undefined && payload.day !== null) noteWeekday(next, day, payload.weekday);
 
   cal.day = day;
   cal.time = time;
@@ -674,6 +693,34 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   // смена сцены, а не сбой (замер A). В журнал он не пишется, чтобы не забить
   // кольцо; наружу уходит причина, панель покажет «+N дней».
   return { state: next, applied: true, reason: jump > 0 ? `скачок вперёд на ${jump} дн.` : 'время уточнено' };
+}
+
+/**
+ * День недели из метки даты против календарного. В вымышленном году (1248)
+ * бот пишет «24/10/1248, Вторник», а григорианский счёт даёт субботу; расписание
+ * зависит от дня недели, поэтому календарь идёт в ногу с историей. Сдвиг
+ * (`calendar.weekdayShift`) ставится, когда два ответа подряд называют один и тот
+ * же сдвиг (`calendar.weekdaySeen`): одиночная ошибка модели его не двигает.
+ * Совпадение гасит счётчик. Состояние откатывается свайпом вместе со снимком.
+ */
+function noteWeekday(state, day, weekday) {
+  const cal = state.calendar;
+  const w = Number(weekday);
+  if (!Number.isInteger(w) || w < 1 || w > 7) return;
+  const current = weekdayShiftOf(state);
+  const need = (((w - dayOfWeek(day)) % 7) + 7) % 7;
+  if (need === current) {
+    delete cal.weekdaySeen;
+    return;
+  }
+  const seen = cal.weekdaySeen && cal.weekdaySeen.shift === need ? numberOr(cal.weekdaySeen.n, 0) : 0;
+  if (seen + 1 >= 2) {
+    cal.weekdayShift = need;
+    delete cal.weekdaySeen;
+    pushJournal(state, { kind: 'debug', text: `день недели в истории сдвинут на ${need} (${day} — ${w})`, data: { day, weekday: w } }, null);
+    return;
+  }
+  cal.weekdaySeen = { shift: need, day, n: seen + 1 };
 }
 
 /**

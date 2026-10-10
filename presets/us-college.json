@@ -887,6 +887,9 @@
     "openSurvey": "Открыть анкету",
     "goToStart": "К кнопке «{start}»",
     "openSettings": "Открыть настройки",
-    "shiftedTo": "Теперь: {when}."
+    "shiftedTo": "Теперь: {when}.",
+    "cmNameHint": "Эмили Картер",
+    "cmClubHint": "дебатный клуб, радио кампуса — если есть",
+    "cmProblemHint": "на грани пересдачи по статистике"
   }
 }

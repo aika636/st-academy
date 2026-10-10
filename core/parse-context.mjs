@@ -137,6 +137,10 @@ const WDAY_ABBR = [
 const WDAY_ABBR_RE = new RegExp(
   `${NOTL}(${WDAY_ABBR.flatMap((w) => w.w).join('|')})\\.?\\s*,?\\s+(?=\\d)`, 'iu',
 );
+// И после даты, но только отдельным членом метки: `[Date: 24/10/1248, Вт]`.
+const WDAY_ABBR_AFTER_RE = new RegExp(
+  `[,|(\\[]\\s*(${WDAY_ABBR.flatMap((w) => w.w).join('|')})\\.?\\s*(?=[\\]\\)|,]|$)`, 'iu',
+);
 
 /**
  * Часть суток словом — самый частый шаблон вообще (60.3%), но календарь он не
@@ -496,6 +500,11 @@ function scanWeekday(line, hasDate) {
   const a = line.match(WDAY_ABBR_RE);
   if (a) {
     const key = a[1].toLowerCase();
+    for (const d of WDAY_ABBR) if (d.w.includes(key)) return d.n;
+  }
+  const b = line.match(WDAY_ABBR_AFTER_RE);
+  if (b) {
+    const key = b[1].toLowerCase();
     for (const d of WDAY_ABBR) if (d.w.includes(key)) return d.n;
   }
   return null;
