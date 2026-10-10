@@ -51,6 +51,7 @@ const KEY_GROUPS = [
   { kind: 'skip', names: ['skip', 'прогул', 'пропуск'] },
   { kind: 'late', names: ['late', 'опоздание', 'опоздал', 'опоздала'] },
   { kind: 'event', names: ['event', 'событие', 'праздник'] },
+  { kind: 'pause', names: ['pause', 'пауза', 'каникулы', 'закрытие'] },
   // Курс (шаг 3, `nabrosok-odnokursniki.md` раздел 3): что секретарь увидел
   // в сцене про людей. Рассказчик эти ключи не пишет — его инструкция метки не
   // растёт, — но если напишет сам, разборщик их поймёт.
@@ -115,6 +116,9 @@ const DEAL_CLOSED = /^(?:закрыт[оа]?|закрыли|вернул[аи]?|
  * двух недель — уже не «скоро», а календарь, и в планы такое не пишется.
  */
 export const EVENT_HORIZON = 13;
+
+/** Потолок срока приостановки занятий (`pause=`), дней — год. */
+export const PAUSE_MAX_DAYS = 366;
 
 /** Потолок длины названия события — тот же, что у своего события чата. */
 const EVENT_NAME_MAX = 80;
@@ -357,6 +361,7 @@ function parseBody(body, ctx, events, rejected) {
       case 'skip':
       case 'late': parseAttendance(value, raw, kind, ctx, events, rejected); break;
       case 'event': parseEvent(value, raw, events, rejected); break;
+      case 'pause': parsePause(value, raw, events, rejected); break;
       case 'met': parseMet(value, raw, ctx, events, rejected); break;
       case 'clash': parseClash(value, raw, ctx, events, rejected); break;
       case 'rumor': parseRumor(value, raw, ctx, events, rejected); break;
@@ -578,6 +583,34 @@ function parseEvent(value, raw, events, rejected) {
     return;
   }
   events.push({ kind: 'event', days, until: Math.min(until, days + 31), name });
+}
+
+/**
+ * `pause=7:каникулы` — занятия прекратились на 7 дней, считая день сцены;
+ * `pause=open:карантин` — до отмены; `pause=end` — занятия возобновились.
+ * Название необязательно (`pause=7`). Больше года — в `rejected`.
+ */
+function parsePause(value, raw, events, rejected) {
+  const m = value.match(/^(?:(end|конец|возобновлен[а-яё]*|отмен[а-яё]*)|(open|до\s+отмены|бессрочно)|\+?\s*(\d{1,4})\s*(?:дн[а-яё]*|d|days?)?)\s*(?::\s*([\s\S]*))?$/iu);
+  if (!m) {
+    rejected.push({ raw, reason: 'ожидается pause=дни:название, pause=open:название или pause=end' });
+    return;
+  }
+  const name = (m[4] || '').replace(/[[\]<>]/g, ' ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim().slice(0, EVENT_NAME_MAX);
+  if (m[1]) {
+    events.push({ kind: 'pause', end: true });
+    return;
+  }
+  if (m[2]) {
+    events.push({ kind: 'pause', days: null, name });
+    return;
+  }
+  const days = Number(m[3]);
+  if (days < 1 || days > PAUSE_MAX_DAYS) {
+    rejected.push({ raw, reason: `срок приостановки — от 1 до ${PAUSE_MAX_DAYS} дней` });
+    return;
+  }
+  events.push({ kind: 'pause', days, name });
 }
 
 // --- курс: кто был, стычки, слухи, новые имена, дела (шаг 3) -----------------

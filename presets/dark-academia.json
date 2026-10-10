@@ -850,6 +850,8 @@
     "roomField": "Аудитория",
     "roomHint": "Старая библиотека",
     "jumpToast": "Прошло занятий: {periods}, все засчитаны как посещённые.",
+    "pauseTitle": "Лекции отменены",
+    "pauseOpen": "с {from}, до отмены",
     "checkTiers": {
       "critSuccess": "озарение",
       "success": "удалось",

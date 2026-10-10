@@ -42,7 +42,7 @@
 // копию состояния движка. Слова строки состояния — в `prompt.mjs`
 // (`DEFAULT_LABELS`), слова повода — здесь, в `DEFAULT_HOOK_PHRASES`.
 
-import { addDays } from './time.mjs';
+import { addDays, isVacation } from './time.mjs';
 import { isDay, pushPending } from './state.mjs';
 
 /** За сколько дней праздник слышен по умолчанию. */
@@ -59,6 +59,16 @@ export const MAX_EVENTS = 30;
 
 /** Потолок длины текстов своего события: панель и промпт печатают их как есть. */
 export const EVENT_TEXT_MAX = { name: 80, about: 200, buzz: 200, today: 200, hook: 300 };
+
+/**
+ * Конец «открытого» периода (`open: true`, «до отмены»): день, до которого
+ * период длится, пока его не закроют. Только для сравнений дней — человеку его
+ * не показывают (`open` в `eventsOf` говорит, что конца нет).
+ */
+export const OPEN_END = '9999-12-31';
+
+/** Потолок срока приостановки занятий из разбора секретаря, дней. */
+export const MAX_PAUSE_DAYS = 366;
 
 /** Сколько уже поданных поводов помнит состояние. */
 export const HOOKS_KEPT = 80;
@@ -148,8 +158,13 @@ export function eventsOf(state) {
   const out = [];
   raw.slice(0, MAX_EVENTS).forEach((e, i) => {
     if (!e || typeof e !== 'object' || !str(e.name) || !isDay(e.from)) return;
-    const to = isDay(e.to) && e.to >= e.from ? e.to : e.from;
-    out.push({ ...texts(e), id: str(e.id) || `event-${i + 1}`, from: e.from, to, lead: leadOf(e), off: e.off === true, dated: true });
+    const open = e.open === true && !isDay(e.to);
+    const to = open ? OPEN_END : isDay(e.to) && e.to >= e.from ? e.to : e.from;
+    out.push({
+      ...texts(e), id: str(e.id) || `event-${i + 1}`, from: e.from, to, lead: leadOf(e), off: e.off === true, dated: true,
+      ...(open ? { open: true } : {}),
+      ...(e.pause === true ? { pause: true } : {}),
+    });
   });
   return out;
 }
@@ -304,6 +319,7 @@ export function occurrenceKey(h, day) {
  * У праздника пресета года нет, поэтому конец ищется шагом вперёд.
  */
 export function holidayEnd(h, day) {
+  if (h.open) return day;
   if (h.dated) return h.to;
   let cur = day;
   for (let n = 0; n < 366 && covers(h, addDays(cur, 1)); n += 1) cur = addDays(cur, 1);
@@ -353,7 +369,7 @@ export function armHolidayHooks(state, preset) {
  *
  * @param {Object} state
  * @param {{name: string, from: string, to?: string, lead?: number, about?: string,
- *   buzz?: string, today?: string, hook?: string, off?: boolean}} raw
+ *   buzz?: string, today?: string, hook?: string, off?: boolean, open?: boolean, pause?: boolean}} raw
  * @returns {{ok: true, state: Object, event: Object} | {ok: false, error: string}}
  */
 export function addEvent(state, raw) {
@@ -372,7 +388,13 @@ export function addEvent(state, raw) {
   for (let n = 2; list.some((e) => e && e.id === id); n += 1) id = `${base}-${n}`;
 
   const event = { id, name, from: r.from };
-  if (to !== r.from) event.to = to;
+  // `open` — период без конца («до отмены»): `to` не пишется, `time.isVacation`
+  // считает такое событие длящимся с `from`. Без флага событие без `to` — один день.
+  if (r.open === true && !isDay(r.to)) event.open = true;
+  else if (to !== r.from) event.to = to;
+  // `pause` — период заведён из разбора секретаря («занятия прекратились»),
+  // а не руками: его же секретарь потом продлевает и закрывает.
+  if (r.pause === true) event.pause = true;
   if (Number.isInteger(r.lead)) event.lead = Math.min(Math.max(r.lead, 0), MAX_LEAD);
   if (r.off === true) event.off = true;
   for (const key of ['about', 'buzz', 'today', 'hook']) {
@@ -463,5 +485,115 @@ export function alreadyPlanned(state, preset, ev, day, except = []) {
   const skip = new Set(except);
   const events = (state && Array.isArray(state.events) ? state.events : []).filter((e) => !(e && skip.has(e.id)));
   return Boolean(knownEvent({ ...state, events }, preset, ev.name, span.from, span.to));
+}
+
+// --- приостановка занятий (`pause=` секретаря) --------------------------------
+//
+// «Начались каникулы», «академию закрыли на неделю», «занятий нет до весны» —
+// секретарь заводит своё событие с `off: true` и `pause: true`. Срок назван —
+// `to` посчитан от дня сцены; не назван — `open: true` без `to` («до отмены»).
+// «Занятия возобновились» закрывает открытый период вчерашним днём. Праздники и
+// каникулы пресета сюда не входят: они уже в календаре.
+
+/** Название по умолчанию, когда секретарь назвал срок, но не назвал событие. */
+export const DEFAULT_PAUSE_NAME = 'Каникулы';
+
+/** Последний день события; у открытого — `OPEN_END`. */
+function pauseLast(e) {
+  if (e.open === true && !isDay(e.to)) return OPEN_END;
+  return isDay(e.to) && e.to >= e.from ? e.to : e.from;
+}
+
+/** События чата, заведённые как приостановка занятий. */
+export function pausesOf(state) {
+  const list = state && Array.isArray(state.events) ? state.events : [];
+  return list.filter((e) => e && e.pause === true && e.off === true && isDay(e.from));
+}
+
+/** Приостановка, которая идёт в этот день: ради плашки панели. */
+export function activePause(state, day) {
+  if (!isDay(day)) return null;
+  return pausesOf(state).find((e) => e.from <= day && pauseLast(e) >= day) || null;
+}
+
+/**
+ * Приостановка занятий из разбора секретаря (`pause=7:каникулы`, `pause=open`,
+ * `pause=end`). Чистая функция: новое состояние, что случилось (`action`:
+ * `new`/`update`/`close`) и прежнее событие (`prev`) для отмены разбора.
+ *
+ * - Начало — день сцены. `ev.days` — сколько дней длится, считая сегодняшний;
+ *   `null` — до отмены.
+ * - Период, который пересекается с названным, обновляется, а не плодится рядом.
+ * - День, который календарь пресета и так считает каникулами, не дублируется.
+ * - `ev.end` закрывает идущий период вчерашним днём (начавшийся сегодня — убирает).
+ *
+ * @param {{end?: boolean, days?: ?number, name?: string}} ev
+ * @returns {{ok: true, state: Object, action: string, event: ?Object, prev: ?Object}
+ *   | {ok: false, error: string, duplicate?: boolean}}
+ */
+export function planPause(state, preset, ev, day = state && state.calendar && state.calendar.day) {
+  if (!state || typeof state !== 'object' || !ev || !isDay(day)) return { ok: false, error: 'нет дня сцены' };
+  const list = Array.isArray(state.events) ? state.events : [];
+
+  if (ev.end) {
+    const cur = activePause(state, day);
+    if (!cur) return { ok: false, error: 'идущей приостановки нет' };
+    const last = addDays(day, -1);
+    if (last < cur.from) {
+      return { ok: true, state: { ...state, events: list.filter((e) => e !== cur) }, action: 'close', event: null, prev: cur };
+    }
+    const closed = { ...cur, to: last };
+    delete closed.open;
+    if (last === cur.from) delete closed.to;
+    return { ok: true, state: { ...state, events: list.map((e) => (e === cur ? closed : e)) }, action: 'close', event: closed, prev: cur };
+  }
+
+  const days = Number.isInteger(ev.days) && ev.days > 0 ? Math.min(ev.days, MAX_PAUSE_DAYS) : null;
+  const to = days ? addDays(day, days - 1) : null;
+  const last = to || OPEN_END;
+  const cur = pausesOf(state).find((e) => e.from <= last && pauseLast(e) >= day);
+  if (cur) {
+    const next = { ...cur, from: cur.from < day ? cur.from : day };
+    delete next.to;
+    delete next.open;
+    if (!to) next.open = true;
+    else if (to !== next.from) next.to = to;
+    if (JSON.stringify(next) === JSON.stringify(cur)) return { ok: false, error: 'приостановка уже в календаре', duplicate: true };
+    return { ok: true, state: { ...state, events: list.map((e) => (e === cur ? next : e)) }, action: 'update', event: next, prev: cur };
+  }
+
+  // Каникулы пресета и чужие нерабочие дни уже закрывают этот срок.
+  let covered = isVacation(preset, day, state);
+  for (let d = day, n = 0; covered && to && d < to && n < MAX_PAUSE_DAYS; d = addDays(d, 1), n += 1) {
+    covered = isVacation(preset, addDays(d, 1), state);
+  }
+  if (covered) return { ok: false, error: 'нерабочие дни уже в календаре', duplicate: true };
+
+  const name = str(ev.name) || DEFAULT_PAUSE_NAME;
+  const added = addEvent(state, { name, from: day, to: to || undefined, open: !to, off: true, pause: true, lead: 0 });
+  if (!added.ok) return added;
+  return { ok: true, state: added.state, action: 'new', event: added.event, prev: null };
+}
+
+/**
+ * Поправить даты своего события («Изменить» на плашке): начало, конец или
+ * «до отмены». Отказ словами, как у `addEvent`.
+ *
+ * @param {{from?: string, to?: string, open?: boolean}} patch
+ */
+export function updateEventDates(state, id, patch) {
+  const list = state && Array.isArray(state.events) ? state.events : [];
+  const cur = list.find((e) => e && e.id === id);
+  if (!cur) return { ok: false, error: 'такого события нет' };
+  const p = patch && typeof patch === 'object' ? patch : {};
+  const from = isDay(p.from) ? p.from : cur.from;
+  const open = p.open === true;
+  if (!open && isDay(p.to) && p.to < from) return { ok: false, error: 'конец раньше начала' };
+  const next = { ...cur, from };
+  delete next.to;
+  delete next.open;
+  if (open) next.open = true;
+  else if (isDay(p.to) && p.to !== from) next.to = p.to;
+  return { ok: true, state: { ...state, events: list.map((e) => (e === cur ? next : e)) }, event: next };
 }
 

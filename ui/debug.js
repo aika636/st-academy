@@ -263,6 +263,8 @@ export function describeApplied(item, vocab, ctx = {}) {
     case 'exams-dated': return `назначено по календарю: ${item.added} — ${item.day}`;
     case 'event': return `в планы: ${item.name} — ${item.from}`;
     case 'event-known': return `уже в планах: ${item.name}`;
+    case 'pause': return `${item.action === 'close' ? 'занятия возобновились' : 'занятия приостановлены'}: ${item.name} — ${item.from}`;
+    case 'pause-known': return 'приостановка уже в календаре';
     default: return `${item.kind}${item.subjectId ? `: ${item.subjectId}` : ''}`;
   }
 }
