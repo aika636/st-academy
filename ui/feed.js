@@ -115,7 +115,7 @@ export function feedView(state, preset, opts = {}) {
     return reactSet(x).map((emoji) => counts.find((c) => c.emoji === emoji) || { emoji, n: 0, mine: false });
   };
   const items = feed.items
-    .filter((x) => x.chan === chan && !x.parent)
+    .filter((x) => x.chan === chan && !x.parent && !x.minor)
     .slice(-FEED_SHOWN)
     .reverse()
     .map((x) => {

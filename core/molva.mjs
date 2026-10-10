@@ -32,9 +32,9 @@
 
 import {
   FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
-  feedItems, hash, feedWorldTopics,
+  feedItems, hash, feedWorldTopics, THREADS_MAX, MOLVA_LEADS_MAX, CALENDAR_GAP,
 } from './feed.mjs';
-import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, END_MARK } from './feed-cast.mjs';
+import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, brokenManner, END_MARK } from './feed-cast.mjs';
 import { openThreads, spawnThread, advanceThread, settleThreads, threadOver, studyTopics, CALENDAR_HORIZON } from './feed-threads.mjs';
 import { holidaysOn, holidaysAhead } from './holidays.mjs';
 import { normName } from './stop-names.mjs';
@@ -61,6 +61,9 @@ export const RECENT_BRANCHES = 6;
 
 /** Сколько выпусков-дельт держит ход (свайп туда и обратно). */
 export const DELTAS_KEPT = 4;
+
+/** Сколько выпусков подряд сюжетик может стоять: на третьем он идёт на следующую стадию сам. */
+export const IDLE_MAX = 3;
 
 /** Откуда id записей выпуска. */
 const SRC = 'molva-';
@@ -130,7 +133,8 @@ export function newFacts(state) {
   const list = feed.items
     .map((x, i) => ({ x, i }))
     .filter(({ x }) => x.kind === 'fact' && x.status !== 'expired' && !used.has(x.id) && freshFact(x, day))
-    .sort((a, b) => ((b.x.loud ?? 1) - (a.x.loud ?? 1)) || (b.i - a.i))
+    // Заметные факты из разбора (прогул, опоздание, провал) — после стычек и слухов.
+    .sort((a, b) => (Number(a.x.minor === true) - Number(b.x.minor === true)) || ((b.x.loud ?? 1) - (a.x.loud ?? 1)) || (b.i - a.i))
     .map(({ x }) => x);
   return { open: list.filter((x) => !x.rumor && !x.private), overheard: list.filter((x) => x.rumor || x.private) };
 }
@@ -235,14 +239,14 @@ export function calendarEvents(state, preset) {
 }
 
 /**
- * Завести сюжетики до двух открытых: молве есть что продвигать. Правит переданную
- * копию состояния.
+ * Завести сюжетики до потолка (три): молве есть что продвигать, а свободное место
+ * не пустует (баг 73). Правит переданную копию состояния.
  */
 export function prepareThreads(work, preset) {
   const day = work && work.calendar && work.calendar.day;
   // Сперва убрать устаревшее: событие позади — сюжетик подводит итог или закрыт.
   settleThreads(work, day);
-  for (let guard = 0; guard < 3 && openThreads(work).length < 2; guard += 1) {
+  for (let guard = 0; guard < THREADS_MAX && openThreads(work).length < THREADS_MAX; guard += 1) {
     const res = spawnThread(work, preset, { day });
     if (!res.ok) break;
   }
@@ -304,19 +308,19 @@ export function buildAgenda(state, preset, opts = {}) {
   }
   for (const f of mainPlan) wanted.push({ kind: 'main', facts: [f], loud: Math.max(2, f.loud ?? 2) });
 
-  // «Массовка» — шаг сюжетика, всегда, если есть сюжетики. Сюжетики идут по
-  // кругу; раз в ответ сюжетик продвигается через раз (при втором заходе), в
-  // промежутке в его ветку просто отвечают. Сюжетик, чьё событие прошло,
-  // идёт вне очереди и закрывается (баг 64).
+  // «Массовка» — шаг сюжетика, всегда, если есть сюжетики, и каждый выпуск двигает
+  // сюжетик (баг 73). Идёт тот, что дольше всех стоял; при равенстве — по кругу.
+  // Сюжетик, чьё событие прошло, идёт вне очереди и закрывается (баг 64).
   const today = state && state.calendar && state.calendar.day;
   const threads = openThreads(state);
   let crowd = null;
   if (threads.length) {
     const over = threads.find((t) => threadOver(t, today));
-    const t = over || threads[(issue - 1) % threads.length];
-    const visit = Math.floor((issue - 1) / threads.length);
-    const advance = Boolean(over) || size.max > 2 || visit % 2 === 1;
-    crowd = { kind: 'crowd', thread: t, advance, over: Boolean(over) };
+    const ring = (i) => (((i - (issue - 1)) % threads.length) + threads.length) % threads.length;
+    const t = over || threads
+      .map((x, i) => ({ x, i }))
+      .sort((a, b) => ((b.x.idle || 0) - (a.x.idle || 0)) || (ring(a.i) - ring(b.i)))[0].x;
+    crowd = { kind: 'crowd', thread: t, advance: true, over: Boolean(over) };
     wanted.push(crowd);
   }
 
@@ -325,8 +329,11 @@ export function buildAgenda(state, preset, opts = {}) {
     wanted.push({ kind: 'rumor', facts: [facts.overheard[0]], loud: 1 });
   }
 
-  // Календарь — ближайшее событие, если оно не то же самое, что тема сюжетика.
-  const events = calendarEvents(state, preset).filter((e) => !threads.some((t) => similar(t.topic, e.name)));
+  // Календарь — ближайшее событие, если оно не то же самое, что тема сюжетика (о нём
+  // тогда говорит сам сюжетик, меняя стадию) и не шло слотом в последние выпуски (баг 72).
+  const events = calendarEvents(state, preset)
+    .filter((e) => !threads.some((t) => similar(t.topic, e.name)))
+    .filter((e) => !feed.molva.cal.some((c) => similar(c.topic, e.name) && issue - c.issue < CALENDAR_GAP));
 
   // Мир — быт заведения (темы пресета), учёба позже. Темы последних выпусков и
   // открытых сюжетиков не повторяются, пока есть свежие.
@@ -352,11 +359,12 @@ export function buildAgenda(state, preset, opts = {}) {
   while (picked.length < size.min && picked.length < size.max) picked.push(world());
   // Порядок в ленте: главные идут не первыми подряд — перемежаются с остальными.
   picked.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
-  // Тема прошлого выпуска не открывает следующий, пока не продвинулась на новую
-  // стадию (баг 65): открывающим становится первый слот с другой темой.
-  const lead = feed.molva.lead;
+  // Тема, что открывала любой из трёх прошлых выпусков, не открывает следующий (баги 65,
+  // 72: «Канун Тёмной седмицы» ×3 — смена стадии не оправдание): открывающим становится
+  // первый слот с другой темой.
+  const leads = feed.molva.leads.length ? feed.molva.leads : (feed.molva.lead.topic ? [feed.molva.lead] : []);
   const topicOf = (s) => (s.kind === 'crowd' ? s.thread.topic : s.kind === 'calendar' ? s.event.name : s.kind === 'world' ? s.topic : s.facts[0].text);
-  const repeats = (s) => Boolean(lead.topic) && similar(topicOf(s), lead.topic) && !(s.kind === 'crowd' && s.thread.stage !== lead.stage);
+  const repeats = (s) => leads.some((l) => similar(topicOf(s), l.topic));
   if (picked.length > 1 && repeats(picked[0])) {
     const at = picked.findIndex((s, i) => i > 0 && !repeats(s) && s.kind !== 'main' && s.kind !== 'rumor');
     if (at > 0) picked.unshift(...picked.splice(at, 1));
@@ -473,7 +481,7 @@ function slotLine(s) {
 /** Статист для списка: ник и всё, что нужно голосу. */
 function memberLine(a) {
   const parts = a.kind === 'cast'
-    ? [a.type, a.interest && `интерес: ${a.interest}`, a.goal && `цель: ${a.goal}`, a.manner && `манера: ${a.manner}`]
+    ? [a.type, a.interest && `интерес: ${a.interest}`, a.goal && `цель: ${a.goal}`, a.manner && !brokenManner(a.manner) && `манера: ${a.manner}`]
     : ['живой сокурсник', a.goal && `про него: ${a.goal}`];
   return `— ${a.name}${a.masked ? ' (ник)' : ''} | ${parts.filter(Boolean).join('; ')}`;
 }
@@ -538,6 +546,7 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     '— Намерения, планы, вопросы, мнения, догадки и обиды — можно. Свершившиеся события, которых нет в повестке, календаре и сюжетиках, придумывать нельзя.',
     '— Статист знает только то, что видел сам или о чём шумит чат; слух — неточно и с перевираниями.',
     '— Голос — поведением и манерой, а не словом из типажа («завистница»). Реплики разных людей не похожи.',
+    '— Манера — словарь, интонация, привычные фразы и отношение к собеседнику. Слова пишутся правильно: без вставок внутрь слов, заикания и искажённой орфографии.',
     '— Героиню игрока и персонажей карточки не называй и не пиши от их имени, кроме слотов, где факт о них назначен.',
     '— Не повторяй темы последних веток: сдвигай историю дальше.',
   );
@@ -575,21 +584,58 @@ export function isCutOff(text) {
   return false;
 }
 
-/** Строка формата: `П1 | ник | текст`, `О2 | ник | текст`. */
-const ROW = /^([A-Za-zА-Яа-яЁё]{1,6})\s*[№#]?\s*(\d{1,2})\s*[.):]?\s*\|\s*([^|]+?)\s*\|\s*([\s\S]+)$/u;
+/**
+ * Голова строки: `П1`, `О2`, `P1`, «Пост 1», «Ответ 2», «Reply 1» — слово и номер слота.
+ * Регистр любой, латинские и кириллические буквы, «№» и «#» допустимы.
+ */
+const HEAD = /^(п(?:ост)?|о(?:твет)?|p(?:ost)?|o|r(?:eply)?|answer)\s*[№#]?\s*(\d{1,2})(?![\p{L}\d])\s*/iu;
 
 const BULLET = /^\s*(?:[-–—*•>]+|\d+[.)])\s*/;
 
 const kindOfWord = (w) => {
   const c = String(w).toLowerCase()[0];
   if (c === 'п' || c === 'p') return 'post';
-  if (c === 'о' || c === 'o' || c === 'r') return 'reply';
+  if (c === 'о' || c === 'o' || c === 'r' || c === 'a') return 'reply';
   return null;
 };
 
+/** Строка ответа к виду без разметки: markdown, список, обрамление таблицей, скобки вокруг головы. */
+function cleanLine(line) {
+  let t = String(line).replace(/[*`]+/g, '').replace(/^\s*#+\s*/, '').replace(BULLET, '').trim();
+  t = t.replace(/^[|_\s]+/, '').replace(/^[[(<]\s*((?:п|о|p|o|r|a)[\p{L}]{0,5}\s*[№#]?\s*\d{1,2})\s*[\])>]/iu, '$1');
+  return t.replace(/^_+/, '').replace(/[|\s]+$/, '').trim();
+}
+
+/**
+ * Строка формата: `П1 | ник | текст`, а также `П1: ник | текст`, `П1: ник: текст`,
+ * `П1 — ник — текст`. Нет головы — не строка формата (`null`).
+ */
+function splitRow(body) {
+  const m = HEAD.exec(body);
+  const kind = m && kindOfWord(m[1]);
+  if (!m || !kind) return null;
+  const rest = body.slice(m[0].length).replace(/^[\s.):\-–—|]+/, '');
+  let who;
+  let text;
+  const bar = rest.indexOf('|');
+  if (bar >= 0) {
+    who = rest.slice(0, bar);
+    text = rest.slice(bar + 1);
+  } else {
+    // Без «|»: «ник: текст» или «ник — текст».
+    const alt = /^(@?[^:—–«"“„]{1,40}?)\s*(?::|\s[—–-]\s)\s*([\s\S]+)$/u.exec(rest);
+    if (!alt) return null;
+    [, who, text] = alt;
+  }
+  who = who.trim();
+  text = text.replace(/^[\s|]+|[\s|]+$/g, '');
+  if (!who || !text) return null;
+  return { kind, n: Number(m[2]), who, body: text };
+}
+
 /** Автор по тому, как его назвала модель: ник каста или имя сокурсника (имя, фамилия, имя фамилия). */
 export function resolveAuthor(raw, pool) {
-  const name = normName(String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^[~@\s«"]+|[»"\s]+$/g, ''));
+  const name = normName(String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^[~@\s«"“„[<]+|[»"”\s\]>]+$/g, ''));
   if (!name) return null;
   const exact = pool.find((a) => normName(a.name) === name);
   if (exact) return exact;
@@ -622,7 +668,7 @@ function sameText(a, b) {
 /** Реплика к виду для ленты: без кавычек вокруг и ника в начале; длинную режет по предложению. */
 function tidy(raw) {
   let t = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
-  t = t.replace(/^[«"“](.*)[»"”]$/u, '$1').trim();
+  t = t.replace(/^[«"“„'](.*)[»"”“']$/u, '$1').trim();
   if (t.length > FEED_TEXT_MAX) {
     const cut = t.slice(0, FEED_TEXT_MAX);
     const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '), cut.lastIndexOf('…'));
@@ -634,68 +680,127 @@ function tidy(raw) {
 }
 
 /**
+ * Слова, в которые вставлен один и тот же кусок («Клюмостёл снлюмосва», баг 71):
+ * манера статиста «вставляет \«люмо\» внутрь слов» ломает написание. Два признака:
+ * кусок из манеры (если манера искажающая — `brokenManner`) стоит внутри слова; либо
+ * один и тот же внутренний кусок из четырёх букв повторяется в трёх разных словах
+ * (из пяти и больше — в двух). «Внутренний» — с буквой впереди и тремя позади:
+ * суффиксы «-ность», «-ение» сюда не попадают.
+ *
+ * @param {string} text реплика
+ * @param {string} [manner] манера автора
+ * @returns {string} найденный кусок или пустая строка
+ */
+export function brokenWords(text, manner = '') {
+  const words = String(text == null ? '' : text).toLowerCase().replace(/ё/g, 'е').match(/\p{L}{4,}/gu) || [];
+  if (brokenManner(manner)) {
+    for (const m of String(manner).toLowerCase().replace(/ё/g, 'е').matchAll(/[«"“„']([\p{L}-]{3,8})[»"”“']/gu)) {
+      const piece = m[1];
+      if (words.some((w) => w.indexOf(piece, 1) > 0 && w.length > piece.length + 1 && w.indexOf(piece, 1) + piece.length < w.length)) return piece;
+    }
+  }
+  const long = [...new Set(words.filter((w) => w.length >= 6))];
+  const found = new Map();
+  for (const w of long) {
+    for (let len = 4; len <= 6; len += 1) {
+      for (let at = 1; at + len <= w.length - 3; at += 1) {
+        const piece = w.slice(at, at + len);
+        if (!found.has(piece)) found.set(piece, new Set());
+        found.get(piece).add(w);
+      }
+    }
+  }
+  let best = '';
+  for (const [piece, set] of found) {
+    // Слова одного корня («расписание», «расписанием») — не повтор: считаются по первым четырём буквам.
+    const roots = new Set([...set].map((w) => w.slice(0, 4)));
+    if (roots.size < (piece.length >= 5 ? 2 : 3)) continue;
+    if (piece.length > best.length) best = piece;
+  }
+  return best;
+}
+
+/**
  * Разобрать ответ модели и проверить кодом.
  *
+ * Формат читается терпимо: markdown (`**П1**`, `- П1`, `# П1`), «П1:» и «—» вместо
+ * «|», латинские `P`/`O`, «Пост 1»/«Ответ 1», ник с «@», в скобках и в кавычках,
+ * кавычки вокруг текста, таблица с краевыми «|», лишние пустые строки,
+ * пояснения модели до и после. Строка без головы и без «|» — пояснение, молча мимо.
+ *
  * Проверки, по порядку: строка по формату; слот есть; автор из каста или
- * «Людей», не героиня и не персонаж карточки; автор поста — назначенный;
- * ответ — к посту своего слота (номером, не позицией — баг 55) и от
- * назначенных; самоответ до чужого — вон; один автор не пишет подряд ни два
- * поста, ни две реплики в ветке; реплика не пустая, не обрывок (баг 56), не
- * длиннее ленты и вне слотов о главных не называет героиню; повтор текста — вон.
- * Оборванная последняя строка (нет «КОНЕЦ» и ответ упёрся в потолок) отбрасывается.
+ * «Людей», не героиня и не персонаж карточки; пост — к своему слоту; написал не
+ * назначенный, но существующий автор — принимается, автор переназначается
+ * (`reassigned`); ответ — к посту своего слота (номером, не позицией — баг 55);
+ * самоответ до чужого — вон; один автор не пишет подряд ни два поста, ни две
+ * реплики в ветке; реплика не пустая, не обрывок (баг 56), не длиннее ленты, без
+ * слов с вставленным куском (баг 71) и вне слотов о главных не называет героиню;
+ * повтор текста — вон. Оборванная последняя строка (нет «КОНЕЦ» и ответ упёрся
+ * в потолок) отбрасывается; без «КОНЕЦ», но целая — принимается.
  *
  * @param {string} text ответ модели
  * @param {Object} agenda повестка
  * @param {{pool: Object[], stop?: Array, truncated?: boolean, existing?: string[], lastKey?: string}} opts
  *   `pool` — `rumorAuthors` (кто вообще может писать), `existing` — тексты, что уже в ленте
- * @returns {{lines: Array<Object>, rejected: Array<{raw: string, reason: string}>, complete: boolean}}
+ * @returns {{lines: Array<Object>, rejected: Array<{raw: string, reason: string, line?: number}>,
+ *   reassigned: Array<{line: number, n: number, from: string, to: string}>, rows: number, complete: boolean}}
+ *   `line` — номер строки в ответе модели (с единицы), `rows` — сколько строк формата нашлось
  */
 export function parseIssue(text, agenda, opts = {}) {
   const raw = String(text == null ? '' : text)
     .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
     .replace(/<!--[\s\S]*?(?:-->|$)/g, '')
     .replace(/\r/g, '');
-  const complete = new RegExp(`^[\\s#*=>_-]*${END_MARK}(?![\\p{L}])`, 'imu').test(raw) && opts.truncated !== true;
+  const endRe = new RegExp(`^[\\s#*=>_\`[(-]*${END_MARK}(?![\\p{L}])`, 'iu');
+  const complete = raw.split('\n').some((l) => endRe.test(l)) && opts.truncated !== true;
   const pool = (Array.isArray(opts.pool) ? opts.pool : []).map(slim);
   const stop = Array.isArray(opts.stop) ? opts.stop : [];
   const rejected = [];
+  const reassigned = [];
   const rows = [];
-  for (const line of raw.split('\n')) {
-    const body = line.replace(/\*+/g, '').replace(BULLET, '').trim();
-    if (!body || new RegExp(`^[\\s#*=>_-]*${END_MARK}`, 'iu').test(body)) continue;
-    const m = ROW.exec(body);
-    const kind = m && kindOfWord(m[1]);
-    if (!m || !kind) {
-      if (body.includes('|')) rejected.push({ raw: body, reason: 'строка не по формату' });
-      continue;
+  raw.split('\n').forEach((line, i) => {
+    const body = cleanLine(line);
+    if (!body || endRe.test(body)) return;
+    const row = splitRow(body);
+    if (!row) {
+      if (body.includes('|') || HEAD.test(body)) rejected.push({ raw: body, line: i + 1, reason: 'строка не по формату' });
+      return;
     }
-    rows.push({ kind, n: Number(m[2]), who: m[3], body: m[4], raw: body });
+    rows.push({ ...row, raw: body, line: i + 1 });
+  });
+  if (!rows.length) {
+    rejected.push({
+      raw: clip(raw, 160),
+      reason: raw.trim() ? 'в ответе нет ни одной строки формата «П1 | автор | текст»' : 'пустой ответ модели',
+    });
   }
 
-  // Конец ответа: без «КОНЕЦ» последняя строка могла оборваться. Принимается
-  // только если ответ не упёрся в потолок и строка выглядит законченной.
+  // Конец ответа: без «КОНЕЦ» последняя строка могла оборваться. Принимается,
+  // если ответ не упёрся в потолок и строка не обрывок.
   if (!complete && rows.length) {
     const last = rows[rows.length - 1];
     const tidyLast = tidy(last.body);
-    if (opts.truncated === true || !tidyLast || isCutOff(tidyLast) || !/[.!?…»)]$/.test(tidyLast)) {
+    if (opts.truncated === true || !tidyLast || isCutOff(tidyLast)) {
       rows.pop();
-      rejected.push({ raw: last.raw, reason: 'ответ оборван на этой строке' });
+      rejected.push({ raw: last.raw, line: last.line, reason: 'ответ оборван на этой строке' });
     }
   }
 
   const slots = new Map((agenda.slots || []).map((s) => [s.n, s]));
   const seen = [...(opts.existing || []).map(String)];
   const dup = (t) => seen.some((x) => sameText(x, t));
-  const fail = (row, reason) => rejected.push({ raw: row.raw, reason });
+  const fail = (row, reason) => rejected.push({ raw: row.raw, line: row.line, reason });
 
   /** Текст реплики после проверок; `null` и причина отказа — если не годится. */
-  const checkText = (row, slot) => {
+  const checkText = (row, slot, author) => {
     const t = tidy(row.body);
     if (t === null) return { reason: `реплика длиннее ${FEED_TEXT_MAX} знаков` };
     if ((t.match(/\p{L}/gu) || []).length < MIN_LETTERS) return { reason: 'пустая реплика' };
     if (row.kind === 'reply' && t.length < REPLY_MIN) return { reason: `ответ короче ${REPLY_MIN} знаков — не ответ по существу` };
     if (isCutOff(t)) return { reason: 'реплика оборвана на полуслове' };
     if (!slot.heroine && mentionsStop(t, stop)) return { reason: 'речь о героине или персонаже карточки вне слота главных' };
+    const piece = brokenWords(t, author && author.manner);
+    if (piece) return { reason: `в словах вставлен кусок «${piece}» — написание искажено` };
     if (dup(t)) return { reason: 'повтор уже сказанного' };
     return { text: t };
   };
@@ -704,6 +809,7 @@ export function parseIssue(text, agenda, opts = {}) {
     if (!a) return { reason: `автор «${clip(row.who, 30)}» не из каста и не из «Людей»` };
     return { author: a };
   };
+  const noteMove = (row, slot, from, to) => reassigned.push({ line: row.line, n: row.n, from: from ? from.name : '', to: to.name, kind: row.kind, slot: slot.kind });
 
   // --- посты ---------------------------------------------------------------------------
   const posts = new Map();
@@ -714,9 +820,11 @@ export function parseIssue(text, agenda, opts = {}) {
     if (posts.has(row.n)) { fail(row, 'второй пост в слоте'); continue; }
     const w = whoOf(row);
     if (w.reason) { fail(row, w.reason); continue; }
-    if (keyOfAuthor(w.author) !== keyOfAuthor(slot.author)) { fail(row, 'пишет не тот, кого назначила повестка'); continue; }
-    const c = checkText(row, slot);
+    // Слух пишет статист из каста, остальное — любой существующий автор: переназначаем, не выбрасываем.
+    if (slot.rumor && w.author.kind !== 'cast') { fail(row, 'слух пишет статист из каста, а не живой сокурсник'); continue; }
+    const c = checkText(row, slot, w.author);
     if (c.reason) { fail(row, c.reason); continue; }
+    if (keyOfAuthor(w.author) !== keyOfAuthor(slot.author)) noteMove(row, slot, slot.author, w.author);
     seen.push(c.text);
     posts.set(row.n, { slot, author: w.author, text: c.text, row });
   }
@@ -728,6 +836,8 @@ export function parseIssue(text, agenda, opts = {}) {
     if (key === prev) {
       fail(p.row, 'тот же автор уже писал пост перед этим');
       posts.delete(n);
+      const at = reassigned.findIndex((r) => r.line === p.row.line);
+      if (at >= 0) reassigned.splice(at, 1);
     } else {
       prev = key;
     }
@@ -745,16 +855,17 @@ export function parseIssue(text, agenda, opts = {}) {
     const w = whoOf(row);
     if (w.reason) { fail(row, w.reason); continue; }
     const key = keyOfAuthor(w.author);
-    const allowed = [slot.author, slot.replier].filter(Boolean).map(keyOfAuthor);
-    if (!allowed.includes(key)) { fail(row, 'отвечает не тот, кого назначила повестка'); continue; }
     const th = branch.get(row.n) || (post
       ? { postKey: keyOfAuthor(post.author), lastKey: keyOfAuthor(post.author), spoke: false, count: 0 }
       : { postKey: old.authorKey, lastKey: old.lastKey, spoke: old.spoke, count: 0 });
     if (th.count >= slot.maxReplies) { fail(row, 'в ветке больше ответов, чем разрешено'); continue; }
     if (key === th.postKey && !th.spoke) { fail(row, 'ответ автора самому себе до чужого ответа'); continue; }
     if (key === th.lastKey) { fail(row, 'тот же автор подряд в одной ветке'); continue; }
-    const c = checkText(row, slot);
+    const c = checkText(row, slot, w.author);
     if (c.reason) { fail(row, c.reason); continue; }
+    if (!slot.replier || key !== keyOfAuthor(slot.replier)) {
+      if (key !== th.postKey) noteMove(row, slot, slot.replier, w.author);
+    }
     seen.push(c.text);
     th.lastKey = key;
     th.count += 1;
@@ -771,7 +882,7 @@ export function parseIssue(text, agenda, opts = {}) {
       lines.push({ kind: 'reply', n: slot.n, slotKind: slot.kind, author: r.author, text: r.text, ...(slot.replyTo ? { parent: slot.replyTo.id } : {}) });
     }
   }
-  return { lines, rejected, complete };
+  return { lines, rejected, reassigned, rows: rows.length, complete };
 }
 
 // --- запись -------------------------------------------------------------------------------------
@@ -788,7 +899,8 @@ export function parseIssue(text, agenda, opts = {}) {
  * @param {Object} work
  * @param {{lines: Object[]}} result `parseIssue`
  * @param {Object} agenda
- * @param {{stamp?: string, day?: string, time?: string, resetOnFail?: boolean}} [opts]
+ * @param {{stamp?: string, day?: string, time?: string, resetOnFail?: boolean, preset?: Object}} [opts]
+ *   `preset` — чтобы на место закрытого сюжетика завести новый в том же выпуске
  * @returns {{ok: boolean, delta: Object|null, posts: number, replies: number}}
  */
 export function applyIssue(work, result, agenda, opts = {}) {
@@ -848,9 +960,28 @@ export function applyIssue(work, result, agenda, opts = {}) {
     return { ok: false, delta: null, posts: 0, replies: 0 };
   }
   // Сюжетик продвигается, только если в его слоте легла хотя бы одна реплика.
+  const moved = new Set();
   for (const slot of agenda.slots || []) {
     if (!slot.advance || !slot.threadId) continue;
-    if (idOf.has(slot.n)) advanceThread(work, slot.threadId);
+    if (idOf.has(slot.n)) {
+      advanceThread(work, slot.threadId);
+      moved.add(slot.threadId);
+    }
+  }
+  // Кто простоял выпуск — копит простой; на третьем идёт на следующую стадию сам (баг 73).
+  for (const t of [...ensureFeed(work).threads]) {
+    if (moved.has(t.id)) continue;
+    const live = ensureFeed(work).threads.find((x) => x.id === t.id);
+    if (!live) continue;
+    live.idle = (live.idle || 0) + 1;
+    if (live.idle >= IDLE_MAX) advanceThread(work, live.id);
+  }
+  // Место освободилось (развязка закрыла сюжетик) — новый заводится в том же выпуске.
+  if (opts.preset) {
+    const day2 = day || (work.calendar && work.calendar.day) || '';
+    for (let guard = 0; guard < THREADS_MAX && openThreads(work).length < THREADS_MAX; guard += 1) {
+      if (!spawnThread(work, opts.preset, { day: day2 }).ok) break;
+    }
   }
   const usedFacts = [];
   for (const slot of agenda.slots || []) {
@@ -860,13 +991,18 @@ export function applyIssue(work, result, agenda, opts = {}) {
   // Первый слот выпуска и темы всех слотов: следующий выпуск не откроется той же темой.
   const posted = (agenda.slots || []).filter((s) => idOf.has(s.n) || made.some((id) => id.endsWith(`^${s.n}`)));
   const lead = posted[0] || (agenda.slots || [])[0];
+  const leadNow = lead && lead.topic ? { topic: clip(lead.topic, 90), stage: lead.stage || '' } : null;
+  const calNow = posted.filter((s) => s.kind === 'calendar' && s.topic).map((s) => ({ topic: clip(s.topic, 90), issue }));
   after.molva = {
     issue,
     since: 0,
     facts: [...after.molva.facts, ...usedFacts].slice(-MOLVA_FACTS_MAX),
     at: { day, time },
     topics: [...after.molva.topics, ...(agenda.slots || []).filter((s) => s.topic).map((s) => clip(s.topic, 90))].slice(-MOLVA_TOPICS_MAX),
-    lead: lead && lead.topic ? { topic: clip(lead.topic, 90), stage: lead.stage || '' } : after.molva.lead,
+    lead: leadNow || after.molva.lead,
+    // Открывающие темы трёх последних выпусков и последний слот календаря по событиям (баги 65, 72).
+    leads: leadNow ? [...after.molva.leads, leadNow].slice(-MOLVA_LEADS_MAX) : after.molva.leads,
+    cal: [...after.molva.cal.filter((c) => !calNow.some((n) => similar(n.topic, c.topic))), ...calNow].slice(-6),
   };
   const delta = deltaOf(work, made, opts.stamp);
   return { ok: true, delta, posts, replies };

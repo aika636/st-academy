@@ -21,7 +21,7 @@ import {
   dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf, privateRefs,
   unparsedNames, repliesOf, replyOf, isReplyToken, tokenAbout, talkParts,
 } from './core/analysis.mjs';
-import { applySceneEvents, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
+import { applySceneEvents, applyNotableFacts, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
   reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, postByRef,
   feedItems as feedItemsOf,
@@ -158,6 +158,8 @@ const live = {
   epoch: 0,
   panel: null,
   lastRun: null,
+  /** Последний выпуск молвы: сырой ответ модели и причины отброса — для вкладки «Отладка». */
+  molvaDebug: null,
   /**
    * Лорбук (3.7). `signature` — отпечаток того, чем лорбук должен быть; пока он
    * не изменился, в World Info не ходят вовсе. `suggested` — предложения про
@@ -1787,6 +1789,10 @@ function sceneOfTurn(state, text, tokens, mark, c) {
   const scene = items.filter((x) => x.ev && SCENE_KINDS.includes(x.ev.kind));
   const privateSet = Array.isArray(tokens) ? privateRefs(tokens) : null;
   if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1, privateRefs: privateSet });
+  // Прогул, опоздание, провал и громкая оценка героини — публичные темы слота «Главные» молвы.
+  next = applyNotableFacts(next, items, live.preset, {
+    src: mark, day, time, heroine: c && c.name1, loud: Array.isArray(tokens) ? loudOf(tokens) : null,
+  });
   const reactions = Array.isArray(tokens) ? reactionsWithFacts(tokens, lexicon) : [];
   const replies = Array.isArray(tokens) ? repliesOf(tokens) : [];
   const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
@@ -2566,6 +2572,7 @@ async function handleChatChanged() {
   live.generating = null;
   live.skipWarning = '';
   live.lastRun = null;
+  live.molvaDebug = null;
   // Лорбук у каждого чата свой: и отпечаток, и предложения — из прошлого чата,
   // и переносить их в новый значило бы дописать чужому чату чужие записи.
   live.lorebook = { signature: null, report: null, error: null, suggested: [] };
@@ -2665,6 +2672,12 @@ function molvaSettings() {
   return { every: everyOf(f.molvaEvery), manual: f.molvaManual === true };
 }
 
+/** Сколько знаков сырого ответа молвы хранит отладка. */
+const MOLVA_RAW_MAX = 12000;
+
+/** Одна строка до `max` знаков — для журнала. */
+const clip = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
+
 /** Идёт ли выпуск — второй не запускается. */
 let molvaRunning = null;
 
@@ -2722,8 +2735,17 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       });
       // Дата записей — день выпуска, по живому календарю (после скачка времени — новый, не прежний).
       const cal = live.state.calendar || {};
-      const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time });
-      if (parsed.rejected.length) console.info(`[${MODULE}] молва: отброшено`, parsed.rejected);
+      const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time, preset: live.preset });
+      // Что отброшено и почему — строками, а не «[Object]»; сырой ответ — в отладку.
+      for (const r of parsed.rejected) console.info(`[${MODULE}] молва: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      for (const r of parsed.reassigned) console.info(`[${MODULE}] молва: строка ${r.line}, слот ${r.n}: написал «${r.to}» вместо «${r.from}» — принято`);
+      live.molvaDebug = {
+        at: new Date().toISOString(), auto, ok: out.ok, truncated: res.truncated === true, complete: parsed.complete,
+        rows: parsed.rows, posts: out.posts, replies: out.replies,
+        raw: String(res.text == null ? '' : res.text).slice(0, MOLVA_RAW_MAX),
+        rejected: parsed.rejected.map((r) => ({ line: r.line || 0, reason: r.reason, raw: clip(r.raw, 160) })),
+        reassigned: parsed.reassigned,
+      };
       if (!out.ok) {
         // Автомат не бьёт по запросам после каждого ответа: счёт сбрасывается, дельта-пустышка
         // держит его и при пересчёте этого ответа.
@@ -2731,9 +2753,10 @@ async function runMolva({ auto = false, mark = '' } = {}) {
           turn.molva = [...(turn.molva || []), out.delta].slice(-DELTAS_KEPT);
           await commit(replayMolva(live.state, [out.delta]));
         }
+        const why = parsed.rejected.slice(0, 2).map((r) => r.reason).join('; ');
         return { ok: false, error: res.truncated
           ? 'Модель оборвалась на середине — молва не обновилась. Попробуйте ещё раз.'
-          : 'Модель ответила не по форме — ни одна реплика не прошла проверку. Попробуйте ещё раз.' };
+          : `Модель ответила не по форме — ни одна реплика не прошла проверку${why ? ` (${why})` : ''}. Попробуйте ещё раз; разбор — во вкладке «Отладка».` };
       }
       const next = replayMolva(live.state, [out.delta]);
       if (turn) turn.molva = [...(turn.molva || []), out.delta].slice(-DELTAS_KEPT);
@@ -2947,6 +2970,8 @@ const host = {
     refreshPanel();
   },
   getDebug: () => live.lastRun,
+  /** Последний выпуск молвы: сырой ответ модели, строки отброса и их причины. */
+  getMolvaDebug: () => live.molvaDebug,
   /** Очередь поводов «Взять в сюжет» — для вкладки «Поток». */
   getPlot: () => live.plot,
   /** Имя героини — для подписей ленты. */

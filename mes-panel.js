@@ -391,6 +391,7 @@ function buildPanel(host, mesId, view) {
   // «Что сочинено» — отдельно и под фактами: реакции ничего не меняют, а
   // держатся каждая за свой факт. Громкость — подписью к разделу.
   const loudRows = tokens.filter((t) => t.kind === 'loud');
+  const loudText = loudLine(tokens);
   // Ответы — под своим постом, с отступом; ответы к постам ленты (старая
   // ветка) — после, с подписью, к чему (`talkGroups`).
   const { posts: talk, elsewhere } = talkGroups(tokens);
@@ -407,7 +408,7 @@ function buildPanel(host, mesId, view) {
     content.append(el('div', { class: 'academy-mes-section academy-mes-talk academy-tone-violet' }, [
       el('div', { class: 'academy-mes-section-head' }, [
         icon('fa-comments'), el('span', { text: PANEL_TEXT.talk }),
-        loudRows.length ? el('span', { class: 'academy-mes-about', text: loudRows.map((t) => t.text).join(', ') }) : null,
+        loudRows.length ? el('span', { class: 'academy-mes-about', text: loudText }) : null,
       ]),
       el('ul', { class: 'academy-mes-tokens' }, [...talk.map(postRow), ...elsewhere.map(tokenRow)]),
       el('div', {
@@ -420,7 +421,7 @@ function buildPanel(host, mesId, view) {
     content.append(el('div', { class: 'academy-mes-section academy-mes-talk academy-tone-violet' }, [
       el('div', { class: 'academy-mes-section-head' }, [
         icon('fa-comments'), el('span', { text: fillText(PANEL_TEXT.heard, { crowdIn: labels.crowdIn }) }),
-        el('span', { class: 'academy-mes-about', text: loudRows.map((t) => t.text).join(', ') }),
+        el('span', { class: 'academy-mes-about', text: loudText }),
       ]),
       el('div', { class: 'academy-mes-note academy-mes-small', text: fillText(PANEL_TEXT.heardHint, { tab: labels.feedTab }) }),
     ]));
@@ -521,4 +522,14 @@ export function humanName(raw) {
 /** Действие с кнопки: отказ хоста не должен ронять обработчик клика. */
 function run(promise) {
   Promise.resolve(promise).catch((err) => console.warn('[academy] действие плашки не удалось:', err));
+}
+
+/**
+ * Подпись громкости к разделу: «шумно, наедине, без свидетелей». «Наедине» приходит
+ * токеном на каждый факт — в подписи оно одно (баг 69).
+ *
+ * @param {Array<{kind: string, text: string}>} tokens
+ */
+export function loudLine(tokens) {
+  return [...new Set((tokens || []).filter((t) => t && t.kind === 'loud').map((t) => t.text))].join(', ');
 }

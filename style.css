@@ -895,8 +895,31 @@
   font-weight: 600;
 }
 
+/* Галочка с подписью: в строку, подпись обычным шрифтом (баг 78: в блоке «Молва» галочка стояла над подписью). */
+.academy-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.academy-check > input[type='checkbox'] {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
 .academy-mode .academy-note {
   flex-basis: 100%;
+}
+
+.academy-debug-raw {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 20em;
+  overflow: auto;
+  font-size: 0.8em;
 }
 
 .academy-status {

@@ -292,6 +292,9 @@ export function normalizeItem(raw) {
     playedSrc: raw.status === 'played' ? str(raw.playedSrc) : '',
     // Сцена без свидетелей: в молву она идёт только слухом (`core/molva.mjs`).
     ...(kind === 'fact' && raw.private === true ? { private: true } : {}),
+    // Заметный факт о героине из разбора (прогул, опоздание, провал, триумф): тема молвы
+    // с низким приоритетом, а не повод рассказчику и не пункт ленты (`core/scene.mjs`).
+    ...(kind === 'fact' && raw.minor === true ? { minor: true } : {}),
   };
 }
 
@@ -467,6 +470,8 @@ export function normalizeThread(raw, ids) {
     since: str(raw.since),
     // День, когда событие кончилось (бал, контрольная): после него сюжетик подводит итог и закрывается.
     on: /^\d{4}-\d{2}-\d{2}$/.test(str(raw.on)) ? str(raw.on) : '',
+    // Сколько выпусков подряд сюжетик не двигался: на третьем он идёт на следующую стадию сам.
+    idle: Number.isInteger(raw.idle) && raw.idle > 0 ? Math.min(raw.idle, 9) : 0,
   };
 }
 
@@ -488,11 +493,17 @@ export const MOLVA_FACTS_MAX = 60;
 
 /** Счёт выпусков молвы: ни одного, ни одного ответа с тех пор, ни одного факта. */
 export function emptyMolva() {
-  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' } };
+  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' }, leads: [], cal: [] };
 }
 
 /** Сколько тем последних выпусков помнит счёт: ими не открывают следующий и не повторяют «Мир». */
 export const MOLVA_TOPICS_MAX = 10;
+
+/** Сколько открывающих тем последних выпусков помнит счёт: ими выпуск не открывается снова. */
+export const MOLVA_LEADS_MAX = 3;
+
+/** Сколько выпусков события календаря не повторяются в слоте «Календарь». */
+export const CALENDAR_GAP = 3;
 
 /** Счёт выпусков к форме; битое поле — пустой счёт. */
 export function normalizeMolva(raw) {
@@ -506,6 +517,11 @@ export function normalizeMolva(raw) {
     // Темы последних выпусков и тема, что открывала прошлый: молва не начинается дважды одним.
     topics: (Array.isArray(src.topics) ? src.topics : []).map((t) => oneLine(t, 90)).filter(Boolean).slice(-MOLVA_TOPICS_MAX),
     lead: { topic: oneLine(src.lead && src.lead.topic, 90), stage: str(src.lead && src.lead.stage) },
+    // Открывающие темы трёх последних выпусков и когда в последний раз шёл слот «Календарь» о событии.
+    leads: (Array.isArray(src.leads) ? src.leads : [])
+      .map((l) => ({ topic: oneLine(l && l.topic, 90), stage: str(l && l.stage) })).filter((l) => l.topic).slice(-MOLVA_LEADS_MAX),
+    cal: (Array.isArray(src.cal) ? src.cal : [])
+      .map((c) => ({ topic: oneLine(c && c.topic, 90), issue: num(c && c.issue) })).filter((c) => c.topic).slice(-6),
   };
 }
 
@@ -1021,7 +1037,7 @@ export function feedBackground(state, opts = {}) {
   const items = feedItems(state)
     .map((x, i) => ({ x, i }))
     // Ответы в ветках в фон не идут: фон краток, ему хватает поста.
-    .filter(({ x }) => !x.parent && knownToHeroine(x) && x.status !== 'expired' && !onEvent(x) && freshOn(x, day, BACKGROUND_DAYS));
+    .filter(({ x }) => !x.parent && !x.minor && knownToHeroine(x) && x.status !== 'expired' && !onEvent(x) && freshOn(x, day, BACKGROUND_DAYS));
   items.sort((a, b) => (Number(b.x.heroine) - Number(a.x.heroine))
     || ((b.x.loud ?? 1) - (a.x.loud ?? 1))
     || (b.i - a.i));
@@ -1068,7 +1084,7 @@ export function rumorFor(state, personId, opts = {}) {
     || Boolean(seen && seen.day && seen.day === x.at.day);
   for (let i = feed.items.length - 1; i >= 0; i -= 1) {
     const x = feed.items[i];
-    if (x.kind !== 'fact' || x.status === 'expired' || !freshOn(x, day, RUMOR_DAYS) || !heard(x)) continue;
+    if (x.kind !== 'fact' || x.minor || x.status === 'expired' || !freshOn(x, day, RUMOR_DAYS) || !heard(x)) continue;
     return { ...pointOf(x), id: x.id, gist: Boolean(x.gist) };
   }
   return null;

@@ -58,6 +58,41 @@ let castWarn = '';
 /** Что сказала последняя кнопка «Обновить молву»: перерисовка панели её не стирает. */
 let molvaNote = { kind: '', text: '' };
 
+/** Через сколько итог выпуска гаснет сам (баг 76). */
+export const MOLVA_NOTE_MS = 10000;
+
+let molvaTimer = null;
+/** Строки итога, что сейчас на экране: гаснут вместе с заметкой. */
+const molvaStatuses = new Set();
+
+/** Забыть итог выпуска и стереть его с экрана; зовут таймер и любое следующее действие. */
+export function clearMolvaNote() {
+  if (molvaTimer) clearTimeout(molvaTimer);
+  molvaTimer = null;
+  molvaNote = { kind: '', text: '' };
+  for (const node of molvaStatuses) {
+    if (node.isConnected) setStatus(node, '', '');
+    else molvaStatuses.delete(node);
+  }
+}
+
+/** Итог, что сейчас держится (для проверки в тестах). */
+export function molvaNoteView() {
+  return { ...molvaNote };
+}
+
+/** Взять строку итога под присмотр: она погаснет вместе с заметкой. */
+export function trackMolvaStatus(node) {
+  molvaStatuses.add(node);
+}
+
+/** Запомнить итог выпуска на `MOLVA_NOTE_MS`. */
+export function keepMolvaNote(note) {
+  molvaNote = note;
+  if (molvaTimer) clearTimeout(molvaTimer);
+  molvaTimer = setTimeout(clearMolvaNote, MOLVA_NOTE_MS);
+}
+
 /**
  * Кнопка «Обновить молву» со строкой итога под ней. Есть всегда — и на вкладке
  * ленты, и в настройках: автомат у кого-то выключен, а у кого-то редкий.
@@ -66,21 +101,22 @@ let molvaNote = { kind: '', text: '' };
 export function molvaRefresh(host, preset) {
   const X = extraLabels(preset);
   const status = el('div', { class: 'academy-status' });
+  trackMolvaStatus(status);
   if (molvaNote.text) setStatus(status, molvaNote.kind, molvaNote.text);
   const button = el('div', {
     class: 'menu_button academy-btn academy-btn-small academy-molva-refresh',
     text: X.molvaButton,
     onclick: async (e) => {
-      molvaNote = { kind: '', text: '' };
+      clearMolvaNote();
       const res = await runAction(e.currentTarget, status, () => call(host, 'refreshMolva'), X.molvaDone);
       if (res && res.ok !== false) {
-        molvaNote = {
+        keepMolvaNote({
           kind: 'ok',
           text: fill(X.molvaDone, { posts: res.posts || 0, replies: res.replies || 0 }) + (res.skipped ? X.molvaDoneSkipped : ''),
-        };
+        });
         renderPanel(host);
       } else if (res) {
-        molvaNote = { kind: 'error', text: String(res.error || 'Не получилось.') };
+        keepMolvaNote({ kind: 'error', text: String(res.error || 'Не получилось.') });
       }
     },
   });
@@ -111,6 +147,7 @@ export function renderCastParts(host, preset) {
     const inputs = CAST_FIELDS.map(([key, label]) => {
       const input = el('input', { type: 'text', class: 'text_pole academy-input', value: m[key] || '' });
       input.addEventListener('change', async () => {
+        clearMolvaNote();
         const res = await call(host, 'updateFeedMember', m.id, { [key]: input.value });
         if (res && res.ok === false) {
           setStatus(status, 'error', String(res.error || 'Не сохранилось.'));
@@ -146,6 +183,7 @@ export function renderCastParts(host, preset) {
         class: 'menu_button academy-btn academy-btn-small',
         text: X.mobRebuild,
         onclick: async (e) => {
+          clearMolvaNote();
           const res = await runAction(e.currentTarget, status, () => call(host, 'rebuildFeedCast'), X.mobBuilt);
           if (res && res.ok !== false) {
             castWarn = Array.isArray(res.warnings) ? res.warnings.join(' ') : '';

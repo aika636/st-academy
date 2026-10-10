@@ -55,6 +55,18 @@ export const DEBUG_TEXT = {
   divergenceDice: '{subject}: посчитано {computed}, кубик соседа решил {said}.',
   divergenceDiceUnread: '{subject}: кубик соседа дал {said}, в шкалу не легло — посчитанное осталось.',
   noDivergence: 'Расхождений посчитанного с версией модели не было.',
+  // Выпуск молвы: что ответила модель и почему строки отброшены (баг 70).
+  molvaTitle: 'Последний выпуск молвы',
+  molvaHead: 'Строк по формату: {rows}; легло постов {posts}, ответов {replies}{tail}.',
+  molvaTruncated: ' (ответ модели оборвался)',
+  molvaNoEnd: ' (без строки КОНЕЦ)',
+  molvaRejectedTitle: 'Отброшено в молве',
+  molvaMovedTitle: 'Принято с заменой автора',
+  molvaRawSummary: 'Сырой ответ модели',
+  molvaNoRaw: 'Модель ничего не ответила.',
+  molvaLine: 'строка {line}: {reason} — {raw}',
+  molvaNoLine: '{reason} — {raw}',
+  molvaMoved: 'строка {line}: слот {n}, написал «{to}» вместо «{from}»',
   journalTitle: 'Журнал, последние записи',
   noJournal: 'Журнал пуст.',
 };
@@ -298,6 +310,23 @@ function shortData(data) {
   }
 }
 
+/**
+ * Последний выпуск молвы для вкладки: заголовок, отброшенные строки с причинами,
+ * принятые с заменой автора и сырой ответ модели. Без DOM; `null` — выпусков не было.
+ */
+export function molvaDebugView(d) {
+  if (!d || typeof d !== 'object') return null;
+  const T = DEBUG_TEXT;
+  const tail = (d.truncated ? T.molvaTruncated : '') + (!d.truncated && d.complete === false ? T.molvaNoEnd : '');
+  return {
+    head: fill(T.molvaHead, { rows: d.rows || 0, posts: d.posts || 0, replies: d.replies || 0, tail }),
+    rejected: (d.rejected || []).map((r) => fill(r.line ? T.molvaLine : T.molvaNoLine, { line: r.line, reason: r.reason, raw: r.raw })),
+    moved: (d.reassigned || []).map((r) => fill(T.molvaMoved, { line: r.line, n: r.n, to: r.to, from: r.from })),
+    raw: str(d.raw),
+    at: str(d.at),
+  };
+}
+
 // --- вкладка «Отладка» ------------------------------------------------------
 
 /**
@@ -329,6 +358,23 @@ export function renderDebug(host, view) {
     add(debugList(T.injectsTitle, view.injects, T.noInjects));
   } else {
     box.append(el('div', { class: 'academy-silent', text: view.noRun }));
+  }
+
+  // Выпуск молвы: сырой ответ модели и причины отброса — чтобы следующий прогон показал правду.
+  const molva = molvaDebugView(safe(() => (host.getMolvaDebug ? host.getMolvaDebug() : null), null));
+  if (molva) {
+    box.append(el('div', { class: 'academy-debug-block' }, [
+      el('div', { class: 'academy-card-title', text: T.molvaTitle }),
+      el('div', { class: 'academy-debug-line', text: molva.head }),
+    ]));
+    add(debugList(T.molvaRejectedTitle, molva.rejected, ''));
+    add(debugList(T.molvaMovedTitle, molva.moved, ''));
+    box.append(el('details', { class: 'academy-repair' }, [
+      el('summary', { text: T.molvaRawSummary }),
+      el('div', { class: 'academy-repair-body' }, [
+        el('pre', { class: 'academy-debug-raw', text: molva.raw || T.molvaNoRaw }),
+      ]),
+    ]));
   }
 
   // Расхождение исхода экзамена — отдельным блоком и выше журнала: план требует

@@ -97,6 +97,7 @@ export function advanceThread(state, id) {
     return { id: gone.id, stage: gone.stage, closed: true };
   }
   feed.threads[at].stage = STAGES[next];
+  feed.threads[at].idle = 0;
   return { id, stage: STAGES[next], closed: false };
 }
 
