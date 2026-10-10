@@ -290,6 +290,7 @@ async function boot(opts = {}) {
   };
   const mod = await import(`../index.js?run=${Math.random()}`);
   await mod.__seam.ready;
+  mod.__seam.live.legacyPosts = true; // тест старой ленты секретаря
   tavern.seam = mod.__seam;
   return tavern;
 }

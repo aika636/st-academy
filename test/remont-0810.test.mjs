@@ -149,7 +149,7 @@ test('реакция в чате про слух — «обсуждают», а 
   ].join('\n'), lex);
   const items = tokens.filter(isFactToken).map((token) => ({ token, ev: tokenEvent(token, lex) }));
   let next = applySceneEvents(s, items, preset, { src: 'm', day: s.calendar.day, heroine: 'Аня' });
-  next = applyReactions(next, 'm', reactionsOf(tokens), new Map(items.map((x) => [x.token, x.ev])), { day: s.calendar.day });
+  next = applyReactions(next, 'm', reactionsOf(tokens).map((r) => ({ ...r, factText: 'Вера списала контрольную' })), new Map(items.map((x) => [x.token, x.ev])), { day: s.calendar.day });
   const fact = next.feed.items.find((x) => x.kind === 'fact');
   assert.equal(fact.text, 'слух: Вера Соколова — списала контрольную');
   assert.equal(fact.gist, 'Вера Соколова списала контрольную');
@@ -167,7 +167,7 @@ test('плашка: громкость без слова «громкость»;
   const lex = lexicon();
   assert.equal(tokenText('loud=2', lex), 'шумно');
   assert.equal(tokenText('loud=3', lex), 'скандал');
-  assert.equal(tokenText('loud=0', lex), 'почти не заметили');
+  assert.equal(tokenText('loud=0', lex), 'тихо');
   assert.equal(PANEL_TEXT.talkNone, 'никто не обсуждает');
   assert.doesNotMatch(PANEL_TEXT.talkHint, /в Академии|в ленту/);
   const rel = SECTIONS.find((s) => s.kind === 'rel');

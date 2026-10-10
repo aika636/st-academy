@@ -73,7 +73,7 @@ export const SECRETARY_HOOKS = 3;
 
 /** Длина формулировки (с рамкой) и её сути. */
 export const HOOK_TEXT_MAX = 600;
-export const CORE_MAX = 220;
+export const CORE_MAX = 320;
 
 /**
  * Мягкая рамка повода (приём 8): находка, а не приказ; внешнее, а не слова
@@ -90,6 +90,8 @@ export const DEFAULT_PLOT_PHRASES = {
   // «Кто-то с курса» — словом пресета (`vocab.someone`: «кто-то из класса»).
   someone: 'кто-то с курса',
   gossip: 'пишут без подписи: «{text}»',
+  // Пост молвы — выдумка статиста, а не событие: происхождение называется прямо (шаг 4 «Молвы»).
+  molva: 'повод из молвы, неподтверждённый слух от {who}: «{text}»; само утверждение не установленный факт',
   rumorFact: 'говорят, что {gist}',
   // Дело — фразой `scene.dealText`: «Мила должна Вере: вернуть тетрадь».
   deal: 'незакрытое дело — {deal}',
@@ -260,6 +262,11 @@ function nameOf(id, state, P, heroine) {
   return shortName(p.name || p.id, { teacher }) || p.id;
 }
 
+/** Запись выпуска молвы (`core/molva`): её id начинается с `molva-`. */
+function isMolva(item) {
+  return item.kind === 'reaction' && /^molva-/.test(String(item.src || ''));
+}
+
 /**
  * Суть повода — что именно может мелькнуть в сцене, без рамки.
  *
@@ -279,11 +286,12 @@ export function hookCore(state, ref, opts = {}) {
     else if (item.chan === 'anon') core = fill(P.gossip, { text: bare(unsaid(item.text)) });
     // Маска — не человек: рассказчику она типаж («футболист-альфа») или «кто-то
     // с курса», но не ник — из ника вырос бы персонаж, а типаж — эпизодник.
+    else if (isMolva(item)) core = fill(P.molva, { who: item.nick ? (item.type || P.someone) : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     else core = fill(P.said, { who: item.nick ? (item.type || P.someone) : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     // Ветка — одной фразой: о чём спорят или что поддерживают, без реплик.
     const thread = threadPhrase(threadTone(items.filter((x) => x.parent === item.id).map((x) => x.text)), P);
     if (thread) core = `${bare(core)}${P.threadGlue}${thread}`;
-    return { ref, kind: 'item', core: oneLine(core, CORE_MAX), rumor: item.rumor === true };
+    return { ref, kind: 'item', core: oneLine(core, CORE_MAX), rumor: item.rumor === true || isMolva(item) };
   }
   const deal = openDeals(state).find((d) => d.id === ref);
   if (deal) {

@@ -19,12 +19,16 @@ import {
   THREADS_MAX, THREAD_MEMBERS, STAGES, THREAD_SOURCES, THREAD_TEXT_MAX, ensureFeed, normalizeFeed, freeId, normalizeThread,
 } from './feed.mjs';
 import { castOf, similar } from './feed-cast.mjs';
+import { feedWorldTopics } from './feed.mjs';
 import { holidaysAhead } from './holidays.mjs';
 import { upcomingEvents } from './upcoming.mjs';
-import { diffDays } from './time.mjs';
+import { diffDays, addDays } from './time.mjs';
 
 /** За сколько дней вперёд календарь даёт тему сюжетика. */
 export const CALENDAR_HORIZON = 14;
+
+/** Сколько дней после события сюжетик ещё подводит итог; дальше он закрывается (баг 64). */
+export const AFTER_EVENT_DAYS = 2;
 
 // Читают через `normalizeFeed`, а не `ensureFeed`: тот заводит поле заново, и
 // ссылка на ленту, взятая до чтения, смотрела бы на прежнюю копию.
@@ -52,7 +56,8 @@ export function hasTopic(state, topic) {
  * только из каста.
  *
  * @param {Object} state
- * @param {{topic: string, members: string[], dispute?: string, source?: string, day?: string}} spec
+ * @param {{topic: string, members: string[], dispute?: string, source?: string, day?: string, on?: string}} spec
+ *   `on` — день, когда событие кончается (для календаря и учёбы)
  * @returns {{ok: true, thread: Object} | {ok: false, reason: 'full'|'duplicate'|'bad'}}
  */
 export function startThread(state, spec) {
@@ -69,6 +74,7 @@ export function startThread(state, spec) {
     stage: STAGES[0],
     source: s.source,
     since: s.day,
+    on: s.on,
   }, new Set(feed.cast.map((m) => m.id)));
   if (!thread) return { ok: false, reason: 'bad' };
   feed.threads.push(thread);
@@ -121,9 +127,11 @@ function pickMembers(state, { three = false } = {}) {
   const cast = castOf(state);
   const byId = new Map(cast.map((m) => [m.id, m]));
   const busy = load(state);
-  const pairs = cast
-    .filter((m) => m.rival && byId.has(m.rival))
-    .map((m, i) => ({ a: m, b: byId.get(m.rival), i }))
+  // Без связей (каст правили руками) пары берутся по соседству: сюжетик заводится всё равно.
+  const linked = cast.filter((m) => m.rival && byId.has(m.rival)).map((m) => ({ a: m, b: byId.get(m.rival) }));
+  const near = cast.length >= 2 ? cast.map((m, i) => ({ a: m, b: cast[(i + 1) % cast.length] })).filter((x) => x.a.id !== x.b.id) : [];
+  const pairs = (linked.length ? linked : near)
+    .map((p, i) => ({ ...p, i }))
     .sort((x, y) => (busy.get(x.a.id) || 0) + (busy.get(x.b.id) || 0) - (busy.get(y.a.id) || 0) - (busy.get(y.b.id) || 0) || x.i - y.i);
   return pairs.map(({ a, b }) => {
     const third = three && a.ally && a.ally !== b.id && byId.has(a.ally) ? byId.get(a.ally) : null;
@@ -142,12 +150,23 @@ function clip(s, max) {
   return String(s || '').replace(/\s+/g, ' ').trim().slice(0, max).trim();
 }
 
+/** День, когда событие кончается: у своего события — его последний день, у праздника пресета — по числам. */
+function eventEnd(holiday, start) {
+  if (holiday.dated && /^\d{4}-\d{2}-\d{2}$/.test(String(holiday.to))) return holiday.to;
+  const from = String(holiday.from || '');
+  const to = String(holiday.to || '');
+  if (!/^\d{2}-\d{2}$/.test(from) || !/^\d{2}-\d{2}$/.test(to)) return start;
+  let span = diffDays(`2001-${from}`, `2001-${to}`);
+  if (span < 0) span += 365;
+  return addDays(start, Math.min(span, 30));
+}
+
 /** Темы календаря: ближайшие праздники и события чата, не дальше `CALENDAR_HORIZON` дней. */
 export function calendarTopics(state, preset) {
   const day = state && state.calendar && state.calendar.day;
   if (!day) return [];
-  return holidaysAhead(preset, day, CALENDAR_HORIZON, state).map(({ holiday, days }) => ({
-    topic: clip(holiday.name, THREAD_TEXT_MAX.topic), days,
+  return holidaysAhead(preset, day, CALENDAR_HORIZON, state).map(({ holiday, days, day: start }) => ({
+    topic: clip(holiday.name, THREAD_TEXT_MAX.topic), days, on: eventEnd(holiday, start),
   }));
 }
 
@@ -159,8 +178,9 @@ export function studyTopics(state, preset) {
   const out = [];
   for (const e of upcomingEvents(state, preset, { horizon: CALENDAR_HORIZON, limit: 4 })) {
     const name = e.subjectId ? subjects.get(e.subjectId) : '';
-    if (e.kind === 'announce') out.push({ topic: clip(name ? `итоги: ${name}` : 'итоги сессии', THREAD_TEXT_MAX.topic), days: e.days });
-    else out.push({ topic: clip(name ? `${e.what}: ${name}` : e.what || 'контрольные', THREAD_TEXT_MAX.topic), days: e.days });
+    const on = Number.isFinite(e.days) ? addDays(day, e.days) : '';
+    if (e.kind === 'announce') out.push({ topic: clip(name ? `итоги: ${name}` : 'итоги сессии', THREAD_TEXT_MAX.topic), days: e.days, on });
+    else out.push({ topic: clip(name ? `${e.what}: ${name}` : e.what || 'контрольные', THREAD_TEXT_MAX.topic), days: e.days, on });
   }
   if (!out.length && subjects.size) {
     // Событий нет — тема из быта предмета; какой именно, решает день, без случайности.
@@ -171,12 +191,56 @@ export function studyTopics(state, preset) {
   return out;
 }
 
-/** Темы пар каста: чем живут двое, что стоят друг у друга на пути. */
-function pairTopics(state) {
-  return pickMembers(state).map(({ a, b }) => ({
+/**
+ * Темы пар каста: чем живут двое, что стоят друг у друга на пути. Следом —
+ * бытовые темы мира (`feed.worldTopics` пресета): сюжетик заводится и тогда,
+ * когда у каста нет ни календаря, ни учёбы, ни ярких интересов.
+ */
+function pairTopics(state, preset) {
+  const pairs = pickMembers(state).map(({ a, b }) => ({
     topic: clip(a.interest && b.interest ? `${a.interest} или ${b.interest}` : `${a.nick} и ${b.nick}`, THREAD_TEXT_MAX.topic),
     pair: [a.id, b.id],
   }));
+  return [...pairs, ...feedWorldTopics(preset).map((topic) => ({ topic: clip(topic, THREAD_TEXT_MAX.topic) }))];
+}
+
+/**
+ * Сюжетики, привязанные к событию, после его даты (баг 64): «Мабон» не тянется
+ * после Мабона. Событие прошло — сюжетик переходит на «развязку» (подводит итог);
+ * прошло больше `AFTER_EVENT_DAYS` дней — закрывается. Правит `state`.
+ *
+ * @returns {{closed: string[], settled: string[]}} id закрытых и переведённых
+ */
+export function settleThreads(state, day) {
+  const out = { closed: [], settled: [] };
+  const today = String(day || (state && state.calendar && state.calendar.day) || '');
+  if (!today) return out;
+  const feed = ensureFeed(state);
+  feed.threads = feed.threads.filter((t) => {
+    if (!t.on || !isPast(t.on, today)) return true;
+    if (diffDays(t.on, today) > AFTER_EVENT_DAYS || t.stage === STAGES[STAGES.length - 1]) {
+      out.closed.push(t.id);
+      return false;
+    }
+    t.stage = STAGES[STAGES.length - 1];
+    out.settled.push(t.id);
+    return true;
+  });
+  return out;
+}
+
+/** Событие `on` уже позади к дню `today`. */
+function isPast(on, today) {
+  try {
+    return diffDays(on, today) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Прошёл ли срок события сюжетика (для повестки: «после события»). */
+export function threadOver(thread, day) {
+  return Boolean(thread && thread.on && day && isPast(thread.on, day));
 }
 
 /**
@@ -202,7 +266,7 @@ export function spawnThread(state, preset, opts = {}) {
   for (const source of order) {
     const topics = source === 'calendar' ? calendarTopics(state, preset)
       : source === 'study' ? studyTopics(state, preset)
-        : pairTopics(state);
+        : pairTopics(state, preset);
     for (const t of topics) {
       if (!t.topic || hasTopic(state, t.topic)) continue;
       const pairs = pickMembers(state, { three: source === 'calendar' });
@@ -213,7 +277,7 @@ export function spawnThread(state, preset, opts = {}) {
         continue;
       }
       const members = [chosen.a.id, chosen.b.id, ...(chosen.third ? [chosen.third.id] : [])].slice(0, THREAD_MEMBERS[1]);
-      const res = startThread(state, { topic: t.topic, members, dispute: disputeOf(chosen.a, chosen.b, t.topic), source, day });
+      const res = startThread(state, { topic: t.topic, members, dispute: disputeOf(chosen.a, chosen.b, t.topic), source, day, on: t.on });
       if (res.ok) return res;
       last = res.reason;
     }

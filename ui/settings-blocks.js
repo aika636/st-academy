@@ -1024,13 +1024,17 @@ export function renderFeedBlock(host, preset, settings, extra = null) {
   background.addEventListener('change', () => safe(() => host.setSettings({ feed: { background: background.checked } }), null));
   return section(U.tabFeed, [
     el('label', { class: 'academy-check' }, [hooks, el('span', { text: X.feedHooksToggle })]),
+    el('p', { class: 'academy-note', text: X.feedHooksNote }),
     el('label', { class: 'academy-check' }, [background, el('span', { text: X.feedBackgroundToggle })]),
+    el('p', { class: 'academy-note', text: X.feedBackgroundNote }),
     el('label', { class: 'academy-check' }, [auto, el('span', { text: X.feedAutoToggle })]),
-    el('p', { class: 'academy-note', text: X.feedSettingsNote }),
+    el('p', { class: 'academy-note', text: X.feedAutoNote }),
+    el('p', { class: 'academy-note', text: X.feedMuteNote }),
     el('div', { class: 'academy-mob-title academy-mob-heading', text: X.molvaWhen }),
     el('label', { class: 'academy-field academy-field-inline' }, [el('span', { text: X.molvaEvery }), every, el('span', { text: X.molvaEveryUnit })]),
-    el('label', { class: 'academy-check' }, [manual, el('span', { text: X.molvaManual })]),
     el('p', { class: 'academy-note academy-molva-price', text: X.molvaPrice }),
+    el('label', { class: 'academy-check' }, [manual, el('span', { text: X.molvaManual })]),
+    el('p', { class: 'academy-note', text: X.molvaManualNote }),
     molvaRefresh(host, preset),
     ...(Array.isArray(extra) ? extra : []),
   ]);

@@ -177,8 +177,10 @@ test('повестка при N=1 маленькая, сюжетик продв�
   const first = buildAgenda(s, preset, opts({ every: 1, issue: 1 }));
   assert.ok(first.slots.length <= 2 && first.slots.length >= 1);
   const crowd = (issue) => buildAgenda(s, preset, opts({ every: 1, issue })).slots.find((x) => x.kind === 'crowd');
-  assert.equal(crowd(2).advance, true);
-  assert.equal(crowd(1).advance, false, 'нечётный: без шага вперёд');
+  assert.equal(crowd(1).advance, false, 'первый заход к сюжетику: без шага вперёд');
+  assert.equal(crowd(2).advance, false, 'второй сюжетик — тоже первый заход');
+  assert.equal(crowd(3).advance, true, 'второй заход к первому сюжетику: шаг вперёд');
+  assert.equal(crowd(4).advance, true);
 });
 
 test('календарь: событие в пределах 14 дней даёт слот, дальше горизонта — нет', () => {
@@ -547,7 +549,7 @@ test('выпуск откатывается вместе с ответом и в
 test('состояние старого семестра без счёта выпусков читается как пустой счёт', () => {
   const s = semester();
   delete s.feed.molva;
-  assert.deepEqual(normalizeFeed(s.feed).molva, { issue: 0, since: 0, facts: [], at: { day: '', time: '' } });
+  assert.deepEqual(normalizeFeed(s.feed).molva, { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' } });
   assert.equal(THREADS_MAX, 3);
   assert.equal(ensureFeed({}).molva.issue, 0);
 });

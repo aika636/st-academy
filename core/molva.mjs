@@ -31,11 +31,11 @@
 // Вызов модели — в `api.js` (`generateMolva`) и `index.js`: ядро о сети не знает.
 
 import {
-  FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
-  feedItems, hash,
+  FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
+  feedItems, hash, feedWorldTopics,
 } from './feed.mjs';
 import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, END_MARK } from './feed-cast.mjs';
-import { openThreads, spawnThread, advanceThread, studyTopics, CALENDAR_HORIZON } from './feed-threads.mjs';
+import { openThreads, spawnThread, advanceThread, settleThreads, threadOver, studyTopics, CALENDAR_HORIZON } from './feed-threads.mjs';
 import { holidaysOn, holidaysAhead } from './holidays.mjs';
 import { normName } from './stop-names.mjs';
 import { diffDays } from './time.mjs';
@@ -52,6 +52,9 @@ export const FACT_DAYS = 3;
 
 /** Меньше стольких букв реплика — не реплика. */
 export const MIN_LETTERS = 3;
+
+/** Ответ короче стольких знаков — не ответ по существу («Грубый выпад.», баг 66). */
+export const REPLY_MIN = 25;
 
 /** Сколько ветвей прошлого видит модель как «израсходованные». */
 export const RECENT_BRANCHES = 6;
@@ -214,12 +217,8 @@ const STAGE_HINT = {
   развязка: 'чем-то кончается, ставят точку',
 };
 
-/** Запасные темы «Мира», когда ни контрольных, ни предметов нет: общие, без примет заведения. */
-const WORLD_FALLBACK = [
-  'быт заведения: столовая, общие места, режим',
-  'преподаватели: чудачества и придирки, о которых шепчутся',
-  'очереди, расписание и мелкие неудобства дня',
-];
+/** Сюжетик привязан к событию, а оно уже прошло: говорят о том, как всё вышло (баг 64). */
+const OVER_HINT = 'событие уже прошло: подводят итоги, вспоминают, как всё вышло, без планов на него';
 
 /** События календаря: идут сейчас или начнутся не позже `CALENDAR_HORIZON` дней, ближние первыми. */
 export function calendarEvents(state, preset) {
@@ -241,6 +240,8 @@ export function calendarEvents(state, preset) {
  */
 export function prepareThreads(work, preset) {
   const day = work && work.calendar && work.calendar.day;
+  // Сперва убрать устаревшее: событие позади — сюжетик подводит итог или закрыт.
+  settleThreads(work, day);
   for (let guard = 0; guard < 3 && openThreads(work).length < 2; guard += 1) {
     const res = spawnThread(work, preset, { day });
     if (!res.ok) break;
@@ -303,14 +304,19 @@ export function buildAgenda(state, preset, opts = {}) {
   }
   for (const f of mainPlan) wanted.push({ kind: 'main', facts: [f], loud: Math.max(2, f.loud ?? 2) });
 
-  // «Массовка» — шаг сюжетика, всегда, если есть сюжетики. Раз в ответ сюжетик
-  // продвигается не каждый выпуск: в промежутке в его ветку просто отвечают.
+  // «Массовка» — шаг сюжетика, всегда, если есть сюжетики. Сюжетики идут по
+  // кругу; раз в ответ сюжетик продвигается через раз (при втором заходе), в
+  // промежутке в его ветку просто отвечают. Сюжетик, чьё событие прошло,
+  // идёт вне очереди и закрывается (баг 64).
+  const today = state && state.calendar && state.calendar.day;
   const threads = openThreads(state);
   let crowd = null;
   if (threads.length) {
-    const t = threads[(issue - 1) % threads.length];
-    const advance = size.max > 2 || issue % 2 === 0;
-    crowd = { kind: 'crowd', thread: t, advance };
+    const over = threads.find((t) => threadOver(t, today));
+    const t = over || threads[(issue - 1) % threads.length];
+    const visit = Math.floor((issue - 1) / threads.length);
+    const advance = Boolean(over) || size.max > 2 || visit % 2 === 1;
+    crowd = { kind: 'crowd', thread: t, advance, over: Boolean(over) };
     wanted.push(crowd);
   }
 
@@ -322,8 +328,13 @@ export function buildAgenda(state, preset, opts = {}) {
   // Календарь — ближайшее событие, если оно не то же самое, что тема сюжетика.
   const events = calendarEvents(state, preset).filter((e) => !threads.some((t) => similar(t.topic, e.name)));
 
-  // Мир — учёба и быт заведения.
-  const worldTopics = [...studyTopics(state, preset).map((t) => t.topic), ...WORLD_FALLBACK];
+  // Мир — быт заведения (темы пресета), учёба позже. Темы последних выпусков и
+  // открытых сюжетиков не повторяются, пока есть свежие.
+  const recent = [...feed.molva.topics, ...threads.map((t) => t.topic)];
+  const fresh = (t) => !recent.some((r) => similar(r, t));
+  const homely = feedWorldTopics(preset);
+  const study = studyTopics(state, preset).map((t) => t.topic);
+  const worldTopics = [...homely.filter(fresh), ...study.filter(fresh), ...homely.filter((t) => !fresh(t))];
   let worldAt = (issue - 1) % worldTopics.length;
   const world = () => {
     const topic = worldTopics[worldAt % worldTopics.length];
@@ -341,6 +352,15 @@ export function buildAgenda(state, preset, opts = {}) {
   while (picked.length < size.min && picked.length < size.max) picked.push(world());
   // Порядок в ленте: главные идут не первыми подряд — перемежаются с остальными.
   picked.sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  // Тема прошлого выпуска не открывает следующий, пока не продвинулась на новую
+  // стадию (баг 65): открывающим становится первый слот с другой темой.
+  const lead = feed.molva.lead;
+  const topicOf = (s) => (s.kind === 'crowd' ? s.thread.topic : s.kind === 'calendar' ? s.event.name : s.kind === 'world' ? s.topic : s.facts[0].text);
+  const repeats = (s) => Boolean(lead.topic) && similar(topicOf(s), lead.topic) && !(s.kind === 'crowd' && s.thread.stage !== lead.stage);
+  if (picked.length > 1 && repeats(picked[0])) {
+    const at = picked.findIndex((s, i) => i > 0 && !repeats(s) && s.kind !== 'main' && s.kind !== 'rumor');
+    if (at > 0) picked.unshift(...picked.splice(at, 1));
+  }
 
   // --- авторы, отвечающие, разногласия -------------------------------------------------
   const slots = [];
@@ -369,7 +389,8 @@ export function buildAgenda(state, preset, opts = {}) {
         slot = { ...base, author, replier: author ? replierFor(author, ring, state, pos, new Set()) : null };
       }
       Object.assign(slot, {
-        topic: s.thread.topic, stage: s.thread.stage, stageHint: STAGE_HINT[s.thread.stage] || '', threadId: s.thread.id,
+        topic: s.thread.topic, stage: s.thread.stage, stageHint: s.over ? OVER_HINT : (STAGE_HINT[s.thread.stage] || ''), threadId: s.thread.id,
+        over: s.over === true,
         advance: s.advance && slot.mode === 'post', dispute: s.thread.dispute || dissent(slot.author, slot.replier),
       });
     } else if (s.kind === 'rumor') {
@@ -435,15 +456,16 @@ const when = (days) => (days === 0 ? 'идёт сейчас' : days === 1 ? 'з�
 
 /** Одна строка слота для промпта. */
 function slotLine(s) {
-  const who = `Пост пишет: ${s.author.name}.`;
-  const reply = s.replier ? ` Отвечает: ${s.replier.name}.` : '';
+  const who = `Пост П${s.n} пишет: ${s.author.name}.`;
+  // Ответ называет свой пост и разногласие прямо: отвечать надо на содержание поста (баг 66).
+  const reply = s.replier ? ` Ответ О${s.n} пишет: ${s.replier.name} — по сути поста П${s.n}, не мимо него.` : '';
   const split = s.dispute ? ` Разногласие: ${s.dispute}.` : '';
   if (s.mode === 'reply') {
-    return `${s.n}. Массовка, продолжение ветки «${s.topic}»${s.stage ? ` (стадия «${s.stage}»: ${s.stageHint})` : ''}. Продолжи ветку ${s.author.name}: «${s.replyTo.text}». Поста не пиши — только одна реплика О${s.n}, отвечает ${s.replier ? s.replier.name : 'другой статист'}.${split}`;
+    return `${s.n}. Массовка, продолжение ветки «${s.topic}»${s.stage ? ` (стадия «${s.stage}»: ${s.stageHint})` : ''}. Пост ветки, ${s.author.name}: «${s.replyTo.text}». Нового поста не пиши — только реплика О${s.n}, её пишет ${s.replier ? s.replier.name : 'другой статист'} в ответ на слова этого поста.${split}`;
   }
   if (s.kind === 'crowd') return `${s.n}. Массовка, сюжетик «${s.topic}», стадия «${s.stage}»: ${s.stageHint}. ${who}${reply}${split} Сдвинь историю вперёд, не пересказывай начало.`;
   if (s.kind === 'main') return `${s.n}. На людях случилось, видели все: «${s.facts[0].text}». ${who}${reply}${split} Обсуждают случившееся, не добавляя подробностей.`;
-  if (s.kind === 'rumor') return `${s.n}. Слух. ${s.author.name} краем уха слышал(а) чужой разговор: «${s.facts[0].text}». ${who}${reply} Пересказ неточный: перевирает, не уверен(а), сам(а) додумывает. Это слух, а не новость.${split}`;
+  if (s.kind === 'rumor') return `${s.n}. Слух. ${s.author.name} краем уха услышал(а) чужой разговор наедине: «${s.facts[0].text}». ${who}${reply} Пересказ неточный: перевирает, не уверен(а), сам(а) додумывает. Это слух, а не новость; сам разговор в чате не видели.${split}`;
   if (s.kind === 'calendar') return `${s.n}. Календарь: «${s.topic}» — ${when(s.event.days)}. ${who}${reply}${split} Говорят о подготовке, ожиданиях, ссорах вокруг события.`;
   return `${s.n}. Мир: ${s.topic}. ${who}${reply}${split} Бытовое, без героини и сцен из ролевой.`;
 }
@@ -510,7 +532,9 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     'Правила:',
     '— Пост пишет назначенный автор. Ответ — назначенный отвечающий, под постом своего же слота; в слоте не больше '
       + `${Math.max(...agenda.slots.map((s) => s.maxReplies), 1)} ответов. Автор может вернуться в свою ветку только после чужого ответа.`,
-    `— Реплика: одно-два законченных предложения, не длиннее ${FEED_TEXT_MAX - 20} знаков. Не обрывай мысль на полуслове.`,
+    `— Реплика: одно-два законченных предложения, не длиннее ${FEED_TEXT_MAX - 20} знаков. Не обрывай мысль на полуслове. Ответ — не короче ${REPLY_MIN} знаков.`,
+    '— Ответ отвечает на содержание своего поста: цепляется за его слова, возражает, уточняет, поддерживает или подкалывает именно по этому поводу, а не говорит о другом.',
+    '— Не строй реплики по шаблону «я… а ты…» и не начинай подряд одним словом. Длина разная: одна реплика в несколько слов, другая — два предложения. Манера — у каждого своя.',
     '— Намерения, планы, вопросы, мнения, догадки и обиды — можно. Свершившиеся события, которых нет в повестке, календаре и сюжетиках, придумывать нельзя.',
     '— Статист знает только то, что видел сам или о чём шумит чат; слух — неточно и с перевираниями.',
     '— Голос — поведением и манерой, а не словом из типажа («завистница»). Реплики разных людей не похожи.',
@@ -669,6 +693,7 @@ export function parseIssue(text, agenda, opts = {}) {
     const t = tidy(row.body);
     if (t === null) return { reason: `реплика длиннее ${FEED_TEXT_MAX} знаков` };
     if ((t.match(/\p{L}/gu) || []).length < MIN_LETTERS) return { reason: 'пустая реплика' };
+    if (row.kind === 'reply' && t.length < REPLY_MIN) return { reason: `ответ короче ${REPLY_MIN} знаков — не ответ по существу` };
     if (isCutOff(t)) return { reason: 'реплика оборвана на полуслове' };
     if (!slot.heroine && mentionsStop(t, stop)) return { reason: 'речь о героине или персонаже карточки вне слота главных' };
     if (dup(t)) return { reason: 'повтор уже сказанного' };
@@ -832,11 +857,16 @@ export function applyIssue(work, result, agenda, opts = {}) {
     if (slot.facts && idOf.has(slot.n)) usedFacts.push(...slot.facts.map((f) => f.id));
   }
   const after = ensureFeed(work);
+  // Первый слот выпуска и темы всех слотов: следующий выпуск не откроется той же темой.
+  const posted = (agenda.slots || []).filter((s) => idOf.has(s.n) || made.some((id) => id.endsWith(`^${s.n}`)));
+  const lead = posted[0] || (agenda.slots || [])[0];
   after.molva = {
     issue,
     since: 0,
     facts: [...after.molva.facts, ...usedFacts].slice(-MOLVA_FACTS_MAX),
     at: { day, time },
+    topics: [...after.molva.topics, ...(agenda.slots || []).filter((s) => s.topic).map((s) => clip(s.topic, 90))].slice(-MOLVA_TOPICS_MAX),
+    lead: lead && lead.topic ? { topic: clip(lead.topic, 90), stage: lead.stage || '' } : after.molva.lead,
   };
   const delta = deltaOf(work, made, opts.stamp);
   return { ok: true, delta, posts, replies };

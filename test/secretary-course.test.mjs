@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent, dropTokenAt, reactionsOf,
-  pruneReactions, isFactToken, loudOf,
+  pruneReactions, isFactToken, isReactToken, loudOf,
 } from '../core/analysis.mjs';
 import { parseMarker } from '../core/parse-marker.mjs';
 import { applyCorrection, revertCorrection } from '../core/corrections.mjs';
@@ -138,7 +138,8 @@ test('черновик: вычеркнутый факт уносит свои р
   const left = dropTokenAt(tokens, clash);
   assert.deepEqual(reactionsOf(left).map((r) => r.fact), ['skip=chemistry']);
   const bare = dropTokenAt(left, left.indexOf('skip=chemistry'));
-  assert.ok(!bare.some((t) => !isFactToken(t)), 'реакций нет — громкость ушла');
+  assert.ok(!bare.some((t) => isReactToken(t)), 'реакций нет');
+  assert.ok(bare.includes('loud=2'), 'факты остались — громкость при них');
   const oneReaction = tokens.findIndex((t) => t.startsWith('react='));
   assert.equal(reactionsOf(dropTokenAt(tokens, oneReaction)).length, 2, 'реакцию можно вычеркнуть отдельно');
   assert.deepEqual(pruneReactions(tokens), tokens);
@@ -174,12 +175,11 @@ test('промпт: курс списком, два блока, мягкие с�
   const { system, user } = buildAnalysisPrompt(s, preset, { reply: 'Соколова ругается с Петровой.', heroine: 'Аня' });
   assert.match(user, /Курс героини \(id — имя — о человеке\):\n- sokolova — Вера Соколова — хочет попасть в тройку лучших; долг по физике/);
   assert.match(user, /Блок 1\. Что было/);
-  assert.match(user, /Блок 2\. Что сочинено/);
-  assert.match(user, /react=номер факта:кто:chat\|anon:/);
-  assert.match(user, /Пустой блок «Что сочинено» — нормально/);
-  assert.match(user, /Не выдумывай событий, которых не было в сцене, — только реакции на них/);
-  assert.match(user, /а не новое событие/);
-  assert.match(user, /до 6/, 'потолок пресета по умолчанию');
+  assert.match(user, /Блок 2\. Слышно/);
+  assert.match(user, /loud=0\.\.3/);
+  assert.match(user, /private=номера ключей блока 1/);
+  assert.doesNotMatch(user, /react=номер факта/, 'секретарь постов не пишет');
+  assert.match(user, /«Кто» — тот, кто должен или кому назначены отработка, наказание, штраф/, 'направление дела');
   assert.match(system, /двумя блоками/);
   assert.doesNotMatch(user + system, /\b(EVERY|MUST|STRICTLY|CRITICAL|ОБЯЗАТЕЛЬНО)\b/);
   const none = buildAnalysisPrompt({ ...s, classmates: [] }, preset, { reply: '…' });

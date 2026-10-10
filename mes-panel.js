@@ -50,10 +50,14 @@ export const PANEL_TEXT = {
   onlyLast: 'Этот ответ сейчас не разобрать.',
   more: 'ещё {n}',
   talk: 'Что говорят',
-  // `{crowdIn}` и `{tab}` — слова пресета: «в классе», «Молва».
-  talkHint: 'Что говорят {crowdIn} о том, что было. Ничего не меняет — появится во вкладке «{tab}». Вычеркнутый факт уносит свои реакции, вычеркнутый пост — свои ответы.',
+  // Посты ленты секретарь больше не пишет (шаг 3 «Молвы»): у нового разбора здесь
+  // только громкость и пометка «наедине». `{crowdIn}` — слово пресета: «в классе».
+  heard: 'Слышно {crowdIn}',
+  heardHint: 'Сплетни пишет «{tab}» отдельно. Громкость решает, насколько событие заметно.',
+  // `{tab}` — слово пресета: «Молва». Реплики старых разборов, пока они лежат в ленте.
+  talkHint: 'Ничего не меняет — появится во вкладке «{tab}». Вычеркнутый факт уносит свои реакции.',
   // После «Сохранить» — уже не «появится»: записи легли (третий прогон 08.10).
-  talkHintSaved: 'Что говорят {crowdIn} о том, что было. Ничего не меняет — уже во вкладке «{tab}». Вычеркнутый факт уносит свои реакции, вычеркнутый пост — свои ответы.',
+  talkHintSaved: 'Ничего не меняет — уже во вкладке «{tab}». Вычеркнутый факт уносит свои реакции.',
   // Ответ под постом ленты, которого в этом разборе нет.
   inThread: 'ответ на «{post}»',
   nickHint: 'ник-маска: это не человек из списка',
@@ -386,10 +390,10 @@ function buildPanel(host, mesId, view) {
 
   // «Что сочинено» — отдельно и под фактами: реакции ничего не меняют, а
   // держатся каждая за свой факт. Громкость — подписью к разделу.
-  const loud = tokens.find((t) => t.kind === 'loud');
+  const loudRows = tokens.filter((t) => t.kind === 'loud');
   // Ответы — под своим постом, с отступом; ответы к постам ленты (старая
   // ветка) — после, с подписью, к чему (`talkGroups`).
-  const { posts: talk, elsewhere, replies } = talkGroups(tokens);
+  const { posts: talk, elsewhere } = talkGroups(tokens);
   const postRow = (t) => {
     const row = tokenRow(t);
     if (t.replies.length) {
@@ -398,19 +402,27 @@ function buildPanel(host, mesId, view) {
     }
     return row;
   };
-  if (talk.length || replies.length || view.analyzed || view.draft) {
+  if (talk.length || elsewhere.length) {
+    // Старый разбор: реплики секретаря лежат в ленте, их можно вычеркнуть.
     content.append(el('div', { class: 'academy-mes-section academy-mes-talk academy-tone-violet' }, [
       el('div', { class: 'academy-mes-section-head' }, [
         icon('fa-comments'), el('span', { text: PANEL_TEXT.talk }),
-        loud ? el('span', { class: 'academy-mes-about', text: loud.text }) : null,
+        loudRows.length ? el('span', { class: 'academy-mes-about', text: loudRows.map((t) => t.text).join(', ') }) : null,
       ]),
-      talk.length || elsewhere.length
-        ? el('ul', { class: 'academy-mes-tokens' }, [...talk.map(postRow), ...elsewhere.map(tokenRow)])
-        : el('div', { class: 'academy-mes-none', text: PANEL_TEXT.talkNone }),
-      talk.length || elsewhere.length ? el('div', {
+      el('ul', { class: 'academy-mes-tokens' }, [...talk.map(postRow), ...elsewhere.map(tokenRow)]),
+      el('div', {
         class: 'academy-mes-note academy-mes-small',
         text: fillText(view.analyzed && !view.draft ? PANEL_TEXT.talkHintSaved : PANEL_TEXT.talkHint, { crowdIn: labels.crowdIn, tab: labels.feedTab }),
-      }) : null,
+      }),
+    ]));
+  } else if (loudRows.length) {
+    // Новый разбор: громкость и «наедине» — одной строкой, без реплик.
+    content.append(el('div', { class: 'academy-mes-section academy-mes-talk academy-tone-violet' }, [
+      el('div', { class: 'academy-mes-section-head' }, [
+        icon('fa-comments'), el('span', { text: fillText(PANEL_TEXT.heard, { crowdIn: labels.crowdIn }) }),
+        el('span', { class: 'academy-mes-about', text: loudRows.map((t) => t.text).join(', ') }),
+      ]),
+      el('div', { class: 'academy-mes-note academy-mes-small', text: fillText(PANEL_TEXT.heardHint, { tab: labels.feedTab }) }),
     ]));
   }
 

@@ -18,12 +18,12 @@ import {
 } from './core/exams.mjs';
 import {
   buildAnalysisPrompt, parseAnalysis, effectiveText, tokenText, tokenEvent, tokenOf,
-  dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf,
+  dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf, privateRefs,
   unparsedNames, repliesOf, replyOf, isReplyToken, tokenAbout, talkParts,
 } from './core/analysis.mjs';
 import { applySceneEvents, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
-  reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, recentPosts, postByRef,
+  reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, postByRef,
   feedItems as feedItemsOf,
 } from './core/feed.mjs';
 import {
@@ -1785,7 +1785,8 @@ function sceneOfTurn(state, text, tokens, mark, c) {
     ? source.map((token) => ({ token, ev: tokenEvent(token, lexicon) }))
     : parseMarker(text, lexicon).events.map((ev) => ({ ev, token: tokenOf(ev) })).filter((x) => x.token);
   const scene = items.filter((x) => x.ev && SCENE_KINDS.includes(x.ev.kind));
-  if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1 });
+  const privateSet = Array.isArray(tokens) ? privateRefs(tokens) : null;
+  if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1, privateRefs: privateSet });
   const reactions = Array.isArray(tokens) ? reactionsWithFacts(tokens, lexicon) : [];
   const replies = Array.isArray(tokens) ? repliesOf(tokens) : [];
   const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
@@ -2087,7 +2088,9 @@ async function analyzeMessage(mesId) {
     if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
     // Недавние посты ленты — те же, что видел секретарь (`buildAnalysisPrompt`):
     // по ним проверяется `reply=f2:…`. У поправки старого ответа их нет.
-    const parsed = parseAnalysis(res.text, { ...lexiconOf(base, c), feedPosts: turn ? recentPosts(base) : [] });
+    // Посты ленты секретарь не пишет (шаг 3 «Молвы»): строки react=/reply= не принимаются.
+    // `live.legacyPosts` — только для прогонов старых тестов ленты, наружу не настраивается.
+    const parsed = parseAnalysis(res.text, lexiconOf(base, c), { posts: live.legacyPosts === true });
     if (!parsed.found) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       return fail(res.truncated
@@ -2147,9 +2150,10 @@ async function writeAnalysis(mesId, tokens, summary) {
   const lexicon = lexiconOf(live.state, ctx());
   const stop = sceneStop(live.state, ctx());
   const receipts = [];
+  const privateSet = list ? privateRefs(list) : null;
   for (const t of list || []) {
     const ev = tokenEvent(t, lexicon);
-    const step = (s) => applyCorrection(s, ev, live.preset, { day, src: mark, token: t, stop, heroine: ctx().name1 });
+    const step = (s) => applyCorrection(s, ev, live.preset, { day, src: mark, token: t, stop, heroine: ctx().name1, privateRefs: privateSet });
     steps.push(step);
     receipts.push(null);
   }
@@ -2716,7 +2720,9 @@ async function runMolva({ auto = false, mark = '' } = {}) {
         truncated: res.truncated === true,
         existing: feedItemsOf(live.state).slice(-40).map((x) => x.text),
       });
-      const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto });
+      // Дата записей — день выпуска, по живому календарю (после скачка времени — новый, не прежний).
+      const cal = live.state.calendar || {};
+      const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time });
       if (parsed.rejected.length) console.info(`[${MODULE}] молва: отброшено`, parsed.rejected);
       if (!out.ok) {
         // Автомат не бьёт по запросам после каждого ответа: счёт сбрасывается, дельта-пустышка
