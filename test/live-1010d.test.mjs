@@ -187,7 +187,7 @@ test('84: присказка автора в третьей реплике по�
   assert.equal(overusedCatchphrase('Только никому', author, history.slice(1), new Map()), '', 'в одной из двух — не тик');
 });
 
-test('84/91: в промптах каста и молвы чужие заклинания запрещены общими словами, без названий и присказка в каждой реплике', async () => {
+test('84/91: в промптах каста и слухов чужие заклинания запрещены общими словами, без названий и присказка в каждой реплике', async () => {
   const { buildCastPrompt } = await import('../core/feed-cast.mjs');
   const { buildMolvaPrompt, planIssue } = await import('../core/molva.mjs');
   const cast = buildCastPrompt({ preset, heroine: 'Аня' });

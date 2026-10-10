@@ -27,7 +27,7 @@ const SECTION_ICONS = [
   [/api|генерац/i, 'fa-plug'],
   [/времен/i, 'fa-clock'],
   [/разбор|экзамен/i, 'fa-wand-magic-sparkles'],
-  [/лорбук/i, 'fa-book-atlas'],
+  [/лорбук|книг[ауи]? мира/i, 'fa-book-atlas'],
   [/отладк|доктор/i, 'fa-bug'],
   [/выгруз|загруз|файл/i, 'fa-file-arrow-down'],
   // Вкладка достижений в пресетах называется своим словом мира («Свершения»,
@@ -38,10 +38,10 @@ const SECTION_ICONS = [
   [/ремонт|поправ/i, 'fa-screwdriver-wrench'],
   [/портрет/i, 'fa-palette'],
   // Начало семестра («круга», «терма», «цикла»…) — флажок старта; лента — слово
-  // вкладки «Поток»/«Молва»/«Шёпот»; массовка — «Статисты и сюжетики». У каждого
+  // вкладки «Слухи»/«Пересуды»/«Шепотки»; массовка — «Статисты и сюжетики». У каждого
   // раздела свой значок: общая точка у соседей читалась как повтор (п. 78).
   [/начал|старт/i, 'fa-flag-checkered'],
-  [/^(?:молва|поток|шёпот|шепот|лент)/i, 'fa-comments'],
+  [/^(?:слух|поток|шёпот|шепот|пересуд|сплетн|болтов|эфир|кампус|казарм|лент)/i, 'fa-comments'],
   [/статист|сюжетик/i, 'fa-users'],
 ];
 
@@ -110,6 +110,7 @@ export const DEFAULT_UI = {
   noNext: 'Следующей пары в расписании пока нет.',
   dayTitle: 'День целиком',
   shiftPeriod: '+1 пара',
+  skipToEnd: 'До конца пар',
 
   // --- придержанный прыжок времени -----------------------------------------
   // Слова нейтральные: расширение не знает, чей это был текст — отыгрыша или
@@ -195,8 +196,8 @@ export const DEFAULT_UI = {
   tabGradebook: 'Зачётка',
   tabPeople: 'Люди',
   tabAchievements: 'Достижения',
-  // Лента курса (шаг 4): у магической академии «Молва», у дарк академии «Шёпот».
-  tabFeed: 'Поток',
+  // Лента курса (шаг 4): у казармы «Казарма», у дарк академии «Пересуды».
+  tabFeed: 'Слухи',
   tabSettings: 'Настройки',
 
   // --- настройки: учебный план ----------------------------------------------
@@ -304,9 +305,9 @@ export const DEFAULT_UI = {
     + ' поэтому знакомые вещи могут называться иначе',
 
   // --- настройки: лорбук (3.7) ----------------------------------------------
-  lorebookSection: 'Лорбук академии',
-  lorebookToggle: 'Вести лорбук академии',
-  lorebookNote: 'Черты преподавателей и однокурсников, места и хроника уходят в World Info, где запись подгружается по ключу, а не висит в промпте постоянно. Выключено по умолчанию: чужой лорбук расширение своими записями не засоряет.',
+  lorebookSection: 'Книга мира академии',
+  lorebookToggle: 'Вести книгу мира академии',
+  lorebookNote: 'Черты преподавателей и однокурсников, места и хроника уходят в книгу мира (World Info), где запись подгружается по ключу, а не висит в промпте постоянно. Выключено по умолчанию: чужой лорбук расширение своими записями не засоряет.',
   lorebookBound: 'Лорбук «{name}» привязан к этому чату.',
   lorebookNoName: 'Лорбук ещё не заведён: он появится с первым ответом модели.',
   lorebookBookField: 'Имя лорбука',
@@ -334,7 +335,7 @@ export const DEFAULT_UI = {
   lorebookPrune: 'Убрать осиротевшие ({count})',
   lorebookPruned: 'Убрано записей: {count}.',
   lorebookOff: 'Лорбук выключен.',
-  lorebookNoWorldInfo: 'Эта сборка таверны не отдаёт World Info расширениям, поэтому лорбука не будет. Всё остальное работает.',
+  lorebookNoWorldInfo: 'Эта сборка таверны не отдаёт книгу мира (World Info) расширениям, поэтому записей не будет. Всё остальное работает.',
   lorebookNoChat: 'Лорбук привязывается к чату, а чат ещё не сохранён. Он заведётся с первым сообщением.',
   lorebookNoState: 'Лорбук заведётся, когда начнётся семестр.',
   lorebookError: 'Лорбук не обновился: {error}',
@@ -672,19 +673,19 @@ export const EXTRA_UI = {
   castHit: 'Похоже, это персонаж карточки, а не человек из списка «{course}». Убрать?',
   castHitRemove: 'Убрать',
 
-  // --- выпуск молвы (core/molva.mjs, шаг 2 «Молвы») ---------------------------------
-  molvaWhen: 'Когда обновлять молву',
-  molvaEvery: 'Обновлять молву раз в',
+  // --- выпуск слухов (core/molva.mjs, шаг 2 «Слухов») ---------------------------------
+  molvaWhen: 'Когда обновлять слухи',
+  molvaEvery: 'Обновлять слухи раз в',
   molvaEveryUnit: 'ответов',
-  molvaManual: 'Только по кнопке «Обновить молву»',
+  molvaManual: 'Только по кнопке «Обновить слухи»',
   molvaPrice: 'Каждое обновление — отдельный запрос к модели после ответа. Каждый ответ — вдвое больше запросов, раз в 3–5 ответов заметно дешевле, а ветки выходят полнее.',
   molvaManualNote: 'Пропущенные обновления потом не догоняются; кнопка работает всегда.',
-  molvaButton: 'Обновить молву',
-  molvaDone: 'Молва обновилась: постов {posts}, ответов {replies}.',
+  molvaButton: 'Обновить слухи',
+  molvaDone: 'Слухи обновились: постов {posts}, ответов {replies}.',
   molvaDoneSkipped: ' Часть реплик не прошла проверку и пропущена.',
   molvaBusyText: 'Пишут…',
 
-  // --- статисты ленты и сюжетики массовки (core/feed-cast.mjs, шаг 1 «Молвы») -
+  // --- статисты ленты и сюжетики массовки (core/feed-cast.mjs, шаг 1 «Слухов») -
   mobSection: 'Статисты и сюжетики',
   mobNote: 'Постоянные ученики, которые пишут в ленту: у каждого свой интерес, цель и манера речи, у каждого есть друг и недруг среди своих же. Героиня им не указ — у них свои дела. Состав постоянный: новые статисты сами не появляются.',
   mobEmpty: 'Статистов пока нет — нажмите «Пересобрать каст», чтобы собрать их.',
@@ -701,7 +702,7 @@ export const EXTRA_UI = {
   mobSaved: 'Сохранено.',
   mobWarn: 'Проверьте: {text}',
   mobThreadsTitle: 'Сюжетики массовки',
-  mobThreadsNone: 'Открытых сюжетиков нет — они заведутся сами, когда молва пойдёт.',
+  mobThreadsNone: 'Открытых сюжетиков нет — они заведутся сами, когда слухи пойдут.',
   mobThreadStage: 'стадия: {stage}',
   mobThreadSource: { calendar: 'из календаря', study: 'из учёбы', cast: 'из жизни статистов' },
   mobThreadWho: 'участвуют: {names}',
@@ -837,7 +838,7 @@ export const EXTRA_UI = {
   // школы — «Чат класса», у кадетов — «Чат взвода»: пресет перекрывает.
   feedChat: 'Чат курса',
   feedAnon: 'Анонимка',
-  feedEmpty: 'Пока тихо. Молва появится сама через несколько ответов — или нажмите «Обновить молву».',
+  feedEmpty: 'Пока тихо. Слухи появятся сами через несколько ответов — или нажмите «Обновить слухи».',
   feedEmptyChat: 'В чате пока тихо.',
   feedEmptyAnon: 'Пока тихо. Сюда попадают слухи о сценах без свидетелей.',
   feedFromScene: 'из сцены',
@@ -877,7 +878,7 @@ export const EXTRA_UI = {
   feedDealsTitle: 'Незакрытые дела',
   feedHooksOff: 'Поводы выключены в настройках — здесь можно только читать.',
   feedMuteHint: 'Напишите в реплике «(без сплетен)» — на этот ход поводы и фон промолчат.',
-  // Заголовок блока настроек — само слово вкладки (`tabFeed`: «Поток», «Молва»).
+  // Заголовок блока настроек — само слово вкладки (`tabFeed`: «Слухи», «Пересуды»).
   // Галочки названы одинаково с тем, что они включают (третий прогон 08.10).
   feedHooksToggle: 'Поводы в сюжет («Взять в сюжет»)',
   feedBackgroundToggle: 'Фон в сцене',
@@ -894,6 +895,16 @@ export const EXTRA_UI = {
 
   // --- сводка прыжка (9.4.4): один тост вместо пачки --------------------------
   jumpToast: 'Прошло занятий: {periods}, все засчитаны как посещённые.',
+
+  // --- приостановка занятий: секретарь увидел «начались каникулы» ------------
+  pauseTitle: 'Занятия приостановлены',
+  pauseOpen: 'с {from}, до отмены',
+  pauseCancel: 'Отменить',
+  pauseEdit: 'Изменить',
+  pauseSave: 'Сохранить',
+  pauseUntilCancelled: 'До отмены',
+  pauseCancelled: 'Период убран, занятия идут по расписанию.',
+  pauseSaved: 'Даты обновлены.',
 };
 
 /**
@@ -992,6 +1003,93 @@ export function el(tag, attrs, children) {
 }
 
 export const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); return node; };
+
+// --- подсказки ⓘ к словам мира ----------------------------------------------
+
+/** Ключ сравнения слов подсказки: регистр и «ё» не важны. */
+const hintKey = (v) => String(v == null ? '' : v).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+
+/**
+ * Пояснение слова мира из `preset.glossary`: слово, как оно видно на экране
+ * («Седмица 5», «Перерыв между кругами»), совпадает с ключом целиком или
+ * содержит его. Из нескольких текстов берётся первый, у которого есть
+ * подсказка; из нескольких ключей — самый длинный.
+ *
+ * @returns {?{term: string, text: string}}
+ */
+export function glossaryHint(preset, ...texts) {
+  const g = preset && preset.glossary && typeof preset.glossary === 'object' ? preset.glossary : null;
+  if (!g) return null;
+  const keys = Object.keys(g).filter((k) => typeof g[k] === 'string' && g[k].trim() && hintKey(k));
+  for (const t of texts) {
+    const x = hintKey(t);
+    if (!x) continue;
+    const hit = keys.filter((k) => x === hintKey(k) || x.includes(hintKey(k))).sort((a, b) => b.length - a.length)[0];
+    if (hit) return { term: hit, text: g[hit].trim() };
+  }
+  return null;
+}
+
+// Одно всплывающее пояснение на всю страницу: тап по значку открывает его у
+// значка, тап куда угодно, Esc или прокрутка закрывают. Наведения не нужно —
+// на телефоне его нет.
+let hintPop = null;
+let hintOwner = null;
+
+function closeHint() {
+  if (hintPop) hintPop.hidden = true;
+  if (hintOwner) hintOwner.setAttribute('aria-expanded', 'false');
+  hintOwner = null;
+}
+
+function openHint(button, hint) {
+  if (hintOwner === button) { closeHint(); return; }
+  closeHint();
+  if (!hintPop) {
+    hintPop = el('div', { class: 'academy-hint-pop', role: 'tooltip' });
+    document.body.append(hintPop);
+    document.addEventListener('click', (ev) => {
+      if (hintOwner && !hintOwner.contains(ev.target) && !hintPop.contains(ev.target)) closeHint();
+    });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeHint(); });
+    window.addEventListener('scroll', closeHint, true);
+    window.addEventListener('resize', closeHint);
+  }
+  clear(hintPop).append(el('b', { text: hint.term }), ' — ', hint.text);
+  hintPop.hidden = false;
+  const r = button.getBoundingClientRect();
+  const width = Math.min(280, window.innerWidth - 16);
+  hintPop.style.width = `${width}px`;
+  hintPop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - 8))}px`;
+  hintPop.style.top = `${r.bottom + 6}px`;
+  hintPop.id = hintPop.id || 'academy-hint-pop';
+  button.setAttribute('aria-expanded', 'true');
+  button.setAttribute('aria-describedby', hintPop.id);
+  hintOwner = button;
+}
+
+/**
+ * Значок ⓘ рядом со словом мира: нажатие (тап, Enter, пробел) показывает
+ * пояснение из `preset.glossary`. `null`, если для этих слов подсказки нет, —
+ * вызывающий кладёт результат в список детей как есть.
+ */
+export function hintIcon(preset, ...texts) {
+  const hint = glossaryHint(preset, ...texts);
+  if (!hint) return null;
+  const label = `${hint.term}: ${hint.text}`;
+  const button = el('span', {
+    class: 'academy-hint',
+    role: 'button',
+    tabindex: '0',
+    title: label,
+    'aria-label': label,
+    'aria-expanded': 'false',
+  }, [el('i', { class: 'fa-solid fa-circle-info', 'aria-hidden': 'true' })]);
+  const toggle = (ev) => { ev.preventDefault(); ev.stopPropagation(); openHint(button, hint); };
+  button.addEventListener('click', toggle);
+  button.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') toggle(ev); });
+  return button;
+}
 
 /**
  * Кружок автора (`core/masks.authorAvatar`): значок маски, силуэт анонимки

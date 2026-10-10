@@ -1,15 +1,15 @@
 // ui/today.js — вкладка «Сегодня»: день, пара, исход проверки, промотка
 // времени и ручная установка часов.
 
-import { currentPeriod, dayPlan, nextPeriod } from '../core/schedule.mjs';
+import { currentPeriod, dayEndInfo, dayPlan, nextPeriod } from '../core/schedule.mjs';
 import { dayOfWeek, isStalled, phaseOf, termAt, weekdayShiftOf, weekIndex } from '../core/time.mjs';
 import { gradeInfo, isPassing } from '../core/exams.mjs';
 import {
   uiLabels, fill, TIME_VIA, stateHealth, formatDate, formatWeek, termTitle, capNumbers, plural,
   extraLabels, whereText, slotText, mounted, el, runAction, setStatus, renderEmpty, call,
-  renderPanel,
+  renderPanel, hintIcon,
 } from './common.js';
-import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock } from './holidays.js';
+import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock, pauseView, pauseBlock } from './holidays.js';
 
 /** Ночь: до первого звонка утра и после того, как заведение закрылось. */
 const NIGHT_FROM = 22 * 60;
@@ -185,6 +185,8 @@ export function todayView(state, preset) {
     phaseLabel: U.phases[phase] || phase,
     precision: cal.precision,
     time: hasClock ? cal.time : null,
+    // Кнопка «До конца занятий»: только в учебный день, пока занятия ещё впереди.
+    canSkipToEnd: dayEndInfo(state, preset).available,
     silent,
     silentReason,
     now,
@@ -224,7 +226,9 @@ export function todayView(state, preset) {
     // как оценки в зачётке, а не сводная метрика.
     exams: examResultsToday(state, preset),
     holidays: holidaysView(state, preset),
-    ownEvents: ownEventsView(state),
+    ownEvents: ownEventsView(state, preset),
+    // Идущая приостановка занятий (секретарь увидел «начались каникулы»).
+    pause: pauseView(state, preset),
     numbers: capped.shown,
     droppedNumbers: capped.dropped,
   };
@@ -326,12 +330,13 @@ export function renderToday(host, view, preset) {
     el('div', { class: 'academy-date', text: view.dateLine }),
     el('div', { class: 'academy-week' }, [
       view.weekLine,
+      hintIcon(preset, view.weekLine),
       // Имя периода стоит рядом с фазой той же «таблеткой»: строка `academy-week`
       // и так переносится по словам, поэтому на телефоне она уедет вниз, а не
       // растянет панель (3.9). Своего класса в `style.css` не заводим — вид у
       // неё тот же, что у фазы.
-      view.termLine ? el('span', { class: 'academy-phase academy-term', text: view.termLine }) : null,
-      el('span', { class: 'academy-phase', text: view.phaseLabel }),
+      view.termLine ? el('span', { class: 'academy-phase academy-term' }, [view.termLine, hintIcon(preset, view.termLine)]) : null,
+      el('span', { class: 'academy-phase' }, [view.phaseLabel, hintIcon(preset, view.phaseLabel)]),
       view.time ? el('span', { class: 'academy-clock', text: view.time }) : null,
     ]),
   ]));
@@ -339,6 +344,7 @@ export function renderToday(host, view, preset) {
   // Вопрос про прыжок времени — самым первым: внизу под расписанием его не
   // замечали, а пока он висит, календарь стоит на месте.
   if (view.heldJump) box.append(heldJumpBlock(host, view, U));
+  if (view.pause) box.append(pauseBlock(host, view.pause, extraLabels(preset)));
 
   const X0 = extraLabels(preset);
   if (X0.weekHint) box.append(el('div', { class: 'academy-note academy-week-hint', text: X0.weekHint }));
@@ -396,7 +402,7 @@ export function renderToday(host, view, preset) {
   }
 
   const X = extraLabels(preset);
-  const holidays = holidaysBlock(view.holidays, X);
+  const holidays = holidaysBlock(view.holidays, X, preset);
   if (holidays) box.append(holidays);
   box.append(ownEventsBlock(host, view, X));
 
@@ -507,9 +513,13 @@ function manualTimeBlock(host, view, U) {
   count.checked = Boolean(mounted.repairCount);
   count.addEventListener('change', () => { mounted.repairCount = Boolean(count.checked); });
 
-  const send = (patch, btn) => runAction(
+  // `action` — какой метод хозяина звать: ручной ремонт или «До конца занятий»
+  // (тот сам засчитывает оставшееся посещённым, галочка ему не нужна).
+  const send = (patch, btn, action = 'manualTime') => runAction(
     btn, status,
-    () => call(host, 'manualTime', { ...patch, count: Boolean(count.checked) }),
+    () => (action === 'manualTime'
+      ? call(host, action, { ...patch, count: Boolean(count.checked) })
+      : call(host, action)),
     'Календарь поправлен.',
   ).then((res) => {
     // Куда ушли часы и что стало с ведомостью, надо сказать до перерисовки:
@@ -554,6 +564,12 @@ function manualTimeBlock(host, view, U) {
           text: U.shiftPeriod,
           onclick: (e) => send({ shift: { periods: 1 } }, e.currentTarget),
         }),
+        view.canSkipToEnd ? el('div', {
+          class: 'menu_button academy-btn',
+          text: U.skipToEnd,
+          title: 'Промотать время; оставшиеся занятия считаются посещёнными',
+          onclick: (e) => send({}, e.currentTarget, 'skipToDayEnd'),
+        }) : null,
         el('div', {
           class: 'menu_button academy-btn',
           text: '+1 день',

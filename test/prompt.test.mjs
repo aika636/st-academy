@@ -69,7 +69,7 @@ test('строка состояния — одна, и в ней то, что в
   assert.ok(line.includes('Сейчас: физика (Иванов)'), line);
   assert.ok(line.includes(`${cap(preset.vocab.debtPlural)}: физика`), line);
   assert.ok(line.includes('3.5'), line);
-  assert.ok(line.includes('Иванов: неприязнь'), line);
+  assert.ok(line.includes('Иванов: недолюбливает'), line);
   assert.ok(line.endsWith('.'), line);
 
   // Числа шкал наружу не выходят вовсе: только ярлыки пресета (3.3, 3.4).
@@ -115,7 +115,7 @@ test('лимит чисел из пресета режет по приорите
   assert.ok(line.includes('3-я неделя'), line);
   assert.ok(line.includes('Сейчас: физика'), line);
   assert.ok(line.includes('физика'), line);
-  assert.ok(line.includes('Иванов: неприязнь'), line);
+  assert.ok(line.includes('Иванов: недолюбливает'), line);
   assert.equal(line.includes(preset.vocab.score), false, 'средний балл вытеснен');
 
   // Ноль чисел — остаётся только бесчисленное, и строка всё ещё осмысленна.
@@ -171,7 +171,7 @@ test('в сессии тон меняется: несданное и остат�
   assert.equal(line.includes('Сейчас:'), false, 'в сессию расписания нет');
   assert.equal(line.includes('Сегодня:'), false);
   // В кадре — преподаватель ближайшего контрольного, а не сегодняшней пары.
-  assert.ok(line.includes('Петрова: неприязнь'), line);
+  assert.ok(line.includes('Петрова: недолюбливает'), line);
 });
 
 // --- инструкция про метку (3.1) ---------------------------------------------

@@ -282,11 +282,11 @@ test('одноразовый инжект не дублируется и сни�
 test('labelFor даёт слово по числу на границах таблицы', () => {
   // Наружу уходит слово, число остаётся внутри (3.3).
   const rel = PRESET.relations.labels;
-  assert.equal(labelFor(rel, -5), 'ненавидит');
-  assert.equal(labelFor(rel, -4), 'ненавидит');
-  assert.equal(labelFor(rel, 0), 'ровно');
-  assert.equal(labelFor(rel, 5), 'любимица');
-  assert.equal(labelFor(rel, 99), 'любимица');
+  assert.equal(labelFor(rel, -5), 'не терпит');
+  assert.equal(labelFor(rel, -4), 'не терпит');
+  assert.equal(labelFor(rel, 0), 'не выделяет');
+  assert.equal(labelFor(rel, 5), 'покровительствует');
+  assert.equal(labelFor(rel, 99), 'покровительствует');
   assert.equal(labelFor([], 3), '');
 });
 

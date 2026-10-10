@@ -55,12 +55,12 @@ export const DEBUG_TEXT = {
   divergenceDice: '{subject}: посчитано {computed}, кубик соседа решил {said}.',
   divergenceDiceUnread: '{subject}: кубик соседа дал {said}, в шкалу не легло — посчитанное осталось.',
   noDivergence: 'Расхождений посчитанного с версией модели не было.',
-  // Выпуск молвы: что ответила модель и почему строки отброшены (баг 70).
-  molvaTitle: 'Последний выпуск молвы',
+  // Выпуск слухов: что ответила модель и почему строки отброшены (баг 70).
+  molvaTitle: 'Последний выпуск слухов',
   molvaHead: 'Строк нужного вида в ответе: {rows}; легло постов {posts}, ответов {replies}{tail}.',
   molvaTruncated: ' (ответ модели оборвался)',
   molvaNoEnd: ' (без строки КОНЕЦ)',
-  molvaRejectedTitle: 'Что отброшено в молве и почему',
+  molvaRejectedTitle: 'Что отброшено в слухах и почему',
   molvaMovedTitle: 'Принято с заменой автора',
   molvaWarnedTitle: 'Принято с замечанием',
   molvaRawSummary: 'Сырой ответ модели',
@@ -263,6 +263,8 @@ export function describeApplied(item, vocab, ctx = {}) {
     case 'exams-dated': return `назначено по календарю: ${item.added} — ${item.day}`;
     case 'event': return `в планы: ${item.name} — ${item.from}`;
     case 'event-known': return `уже в планах: ${item.name}`;
+    case 'pause': return `${item.action === 'close' ? 'занятия возобновились' : 'занятия приостановлены'}: ${item.name} — ${item.from}`;
+    case 'pause-known': return 'приостановка уже в календаре';
     default: return `${item.kind}${item.subjectId ? `: ${item.subjectId}` : ''}`;
   }
 }
@@ -312,7 +314,7 @@ function shortData(data) {
 }
 
 /**
- * Последний выпуск молвы для вкладки: заголовок, отброшенные строки с причинами,
+ * Последний выпуск слухов для вкладки: заголовок, отброшенные строки с причинами,
  * принятые с заменой автора и сырой ответ модели. Без DOM; `null` — выпусков не было.
  */
 export function molvaDebugView(d) {
@@ -362,7 +364,7 @@ export function renderDebug(host, view) {
     box.append(el('div', { class: 'academy-silent', text: view.noRun }));
   }
 
-  // Выпуск молвы: сырой ответ модели и причины отброса — чтобы следующий прогон показал правду.
+  // Выпуск слухов: сырой ответ модели и причины отброса — чтобы следующий прогон показал правду.
   const molva = molvaDebugView(safe(() => (host.getMolvaDebug ? host.getMolvaDebug() : null), null));
   if (molva) {
     box.append(el('div', { class: 'academy-debug-block' }, [

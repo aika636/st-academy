@@ -507,6 +507,8 @@ export function validateState(state, preset) {
         else if (!isDay(e.from)) bad(`событие «${e.name}»: день «${e.from}» не в форме ГГГГ-ММ-ДД`);
         else if (e.to !== undefined && e.to !== null && (!isDay(e.to) || e.to < e.from)) bad(`событие «${e.name}»: конец раньше начала`);
         else if (e.off !== undefined && typeof e.off !== 'boolean') bad(`событие «${e.name}»: «занятий нет» — не да/нет`);
+        else if (e.open !== undefined && typeof e.open !== 'boolean') bad(`событие «${e.name}»: «до отмены» — не да/нет`);
+        else if (e.pause !== undefined && typeof e.pause !== 'boolean') bad(`событие «${e.name}»: «приостановка» — не да/нет`);
       }
     }
   }

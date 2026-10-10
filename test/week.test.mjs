@@ -161,7 +161,7 @@ test('учебная неделя целиком: пары, оценки, хво
   assert.equal(historyRow.debt, true);
   assert.equal(historyRow.passed, false);
   assert.equal(historyRow.relation, relationLabel(s, 'sidorova', preset), 'отношение — словом');
-  assert.equal(historyRow.relation, 'неприязнь', 'три прогула подряд преподаватель заметил');
+  assert.equal(historyRow.relation, 'недолюбливает', 'три прогула подряд преподаватель заметил');
   assert.ok(
     afterDebt.numbers.some((n) => n.key === 'debts' && n.text.includes('хвосты')),
     `в сводных числах нет хвостов: ${JSON.stringify(afterDebt.numbers)}`,

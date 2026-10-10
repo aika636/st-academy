@@ -502,7 +502,7 @@ test('«Люди»: число отношения видно рядом со с�
   assert.equal(value, preset.relations.min);
 
   const petrova = peopleView(state, preset).teachers.find((t) => t.id === 'petrova');
-  assert.equal(petrova.relation, 'ненавидит', 'слово осталось');
+  assert.equal(petrova.relation, 'не терпит', 'слово осталось');
   assert.equal(petrova.score, `−${-value}`, 'число со знаком минус, а не дефисом');
   assert.equal(peopleView(started(), preset).teachers.find((t) => t.id === 'petrova').score, '', 'без истории числа нет');
 });
@@ -525,7 +525,7 @@ test('«Люди»: память «за что» — каждый сдвиг с�
   assert.deepEqual(petrova.memory.map((m) => m.text),
     ['+1 — спасла опыт', '−1', '−2 — прогул: аналитическая химия'],
     'свежим вперёд, со знаком; без повода — только знак, без «без повода» и висящего тире');
-  assert.equal(petrova.memory[2].shift, 'ровно → неприязнь', 'переход ярлыка живёт при своём сдвиге');
+  assert.equal(petrova.memory[2].shift, 'не выделяет → недолюбливает', 'переход ярлыка живёт при своём сдвиге');
   assert.equal(petrova.memory[1].shift, '', 'сдвиг внутри ярлыка перехода не выдумывает');
   assert.equal(petrova.memory[0].sign, '+1');
   assert.equal(petrova.memoryText, '');

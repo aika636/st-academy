@@ -17,8 +17,8 @@
 //     molva: { issue, since, facts: [factId…], at: {day, time}, topics: [текст…], lead: {topic, stage} },
 //   }
 //
-// `cast` — постоянные статисты молвы (до 8), `threads` — сюжетики массовки
-// (до 3): шаг 1 плана «Молва» (`etap-molva.md`). Что с ними делать — в
+// `cast` — постоянные статисты слухов (до 8), `threads` — сюжетики массовки
+// (до 3): шаг 1 плана «Слухи» (`etap-molva.md`). Что с ними делать — в
 // `core/feed-cast.mjs` и `core/feed-threads.mjs`; здесь только форма и
 // нормализация, чтобы они жили в `state.feed` и откатывались со всей лентой.
 // `molva` — счёт выпусков (шаг 2, `core/molva.mjs`): номер выпуска, сколько
@@ -290,9 +290,9 @@ export function normalizeItem(raw) {
     // что пересказывают лорбук и фон после «говорят, что…» (`scene.sceneGist`).
     gist: kind === 'fact' ? clipText(raw.gist, FEED_TEXT_MAX) : '',
     playedSrc: raw.status === 'played' ? str(raw.playedSrc) : '',
-    // Сцена без свидетелей: в молву она идёт только слухом (`core/molva.mjs`).
+    // Сцена без свидетелей: в слухи она идёт только слухом (`core/molva.mjs`).
     ...(kind === 'fact' && raw.private === true ? { private: true } : {}),
-    // Заметный факт о героине из разбора (прогул, опоздание, провал, триумф): тема молвы
+    // Заметный факт о героине из разбора (прогул, опоздание, провал, триумф): тема слухов
     // с низким приоритетом, а не повод рассказчику и не пункт ленты (`core/scene.mjs`).
     ...(kind === 'fact' && raw.minor === true ? { minor: true } : {}),
   };
@@ -491,7 +491,7 @@ export function normalizeThreads(raw, cast) {
 /** Сколько фактов-тем выпусков помнит счёт: старые давно вышли из «нового». */
 export const MOLVA_FACTS_MAX = 60;
 
-/** Счёт выпусков молвы: ни одного, ни одного ответа с тех пор, ни одного факта. */
+/** Счёт выпусков слухов: ни одного, ни одного ответа с тех пор, ни одного факта. */
 export function emptyMolva() {
   return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' }, leads: [], cal: [] };
 }
@@ -514,7 +514,7 @@ export function normalizeMolva(raw) {
     since: num(src.since),
     facts: (Array.isArray(src.facts) ? src.facts : []).map(str).filter(Boolean).slice(-MOLVA_FACTS_MAX),
     at: { day: str(src.at && src.at.day), time: str(src.at && src.at.time) },
-    // Темы последних выпусков и тема, что открывала прошлый: молва не начинается дважды одним.
+    // Темы последних выпусков и тема, что открывала прошлый: слухи не начинается дважды одним.
     topics: (Array.isArray(src.topics) ? src.topics : []).map((t) => clipText(t, 90)).filter(Boolean).slice(-MOLVA_TOPICS_MAX),
     lead: { topic: clipText(src.lead && src.lead.topic, 90), stage: str(src.lead && src.lead.stage) },
     // Открывающие темы трёх последних выпусков и когда в последний раз шёл слот «Календарь» о событии.

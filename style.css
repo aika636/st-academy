@@ -750,12 +750,12 @@
   font-weight: 600;
 }
 
-/* Подзаголовок внутри общего блока «Молва» в настройках. */
+/* Подзаголовок внутри общего блока «Слухи» в настройках. */
 .academy-mob-heading {
   margin-top: 12px;
 }
 
-/* «Обновлять молву раз в [3] ответов» — в одну строку, поле узкое. */
+/* «Обновлять слухи раз в [3] ответов» — в одну строку, поле узкое. */
 .academy-field-inline {
   flex-direction: row;
   flex-wrap: wrap;
@@ -895,7 +895,7 @@
   font-weight: 600;
 }
 
-/* Галочка с подписью: в строку, подпись обычным шрифтом (баг 78: в блоке «Молва» галочка стояла над подписью). */
+/* Галочка с подписью: в строку, подпись обычным шрифтом (баг 78: в блоке «Слухи» галочка стояла над подписью). */
 .academy-check {
   display: flex;
   align-items: center;
@@ -2949,4 +2949,41 @@
   padding: 9px 0;
   box-sizing: border-box;
   cursor: pointer;
+}
+
+/* Подсказка ⓘ к слову мира (ui/common.js: hintIcon). Всплывает у значка, закрывается тапом мимо. */
+.academy-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  margin-left: 4px;
+  color: var(--academy-dim);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.academy-hint:hover,
+.academy-hint:focus-visible {
+  color: var(--academy-accent);
+  outline: none;
+}
+
+.academy-hint-pop {
+  position: fixed;
+  z-index: 10001;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--academy-line, rgba(128, 128, 128, 0.5));
+  border-radius: 8px;
+  background-color: var(--academy-bg);
+  color: var(--academy-ink);
+  font-size: 0.9em;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.academy-hint-pop[hidden] {
+  display: none;
 }

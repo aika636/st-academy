@@ -503,7 +503,7 @@ export function renderSettings(host) {
   box.append(renderSoundBlock(host, preset, settings));
 
   // --- поток курса: поводы в сюжет (шаг 4) --------------------------------
-  // Один блок «Молва» (баг 30): поводы, частота выпусков и каст со статистами.
+  // Один блок «Слухи» (баг 30): поводы, частота выпусков и каст со статистами.
   box.append(renderFeedBlock(host, preset, settings, renderCastParts(host, preset)));
 
   // --- портреты: «Нарисовать» через провайдеров таверны (аватарки, шаг 4) ---

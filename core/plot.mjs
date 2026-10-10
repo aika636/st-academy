@@ -91,7 +91,7 @@ export const DEFAULT_PLOT_PHRASES = {
   // «Кто-то с курса» — словом пресета (`vocab.someone`: «кто-то из класса»).
   someone: 'кто-то с курса',
   gossip: 'пишут без подписи: «{text}»',
-  // Пост молвы — выдумка статиста, а не событие: происхождение называется прямо (шаг 4 «Молвы»).
+  // Пост слухов — выдумка статиста, а не событие: происхождение называется прямо (шаг 4 «Слухов»).
   molva: 'слух от {who}: «{text}»; само утверждение не установленный факт',
   rumorFact: 'говорят, что {gist}',
   // Пост о публичном факте — не слух: «слух» только у слухов и подслушанного (баг 93).
@@ -266,12 +266,12 @@ function nameOf(id, state, P, heroine) {
   return shortName(p.name || p.id, { teacher }) || p.id;
 }
 
-/** Пост молвы о публичном факте сцены: не слух, а разговор о случившемся. */
+/** Пост слухов о публичном факте сцены: не слух, а разговор о случившемся. */
 function isPublicTalk(item) {
   return isMolva(item) && item.rumor !== true && item.chan !== 'anon' && Boolean(item.factText);
 }
 
-/** Запись выпуска молвы (`core/molva`): её id начинается с `molva-`. */
+/** Запись выпуска слухов (`core/molva`): её id начинается с `molva-`. */
 function isMolva(item) {
   return item.kind === 'reaction' && /^molva-/.test(String(item.src || ''));
 }
@@ -294,14 +294,14 @@ export function hookCore(state, ref, opts = {}) {
     if (item.kind === 'fact') core = item.rumor && item.gist ? fill(P.rumorFact, { gist: bare(item.gist) }) : item.text;
     else if (item.chan === 'anon') core = fill(P.gossip, { text: bare(unsaid(item.text)) });
     // Маска — не человек: в чате с ней говорят как с типажом («футболист-альфа»), но
-    // пост молвы подписан ником и типажом в скобках: «слух от @ник (типаж)».
+    // пост слухов подписан ником и типажом в скобках: «слух от @ник (типаж)».
     else if (isPublicTalk(item)) {
       const nick = item.nick ? `${nickWord(item.nick)}${item.type ? ` (${item.type})` : ''}` : nameOf(item.who, state, P, heroine);
       core = fill(P.molvaFact, { fact: bare(item.factText), text: bare(item.text), who: nick });
     } else if (isMolva(item)) core = fill(P.molva, { who: item.nick ? `${nickWord(item.nick)}${item.type ? ` (${item.type})` : ''}` : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     else core = fill(P.said, { who: item.nick ? (item.type || P.someone) : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     // Ветка — одной фразой: о чём спорят или что поддерживают, без реплик.
-    // Пост молвы — выдумка статиста: «в ветке отвечают» к нему ничего не добавляет (баг 78).
+    // Пост слухов — выдумка статиста: «в ветке отвечают» к нему ничего не добавляет (баг 78).
     const thread = isMolva(item) ? '' : threadPhrase(threadTone(items.filter((x) => x.parent === item.id).map((x) => x.text)), P);
     if (thread) core = `${bare(core)}${P.threadGlue}${thread}`;
     return { ref, kind: 'item', core: oneLine(core, CORE_MAX), rumor: item.rumor === true || (isMolva(item) && !isPublicTalk(item)) };
@@ -325,7 +325,7 @@ export function hookCore(state, ref, opts = {}) {
 export function hookWording({ core, rumor }, opts = {}) {
   const P = phrasesOf(opts.preset);
   const parts = [fill(P.frame, { core: bare(core) })];
-  // Повод молвы сам начинается словом «слух»: второе «Это слух» не нужно (баг 78).
+  // Повод слухов сам начинается словом «слух»: второе «Это слух» не нужно (баг 78).
   if (rumor && !/^слух(?![\p{L}])/iu.test(bare(core))) parts.push(P.rumor);
   parts.push(P.outward);
   const last = bare(opts.notAgain);

@@ -180,8 +180,8 @@ test('на значимое событие заводится запись хр�
   const chronicle = buildEntries(s, preset).filter((e) => e.category === 'chronicle');
   assert.equal(chronicle.length, 1);
   assert.ok(chronicle[0].keys.includes('Петрова'), chronicle[0].keys.join(','));
-  assert.ok(chronicle[0].content.includes('ровно'), chronicle[0].content);
-  assert.ok(chronicle[0].content.includes('неприязнь'), `в записи видно, куда перешёл ярлык: ${chronicle[0].content}`);
+  assert.ok(chronicle[0].content.includes('не выделяет'), chronicle[0].content);
+  assert.ok(chronicle[0].content.includes('недолюбливает'), `в записи видно, куда перешёл ярлык: ${chronicle[0].content}`);
   assert.equal(chronicle[0].constant, false, 'хроника подгружается по ключу, а не висит постоянно');
 });
 

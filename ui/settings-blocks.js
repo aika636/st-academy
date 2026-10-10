@@ -991,13 +991,13 @@ export function renderSoundBlock(host, preset, settings) {
  * звук: это привычка человека, а не факт семестра. Рубильник выключен —
  * кнопки «Взять в сюжет» нет, и ни один повод в промпт не уходит; авто-режим
  * без рубильника молчит тоже. Фон — своя галочка: поводы ему не указ.
- * Заголовок — слово вкладки пресета («Поток», «Молва»): одно слово на ленту.
+ * Заголовок — слово вкладки пресета («Поток», «Слухи»): одно слово на ленту.
  */
 export function renderFeedBlock(host, preset, settings, extra = null) {
   const X = extraLabels(preset);
   const U = uiLabels(preset);
   const feed = (settings && settings.feed) || {};
-  // Когда обновлять молву: раз в N ответов (от 1) или только по кнопке.
+  // Когда обновлять слухи: раз в N ответов (от 1) или только по кнопке.
   const every = el('input', {
     type: 'number', min: '1', max: '99', step: '1', class: 'text_pole academy-input academy-molva-every',
     value: String(Number.isInteger(feed.molvaEvery) && feed.molvaEvery >= 1 ? feed.molvaEvery : 3),

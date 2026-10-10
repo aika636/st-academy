@@ -125,7 +125,7 @@ export function feedView(state, preset, opts = {}) {
       // Пометка одна и не повторяет текст: у факта-слуха «слух: …» уже в
       // самом тексте; реплика чата — «обсуждают» (и про слух тоже: она
       // обсуждение, а не слух); анонимка — «слух».
-      // Реплика молвы (опоры на факт нет) пометки не несёт: «обсуждают» без чего — пустое слово.
+      // Реплика слухов (опоры на факт нет) пометки не несёт: «обсуждают» без чего — пустое слово.
       const tag = fact ? (x.rumor ? '' : X.feedFactTag) : anon ? X.feedRumorTag : (x.factText ? X.feedTalkTag : '');
       const thread = feed.items.filter((y) => y.parent === x.id);
       // Ветка свёрнута после двух ответов, пока её не раскрыли.
@@ -226,7 +226,7 @@ export function renderFeed(host, view, preset) {
 
   if (view.queue.length) box.append(queueBlock(host, view, X));
 
-  // «Обновить молву» есть всегда, и при пустой ленте тоже: автомат мог быть выключен.
+  // «Обновить слухи» есть всегда, и при пустой ленте тоже: автомат мог быть выключен.
   box.append(molvaRefresh(host, preset));
 
   box.append(el('div', { class: 'academy-feed-chans', role: 'tablist' }, view.channels.map((c) => el('div', {

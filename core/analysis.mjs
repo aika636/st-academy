@@ -37,7 +37,7 @@ import { heroGender, heroWords } from './gender.mjs';
 import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, nickWord, postRef } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
-export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event', ...SCENE_KINDS];
+export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event', 'pause', ...SCENE_KINDS];
 
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
@@ -153,6 +153,7 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     `- Не усиливай сказанное: пиши то, что произошло в тексте, а не его возможные последствия. ${w.hero[0].toUpperCase()}${w.hero.slice(1)} ${g('извинилась', 'извинился')} — это не «помирились», кто-то нахмурился — не «поссорились». Нет слов о примирении, ссоре, обещании — нет и факта.`,
     `- skip/late только при прямом факте пропуска/опоздания ${w.heroGen}. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.`,
     `- event — праздник, вечеринка, бал, концерт, поход, свидание или другое событие, о котором во фрагменте сказано, что оно будет: event=+дни:название, где дни — через сколько дней от момента сцены (0 — сегодня, 1 — завтра). Несколько дней подряд — event=+5..+6:название. Событий несколько — несколько ключей event. Дальше ${EVENT_HORIZON} дней, без понятного срока, прошедшее и уже записанное в планах — не пиши.`,
+    ...pauseRules(state),
     '- met — кто из курса был в сцене: id из списка курса, несколько — через запятую.',
     `- clash — стычка, ссора или перепалка двоих: clash=кто:с кем:повод в двух-трёх словах. ${heroine} пишется @heroine.`,
     '- rumor — кто-то в сцене пустил или пересказал слух: rumor=о ком:что говорят. Только если слух прозвучал во фрагменте; о ком — id или @heroine. «Что» продолжает фразу «говорят, что <он/она> …»: rumor=sokolova:списала контрольную.',
@@ -214,6 +215,21 @@ function classmateLine(c) {
 }
 
 /**
+ * Правило `pause=`: занятия уже прекратились — каникулы, закрытие, карантин.
+ * Только состоявшийся факт: желание, воспоминание, план без решения и слух
+ * календарь не меняют. Секретарю даётся день сцены — сроки он считает сам.
+ */
+function pauseRules(state) {
+  const day = state && state.calendar && state.calendar.day;
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(String(day)) ? ` День сцены: ${day} (ГГГГ-ММ-ДД).` : '';
+  return [
+    `- pause — занятия ПРЕКРАТИЛИСЬ: во фрагменте прямо сказано, что каникулы уже начались, заведение закрыли или занятий больше нет (карантин, закрытие, отмена всех пар). pause=дни:название, где дни — сколько дней занятий не будет, считая день сцены (на неделю — 7; до 20-го — число дней от дня сцены до 20-го включительно; до конца месяца — так же). Срок не назван — pause=open:название («до отмены»). Занятия возобновились, каникулы кончились — pause=end.${today}`,
+    '- pause: только прямой состоявшийся факт. Желание («хорошо бы каникулы»), предположение («наверное, закроют»), слух, воспоминание о прошлых каникулах и план без решения («обсуждают, не закрыть ли») — не пиши. Отменили одну пару или один день — это не pause. Пример да: «С сегодняшнего дня занятий нет до весны» — pause=open:каникулы до весны, а «Академию закрыли на неделю из-за потопа» — pause=7:закрытие из-за потопа. Пример нет: «Скорее бы каникулы», «Прошлой зимой каникулы были долгими», «Говорят, на карантин закроют».',
+    '- pause: пиши в тот ответ, где это объявили, а не при каждом упоминании. Идущий период из «Уже в планах» не повторяй; только если срок изменили или продлили — пиши новый.',
+  ];
+}
+
+/**
  * Что уже стоит в календаре на ближайшие две недели: праздники пресета,
  * каникулы и свои события — «Зимний бал (+3)». Секретарь их не повторяет.
  */
@@ -221,7 +237,7 @@ function knownEventLines(state, preset) {
   const day = state && state.calendar && state.calendar.day;
   if (!day) return [];
   try {
-    const now = holidaysOn(preset, day, state).map((h) => `${h.name} (идёт сейчас)`);
+    const now = holidaysOn(preset, day, state).map((h) => `${h.name} (идёт сейчас${h.open ? ', до отмены' : h.pause ? `, до ${dayWord(h.to)}` : ''})`);
     const ahead = holidaysAhead(preset, day, EVENT_HORIZON + 1, state).map((a) => `${a.holiday.name} (+${a.days})`);
     return [...now, ...ahead].slice(0, 12);
   } catch {
@@ -271,7 +287,7 @@ function todaysExamLines(state, preset) {
  * (`REPLY_LIMITS`, `replyCap`). Автор реакции и ответа — человек из списков или
  * ник-маска `~школьный бес`: ник в состав, кандидаты и встречи не идёт.
  *
- * Посты ленты секретарь больше не пишет (шаг 3 «Молвы»): его блок 2 — громкость
+ * Посты ленты секретарь больше не пишет (шаг 3 «Слухов»): его блок 2 — громкость
  * `loud=` и пометка `private=` у фактов, что случились наедине. Строки `react=`
  * и `reply=` разбираются по-прежнему (старые ответы, ручные правки), но с
  * `opts.posts === false` — как в живом разборе — пропускаются.
@@ -736,7 +752,7 @@ export function isLoudToken(token) {
   return /^loud=/.test(String(token || ''));
 }
 
-/** «Наедине»: `private=<отпечаток факта>` — сцена без свидетелей, в молву идёт только слухом. */
+/** «Наедине»: `private=<отпечаток факта>` — сцена без свидетелей, в слухи идёт только слухом. */
 export function isPrivateToken(token) {
   return /^private=/.test(String(token || ''));
 }
@@ -835,6 +851,11 @@ export function tokenOf(ev) {
     const name = cleanReason(ev.name).replace(/:/g, ' ').replace(/\s+/g, ' ').trim();
     if (!name) return null;
     return `event=+${ev.days}${ev.until > ev.days ? `..+${ev.until}` : ''}:${name}`;
+  }
+  if (ev.kind === 'pause') {
+    if (ev.end) return 'pause=end';
+    const name = cleanReason(ev.name).replace(/:/g, ' ').replace(/\s+/g, ' ').trim();
+    return `pause=${ev.days ? ev.days : 'open'}${name ? `:${name}` : ''}`;
   }
   if (ev.kind === 'met') return `met=${ev.personId}`;
   if (ev.kind === 'clash') {
@@ -958,6 +979,11 @@ export function tokenText(token, lexicon, { known = false, brief = false, day = 
       return `${head}${ev.name} — ${daysText(ev.days)}, ${dayWord(from)}${span}${past}`;
     }
     return `${head}${ev.name} — ${daysText(ev.days)}${span}`;
+  }
+  if (ev.kind === 'pause') {
+    if (ev.end) return 'занятия возобновились';
+    const name = ev.name ? `${ev.name} — ` : '';
+    return `${name}занятий нет ${ev.days ? daysWord(ev.days) : 'до отмены'}`;
   }
   if (ev.kind === 'rel') {
     const t = people.find((x) => x.id === ev.teacherId);

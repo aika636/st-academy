@@ -37,9 +37,9 @@ import {
   cloneState, pushJournal, takePending, teacherOfSubject,
 } from './state.mjs';
 import {
-  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays, parseDay, minutesOf,
+  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays, parseDay, minutesOf, periodPosition,
 } from './time.mjs';
-import { dayPlan } from './schedule.mjs';
+import { dayPlan, dayEndInfo } from './schedule.mjs';
 import { parseMarker, MARKER_RE } from './parse-marker.mjs';
 import { readTime } from './time-source.mjs';
 import { addGrade, setDebt, resolveGrade, REJECT_UNKNOWN_VALUE } from './gradebook.mjs';
@@ -47,7 +47,7 @@ import { mark, workOff, countsAttendance } from './attendance.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
-import { armHolidayHooks, planEvent } from './holidays.mjs';
+import { armHolidayHooks, planEvent, planPause } from './holidays.mjs';
 import { markerPeople } from './classmates.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
@@ -550,6 +550,27 @@ export function applyResponse(state, text, preset, opts = {}) {
     }
   }
 
+  // --- приостановка занятий (`pause=`, разбор секретаря) ---------------------
+  // Каникулы, закрытие, карантин: свой период с `off: true` от дня сцены. Тот же
+  // период обновляется, а не плодится; `pause=end` закрывает идущий. Экзамены и
+  // дедлайны это не отменяет: `off` гасит расписание и прогулы, а контрольные
+  // живут своими датами.
+  for (const ev of parsed.events.filter((e) => e.kind === 'pause')) {
+    const planned = planPause(s, preset, ev);
+    if (planned.ok) {
+      s = planned.state;
+      out.debug.applied.push({
+        kind: 'pause',
+        action: planned.action,
+        name: (planned.event || planned.prev).name,
+        from: (planned.event || planned.prev).from,
+        receipt: { action: planned.action, id: (planned.event || planned.prev).id, prev: planned.prev },
+      });
+    } else if (planned.duplicate) {
+      out.debug.applied.push({ kind: 'pause-known', name: ev.name || '' });
+    }
+  }
+
   // --- (6) одноразовые инжекты ---------------------------------------------
   // Праздник, который идёт сегодня, взводит свой разовый повод — один раз за
   // наступление (`holidays.armHolidayHooks`). Здесь, а не на смене дня: день
@@ -821,6 +842,41 @@ export function manualTime(state, { day, time, shift, count = false } = {}, pres
   }
 
   return { state: s, applied, reason: reasons.filter(Boolean).join('; '), counted, wouldCount };
+}
+
+/**
+ * Промотать сегодняшний день до конца последнего занятия.
+ *
+ * Все занятия, которые ещё не кончились (включая идущее), засчитываются
+ * посещёнными — как при промотке «+1 пара» с галочкой «записать посещаемость»,
+ * только без галочки: человек просит именно пролистать день, и ведомость обязана
+ * это отразить. Отметки, уже стоящие в ведомости (прогул из метки `skip=`),
+ * не перезаписываются: `sweepAttendance` ставит «посещено» только на пустой
+ * слот.
+ *
+ * Часы встают ровно на конец последнего занятия: следующее движение времени
+ * (`t=+1`) перешагнёт в новый учебный день само.
+ *
+ * @returns {{state: Object, applied: boolean, reason: string, counted: number}}
+ */
+export function skipToDayEnd(state, preset) {
+  const info = dayEndInfo(state, preset);
+  if (!info.available) {
+    return { state: cloneState(state), applied: false, reason: 'сегодня занятий впереди нет', counted: 0 };
+  }
+  let s = cloneState(state);
+  const day = s.calendar.day;
+  const from = periodPosition(preset, s.calendar.time);
+  // Позиция «после последней пары» — длина сетки (`periodPosition`): ведомость
+  // обходит занятия до неё не включая, так что последнее тоже засчитывается.
+  s.calendar.time = info.endTime;
+  s.calendar.periodIndex = periodPosition(preset, info.endTime);
+  s.calendar.moved += 1;
+  s.calendar.source = 'manual';
+  s.calendar.idle = 0;
+  const swept = sweepAndSettle(s, day, from, 'period', preset);
+  s = calendarEvents(swept.state, preset).state;
+  return { state: s, applied: true, reason: `до конца занятий: ${info.endTime}`, counted: swept.counted };
 }
 
 /**

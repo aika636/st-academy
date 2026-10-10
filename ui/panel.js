@@ -3,6 +3,7 @@
 
 import {
   bindRedraw, uiLabels, formatDate, mounted, el, clear, sectionOpen, setSectionScope, safe,
+  hintIcon,
 } from './common.js';
 import { achievementsView, renderAchievements } from './achievements.js';
 import { peopleView, renderPeople } from './people.js';
@@ -26,7 +27,7 @@ export const TABS = [
   { id: 'gradebook', label: 'Зачётка' },
   { id: 'people', label: 'Люди' },
   // Лента курса (шаг 4): чат курса, анонимка и «Взять в сюжет».
-  { id: 'feed', label: 'Поток' },
+  { id: 'feed', label: 'Слухи' },
   { id: 'achievements', label: 'Достижения' },
   { id: 'settings', label: 'Настройки' },
 ];
@@ -246,6 +247,7 @@ export function renderPanel(host) {
       // Самое длинное слово ярлыка — для шрифта на телефоне (style.css): ярлык
       // ужимается под ширину вкладки, а не обрезается («Достиже…»).
       el('span', { class: 'academy-tab-label', text: t.label, style: `--academy-tab-chars: ${longestWord(t.label)}` }),
+      hintIcon(preset, t.label),
       t.id === 'feed' && unread > 0 ? el('span', { class: 'academy-tab-badge', text: unread > 99 ? '99+' : String(unread) }) : null,
     ]));
   }

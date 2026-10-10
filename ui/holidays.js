@@ -2,10 +2,11 @@
 // `ownEventsView`) и чем показать (блоки на вкладке «Сегодня»).
 
 import {
-  EVENT_TEXT_MAX, eventsOf, holidayEnd, holidaysAhead, holidaysOn,
+  EVENT_TEXT_MAX, activePause, eventsOf, holidayEnd, holidaysAhead, holidaysOn,
 } from '../core/holidays.mjs';
+import { isDay } from '../core/state.mjs';
 import {
-  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel,
+  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel, hintIcon,
 } from './common.js';
 
 /**
@@ -25,7 +26,7 @@ export function holidaysView(state, preset) {
     note: h.today || '',
     whenLine: X.holidayNowLine,
     // Каникулы сегодня — когда кончатся: «занятий нет до среды, 6 мая».
-    offLine: h.off ? fill(X.holidayOffUntil, { date: formatDate(holidayEnd(h, day), 'gen') }) : '',
+    offLine: h.off ? (h.open ? fill(X.pauseOpen, { from: dayMonth(h.from) }) : fill(X.holidayOffUntil, { date: formatDate(holidayEnd(h, day), 'gen') })) : '',
     days: 0,
     own: h.dated,
     off: h.off,
@@ -51,18 +52,103 @@ export function holidaysView(state, preset) {
  * ближних к дальним, с датой словами — чтобы их можно было и увидеть, и убрать,
  * даже если до них больше двух недель.
  */
-export function ownEventsView(state) {
+export function ownEventsView(state, preset = null) {
   return eventsOf(state)
     .slice()
     .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
     .map((e) => ({
       id: e.id,
       name: e.name,
-      dateLine: e.to !== e.from ? `${formatDate(e.from)} — ${formatDate(e.to)}` : formatDate(e.from),
+      dateLine: e.open ? fill(extraLabels(preset).pauseOpen, { from: dayMonth(e.from) })
+        : e.to !== e.from ? `${formatDate(e.from)} — ${formatDate(e.to)}` : formatDate(e.from),
       hook: e.hook,
       off: e.off,
       past: Boolean(state && state.calendar && state.calendar.day > e.to),
     }));
+}
+
+/** «12 октября»: дата без дня недели — для строк, где день недели лишний. */
+function dayMonth(day) {
+  return formatDate(day).replace(/^[^,]*,\s*/, '');
+}
+
+/** «12–18 октября», «30 октября – 3 ноября», «с 12 октября, до отмены». */
+function pauseRange(e, X) {
+  if (e.open) return fill(X.pauseOpen, { from: dayMonth(e.from) });
+  const a = dayMonth(e.from);
+  if (e.to === e.from) return a;
+  const b = dayMonth(e.to);
+  const [d1, month1] = a.split(' ');
+  const month2 = b.split(' ').slice(1).join(' ');
+  return month1 === month2 ? `${d1}–${b}` : `${a} – ${b}`;
+}
+
+/**
+ * Идущая приостановка занятий, заведённая секретарём (`holidays.activePause`):
+ * плашка «Занятия приостановлены: 12–18 октября» на «Сегодня».
+ */
+export function pauseView(state, preset) {
+  const day = state && state.calendar && state.calendar.day;
+  const cur = activePause(state, day);
+  if (!cur) return null;
+  const open = cur.open === true && !isDay(cur.to);
+  const e = { from: cur.from, to: isDay(cur.to) ? cur.to : cur.from, open };
+  const X = extraLabels(preset);
+  return {
+    id: cur.id,
+    name: cur.name,
+    line: `${X.pauseTitle}: ${pauseRange(e, X)}`,
+    from: cur.from,
+    to: open ? '' : e.to,
+    open,
+  };
+}
+
+/**
+ * Плашка приостановки: «Отменить» убирает период, «Изменить» раскрывает
+ * даты — начало, конец или «до отмены».
+ */
+export function pauseBlock(host, pause, X) {
+  const status = el('div', { class: 'academy-status' });
+  const from = el('input', { type: 'date', class: 'text_pole academy-input', value: pause.from });
+  const to = el('input', { type: 'date', class: 'text_pole academy-input', value: pause.to || '' });
+  const open = el('input', { type: 'checkbox' });
+  open.checked = pause.open;
+  const editor = el('div', { class: 'academy-repair-body', style: 'display: none' }, [
+    el('div', { class: 'academy-row' }, [
+      el('label', { class: 'academy-field' }, [el('span', { text: X.eventFrom }), from]),
+      el('label', { class: 'academy-field' }, [el('span', { text: X.eventTo }), to]),
+    ]),
+    el('label', { class: 'academy-check' }, [open, el('span', { text: X.pauseUntilCancelled })]),
+    el('div', {
+      class: 'menu_button academy-btn',
+      text: X.pauseSave,
+      onclick: (ev) => runAction(ev.currentTarget, status, () => call(host, 'updateEvent', pause.id, {
+        from: from.value || undefined,
+        to: to.value || undefined,
+        open: Boolean(open.checked),
+      }), X.pauseSaved).then((res) => { if (res && res.ok) renderPanel(host); }),
+    }),
+  ]);
+  return el('div', { class: 'academy-card academy-pause', dataset: { pause: pause.id } }, [
+    el('div', { class: 'academy-card-title', text: pause.line }),
+    pause.name ? el('p', { class: 'academy-note', text: pause.name }) : null,
+    el('div', { class: 'academy-row academy-row-buttons' }, [
+      el('div', {
+        class: 'menu_button academy-btn',
+        text: X.pauseCancel,
+        onclick: (ev) => runAction(ev.currentTarget, status, () => call(host, 'removeEvent', pause.id), X.pauseCancelled)
+          .then(() => renderPanel(host)),
+      }),
+      el('div', {
+        class: 'menu_button academy-btn',
+        text: X.pauseEdit,
+        onclick: () => { editor.style.display = editor.style.display === 'none' ? '' : 'none'; },
+      }),
+    ]),
+    editor,
+    status,
+  ]);
 }
 
 /**
@@ -142,7 +228,7 @@ export function ownEventsBlock(host, view, X) {
  * Справа от названия дата не стоит: на 390 пикселях длинная дата сжимала
  * название до буквы в строку.
  */
-export function holidaysBlock(list, X) {
+export function holidaysBlock(list, X, preset = null) {
   if (!list || !list.length) return null;
   return el('div', { class: 'academy-holidays' }, [
     el('div', { class: 'academy-card-title', text: X.holidaysTitle }),
@@ -153,6 +239,7 @@ export function holidaysBlock(list, X) {
       el('span', { class: 'academy-ach-text' }, [
         el('span', { class: 'academy-holiday-head' }, [
           el('span', { class: 'academy-milestone-name', text: h.name }),
+          hintIcon(preset, h.name),
           h.own ? el('span', { class: 'academy-holiday-own', title: X.holidayOwnTitle, 'aria-label': X.holidayOwnTitle, text: X.holidayOwnMark }) : null,
         ]),
         el('span', { class: 'academy-shift-day', text: h.whenLine }),

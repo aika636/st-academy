@@ -226,11 +226,11 @@ test('summary: словами пресета — период (если их н�
   const j = hookSummary(started(jp, debt), jp);
   assert.match(j, /^первый триместр, вторник, /);
   assert.ok(j.includes(fill(uiLabels(jp).slot, { ordinal: 2 })), j);
-  assert.ok(j.includes('красные баллы: 1'), j);
+  assert.ok(j.includes('незачёты: 1'), j);
   assert.doesNotMatch(j, /пара|хвост/);
 
   const m = hookSummary(started(magic, debt), magic);
-  assert.ok(m.includes('прорехи: 1'), m);
+  assert.ok(m.includes('учебные долги: 1'), m);
   assert.doesNotMatch(m, /пара|хвост|семестр/);
 });
 
