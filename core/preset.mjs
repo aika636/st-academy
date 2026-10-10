@@ -49,6 +49,7 @@ import { buildSchedule } from './schedule.mjs';
 import { applyResponse } from './engine.mjs';
 import { SIZE_BOUNDS, DEFAULT_SIZE, SEEDS_MAX, CLASSMATE_TEXT_MAX } from './classmates.mjs';
 import { REACTION_CAP, CAP_BOUNDS } from './feed.mjs';
+import { WEEKDAY_KEYS } from './time.mjs';
 
 /** Имя формата в конверте файла. Отличается от выгрузки состояния (`academy-state`). */
 export const PRESET_FORMAT = 'academy-preset';
@@ -135,7 +136,7 @@ const SAFE_TAGS = new Set(['code', 'b', 'i', 'em', 'strong', 'u', 'br']);
  * либо основы (решение 3). Не названная здесь секция сливается на два уровня:
  * это словари (`phrases.milestones.*`, `prompts.plan.*`, `ui.phases.*`).
  */
-const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0, holidays: 0, classmates: 1 };
+const MERGE_DEPTH = { calendar: 0, week: 0, grades: 1, bells: 0, stopNames: 0, holidays: 0, glossary: 0, classmates: 1 };
 
 const isPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
@@ -346,7 +347,31 @@ function checkHolidays(list) {
     if (h.to !== undefined && !isMD(h.to)) e.push(`${where}.to: конец в виде ММ-ДД`);
     if (h.lead !== undefined && (!isInt(h.lead) || h.lead < 0 || h.lead > 14)) e.push(`${where}.lead: за сколько дней — целое от 0 до 14`);
     if (h.off !== undefined && typeof h.off !== 'boolean') e.push(`${where}.off: «занятий нет» — true или false`);
+    if (h.lunar !== undefined && !(isMD(h.lunar) && Number(h.lunar.slice(0, 2)) <= 12 && Number(h.lunar.slice(3, 5)) <= 30)) {
+      e.push(`${where}.lunar: лунная дата в виде ММ-ДД (месяц 01–12, день 01–30)`);
+    }
+    if (h.weekday !== undefined && !WEEKDAY_KEYS.includes(h.weekday)) e.push(`${where}.weekday: день недели — ${WEEKDAY_KEYS.join(', ')}`);
+    if (h.days !== undefined && (!isInt(h.days) || h.days < 1 || h.days > 60)) e.push(`${where}.days: сколько дней идёт праздник — целое от 1 до 60`);
   });
+  return e;
+}
+
+/**
+ * Словарь подсказок мира (`glossary`): слово, как оно видно в интерфейсе, и
+ * пояснение в одну-две фразы. Необязателен; битая запись — претензия, а не
+ * тихо пропавшая подсказка.
+ */
+function checkGlossary(g) {
+  if (g === undefined) return [];
+  if (!isPlain(g)) return ['glossary: нужен объект {слово: пояснение}'];
+  const e = [];
+  const keys = Object.keys(g);
+  if (keys.length > 60) e.push('glossary: больше шестидесяти слов');
+  for (const k of keys.slice(0, 60)) {
+    if (!k.trim() || k.length > 60) e.push(`glossary: слово «${k.slice(0, 20)}» пустое или длиннее 60 знаков`);
+    if (typeof g[k] !== 'string' || !g[k].trim()) e.push(`glossary.${k}: нужно пояснение текстом`);
+    else if (g[k].length > 300) e.push(`glossary.${k}: пояснение длиннее 300 знаков`);
+  }
   return e;
 }
 
@@ -723,6 +748,7 @@ export function normalizePreset(raw, opts = {}) {
     ...checkBells(preset.bells, preset.week),
     ...checkCalendar(preset.calendar),
     ...checkHolidays(preset.holidays),
+    ...checkGlossary(preset.glossary),
     ...checkGrades(preset.grades),
     ...checkExams(preset.exams),
     ...checkScale(preset.relations, 'relations'),

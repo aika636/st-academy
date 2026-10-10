@@ -34,6 +34,7 @@
 // Все функции чистые: приходящее состояние не правится, возвращается новое.
 
 import { cloneState, isDay, isTime, pushJournal } from './state.mjs';
+import { lunarToSolar } from './lunar.mjs';
 
 /** Сколько дней подряд ищем ближайший учебный день, прежде чем сдаться. */
 const STUDY_DAY_LOOKAHEAD = 31;
@@ -262,10 +263,11 @@ export function isVacation(preset, day, state = null) {
     if (from === null || to === null) return false;
     return from <= to ? x >= from && x <= to : x >= from || x <= to;
   };
+  const inRange = (v) => (isFloating(v) ? holidayCoversDay(v, day, state) : inMD(v));
   const vacations = (preset.calendar && preset.calendar.vacations) || [];
-  if (vacations.some((v) => v && inMD(v))) return true;
+  if (vacations.some((v) => v && inRange(v))) return true;
   const holidays = Array.isArray(preset.holidays) ? preset.holidays : [];
-  if (holidays.some((h) => h && h.off === true && inMD(h))) return true;
+  if (holidays.some((h) => h && h.off === true && inRange(h))) return true;
   const events = state && Array.isArray(state.events) ? state.events : [];
   // Открытый период (`open: true`, «до отмены») длится с `from` без конца; без
   // флага событие без `to` — один день.
@@ -838,6 +840,65 @@ export function noteIdle(state) {
 export function isStalled(state, preset) {
   const limit = numberOr(preset && preset.limits && preset.limits.idleWarnAfter, 10);
   return numberOr(state.calendar.idle, 0) >= limit;
+}
+
+// --- плавающие даты праздников ----------------------------------------------
+
+const WEEKDAY_NUMBERS = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7 };
+
+/** Названия дней недели для поля праздника `weekday`. */
+export const WEEKDAY_KEYS = Object.keys(WEEKDAY_NUMBERS);
+
+/**
+ * Дата праздника зависит от года: по лунному календарю (`lunar: "08-15"`), на
+ * день недели (`weekday: "sat"`) или с длительностью (`days`). Остальные
+ * праздники — просто `ММ-ДД`…`ММ-ДД` каждый год.
+ */
+export function isFloating(h) {
+  return Boolean(h) && (mdToNumber(h.lunar) !== null || WEEKDAY_NUMBERS[h.weekday] !== undefined
+    || (Number.isInteger(h.days) && h.days >= 1));
+}
+
+/**
+ * Дни праздника или каникул, начавшихся в году `year`: `{from, to}` полными
+ * датами.
+ *
+ * - `lunar` — `ММ-ДД` китайского лунного календаря; год вне таблицы
+ *   (выдуманный 1248) падает на запасную фиксированную `from`;
+ * - `weekday` (`mon`…`sun`) — `from` лишь указывает неделю (пн–вс), а
+ *   праздник выпадает на этот день недели. Недели считаются по дням недели
+ *   чата (`weekdayIn`): у выдуманного года они свои;
+ * - `days` — длительность в днях от начала; иначе конец — `to` (через Новый
+ *   год, если раньше начала), а у лунного без `days` и у недельного — один день.
+ *
+ * @returns {?{from: string, to: string}} `null`, если даты нет
+ */
+export function holidaySpan(h, year, state = null) {
+  if (!h || !Number.isInteger(year) || year < 0 || year > 9999 || mdToNumber(h.from) === null) return null;
+  const y4 = (n) => String(n).padStart(4, '0');
+  let from = null;
+  if (mdToNumber(h.lunar) !== null) from = lunarToSolar(year, Number(h.lunar.slice(0, 2)), Number(h.lunar.slice(3, 5)));
+  const solved = from !== null;
+  if (!solved) from = `${y4(year)}-${h.from}`;
+  if (!isDay(from)) return null;
+  const wd = WEEKDAY_NUMBERS[h.weekday];
+  if (wd) from = addDays(from, wd - weekdayIn(state, from));
+  let to = from;
+  if (Number.isInteger(h.days) && h.days >= 1) to = addDays(from, h.days - 1);
+  else if (!wd && !solved && mdToNumber(h.to) !== null) {
+    to = `${y4(mdToNumber(h.to) < mdToNumber(h.from) ? year + 1 : year)}-${h.to}`;
+  }
+  return { from, to };
+}
+
+/** Попадает ли день в праздник с плавающей датой. Смотрит наступления соседних лет: они перешагивают Новый год. */
+export function holidayCoversDay(h, day, state = null) {
+  const year = parseDay(day).y;
+  for (let y = year - 1; y <= year + 1; y += 1) {
+    const span = holidaySpan(h, y, state);
+    if (span && day >= span.from && day <= span.to) return true;
+  }
+  return false;
 }
 
 // --- мелочи -----------------------------------------------------------------

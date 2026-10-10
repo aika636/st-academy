@@ -6,7 +6,7 @@ import {
 } from '../core/holidays.mjs';
 import { isDay } from '../core/state.mjs';
 import {
-  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel,
+  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel, hintIcon,
 } from './common.js';
 
 /**
@@ -228,7 +228,7 @@ export function ownEventsBlock(host, view, X) {
  * Справа от названия дата не стоит: на 390 пикселях длинная дата сжимала
  * название до буквы в строку.
  */
-export function holidaysBlock(list, X) {
+export function holidaysBlock(list, X, preset = null) {
   if (!list || !list.length) return null;
   return el('div', { class: 'academy-holidays' }, [
     el('div', { class: 'academy-card-title', text: X.holidaysTitle }),
@@ -239,6 +239,7 @@ export function holidaysBlock(list, X) {
       el('span', { class: 'academy-ach-text' }, [
         el('span', { class: 'academy-holiday-head' }, [
           el('span', { class: 'academy-milestone-name', text: h.name }),
+          hintIcon(preset, h.name),
           h.own ? el('span', { class: 'academy-holiday-own', title: X.holidayOwnTitle, 'aria-label': X.holidayOwnTitle, text: X.holidayOwnMark }) : null,
         ]),
         el('span', { class: 'academy-shift-day', text: h.whenLine }),

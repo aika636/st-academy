@@ -113,6 +113,18 @@ for (const { holiday, vacation } of mergeVacations(holidays, vacationsOf(raw)).p
     + (same ? '' : ` (сроки ${holiday.from}…${holiday.to} и ${vacation.from}…${vacation.to} сольются в общий)`));
 }
 
+// Подсказки ⓘ (`glossary`): слово должно быть видно в интерфейсе, иначе
+// подсказка не покажется. Проверка грубая — слово ищется в тексте пресета вне
+// самого словаря; не нашлось — не ошибка, а повод перечитать (слово могли
+// переименовать).
+if (raw.glossary !== undefined) {
+  const { glossary, ...rest } = raw;
+  const text = JSON.stringify(rest).toLowerCase().replace(/ё/g, 'е');
+  for (const word of Object.keys(glossary || {})) {
+    if (!text.includes(word.toLowerCase().replace(/ё/g, 'е'))) notes.push(`glossary: слова «${word}» нет в тексте пресета — подсказка не покажется`);
+  }
+}
+
 // Настоящая нормализация с пробным прогоном ядра.
 const res = normalizePreset(raw, { builtins: { 'ru-university': ru } });
 if (!res.ok) problems.push(`нормализация: ${res.message}`);

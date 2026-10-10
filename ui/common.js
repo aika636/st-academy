@@ -979,6 +979,93 @@ export function el(tag, attrs, children) {
 
 export const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); return node; };
 
+// --- подсказки ⓘ к словам мира ----------------------------------------------
+
+/** Ключ сравнения слов подсказки: регистр и «ё» не важны. */
+const hintKey = (v) => String(v == null ? '' : v).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+
+/**
+ * Пояснение слова мира из `preset.glossary`: слово, как оно видно на экране
+ * («Седмица 5», «Перерыв между кругами»), совпадает с ключом целиком или
+ * содержит его. Из нескольких текстов берётся первый, у которого есть
+ * подсказка; из нескольких ключей — самый длинный.
+ *
+ * @returns {?{term: string, text: string}}
+ */
+export function glossaryHint(preset, ...texts) {
+  const g = preset && preset.glossary && typeof preset.glossary === 'object' ? preset.glossary : null;
+  if (!g) return null;
+  const keys = Object.keys(g).filter((k) => typeof g[k] === 'string' && g[k].trim() && hintKey(k));
+  for (const t of texts) {
+    const x = hintKey(t);
+    if (!x) continue;
+    const hit = keys.filter((k) => x === hintKey(k) || x.includes(hintKey(k))).sort((a, b) => b.length - a.length)[0];
+    if (hit) return { term: hit, text: g[hit].trim() };
+  }
+  return null;
+}
+
+// Одно всплывающее пояснение на всю страницу: тап по значку открывает его у
+// значка, тап куда угодно, Esc или прокрутка закрывают. Наведения не нужно —
+// на телефоне его нет.
+let hintPop = null;
+let hintOwner = null;
+
+function closeHint() {
+  if (hintPop) hintPop.hidden = true;
+  if (hintOwner) hintOwner.setAttribute('aria-expanded', 'false');
+  hintOwner = null;
+}
+
+function openHint(button, hint) {
+  if (hintOwner === button) { closeHint(); return; }
+  closeHint();
+  if (!hintPop) {
+    hintPop = el('div', { class: 'academy-hint-pop', role: 'tooltip' });
+    document.body.append(hintPop);
+    document.addEventListener('click', (ev) => {
+      if (hintOwner && !hintOwner.contains(ev.target) && !hintPop.contains(ev.target)) closeHint();
+    });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeHint(); });
+    window.addEventListener('scroll', closeHint, true);
+    window.addEventListener('resize', closeHint);
+  }
+  clear(hintPop).append(el('b', { text: hint.term }), ' — ', hint.text);
+  hintPop.hidden = false;
+  const r = button.getBoundingClientRect();
+  const width = Math.min(280, window.innerWidth - 16);
+  hintPop.style.width = `${width}px`;
+  hintPop.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - 8))}px`;
+  hintPop.style.top = `${r.bottom + 6}px`;
+  hintPop.id = hintPop.id || 'academy-hint-pop';
+  button.setAttribute('aria-expanded', 'true');
+  button.setAttribute('aria-describedby', hintPop.id);
+  hintOwner = button;
+}
+
+/**
+ * Значок ⓘ рядом со словом мира: нажатие (тап, Enter, пробел) показывает
+ * пояснение из `preset.glossary`. `null`, если для этих слов подсказки нет, —
+ * вызывающий кладёт результат в список детей как есть.
+ */
+export function hintIcon(preset, ...texts) {
+  const hint = glossaryHint(preset, ...texts);
+  if (!hint) return null;
+  const label = `${hint.term}: ${hint.text}`;
+  const button = el('span', {
+    class: 'academy-hint',
+    role: 'button',
+    tabindex: '0',
+    title: label,
+    'aria-label': label,
+    'aria-expanded': 'false',
+  }, [el('i', { class: 'fa-solid fa-circle-info', 'aria-hidden': 'true' })]);
+  const toggle = (ev) => { ev.preventDefault(); ev.stopPropagation(); openHint(button, hint); };
+  button.addEventListener('click', toggle);
+  button.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') toggle(ev); });
+  return button;
+}
+
 /**
  * Кружок автора (`core/masks.authorAvatar`): значок маски, силуэт анонимки
  * или человек — фото, а без фото инициалы на цвете от id. Размер — классом:
