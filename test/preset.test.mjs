@@ -435,7 +435,7 @@ test('превью: «семестр · пары в день: 4 · 2–5 · хв
 
 test('превью говорит словами загружаемого пресета, а не активного', () => {
   const magic = presetSummary(BUILTINS['magic-academy']);
-  assert.match(magic.line, /^круг · занятия в день: 4 · провал–триумф · прореха после 2 прогулов$/);
+  assert.match(magic.line, /^круг · занятия в день: 4 · провал–триумф · учебный долг после 2 прогулов$/);
   const jp = presetSummary(BUILTINS['jp-highschool']);
   assert.match(jp.line, /×3/, 'три триместра видны в превью');
 });

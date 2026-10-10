@@ -377,7 +377,7 @@ test('прилежная студентка доходит до сессии и 
   assert.equal(s.reputation.warned, false, 'в деканат не вызывали');
   assert.equal(s.reputation.expelled, false);
   assert.equal(relationOf(s, 'petrova'), 3, 'три «+1» от Петровой');
-  assert.equal(relationLabel(s, 'petrova', preset), 'благоволит');
+  assert.equal(relationLabel(s, 'petrova', preset), 'доверяет');
 
   // Прыжок в сессию: время двигает не метка, а проза (источник A).
   const jump = post(s, '📅 24 декабря 2024, 09:00\nСессия началась.');

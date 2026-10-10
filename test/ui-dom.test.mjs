@@ -1177,7 +1177,7 @@ test('«Люди» → «Курс»: подсказка пустого курс�
   body = node.querySelector('.academy-body');
   const texts = allTexts(body);
   assert.ok(texts.includes('Вера Соколова'), texts.join(' | '));
-  assert.ok(texts.includes('косится · −1'), 'отношение словом и числом');
+  assert.ok(texts.includes('сторонится · −1'), 'отношение словом и числом');
   await click(findNode(body, (n) => n.textContent === ui.EXTRA_UI.cmSave && n.listeners.click));
   assert.deepEqual(sent[1], ['update', 'vera', 'Вера Соколова']);
   const ask = findNode(body, (n) => /academy-confirm/.test(n.className));
@@ -1458,9 +1458,9 @@ test('«Люди»: «Нарисовать» — «Рисую…» с отмен
   second.api.destroy();
 });
 
-/* --- выпуск молвы (шаг 2) ------------------------------------------------------ */
+/* --- выпуск слухов (шаг 2) ------------------------------------------------------ */
 
-test('«Молва»: в настройках один блок — частота, цена, кнопка, каст внутри; на ленте кнопка есть всегда', async () => {
+test('«Слухи»: в настройках один блок — частота, цена, кнопка, каст внутри; на ленте кнопка есть всегда', async () => {
   const X = ui.extraLabels(preset);
   const sent = [];
   const host = fakeHost(started, { feed: { molvaEvery: 5, molvaManual: false } }, LOREBOOK_FULL, {
@@ -1472,7 +1472,7 @@ test('«Молва»: в настройках один блок — частот
   const { api, node } = mount(host);
   const body = openTab(node, 'settings');
   const block = findSection(body, ui.uiLabels(preset).tabFeed);
-  assert.ok(block, 'блок молвы на месте');
+  assert.ok(block, 'блок слухов на месте');
   assert.equal(findSection(body, X.mobSection), null, 'отдельного блока статистов больше нет');
   const texts = allTexts(block);
   for (const want of [X.molvaWhen, X.molvaEvery, X.molvaEveryUnit, X.molvaManual, X.molvaPrice, X.molvaButton, X.mobSection]) {
@@ -1493,7 +1493,7 @@ test('«Молва»: в настройках один блок — частот
   assert.ok(sent.includes('refresh'));
   // Вкладка ленты: кнопка при пустой ленте тоже.
   const feed = openTab(node, 'feed');
-  assert.ok(allTexts(feed).includes(X.molvaButton), 'кнопка «Обновить молву» есть всегда');
+  assert.ok(allTexts(feed).includes(X.molvaButton), 'кнопка «Обновить слухи» есть всегда');
   api.destroy();
 });
 
@@ -1551,7 +1551,8 @@ test('значки разделов Настроек не повторяются
     assert.equal(new Set(icons).size, icons.length, `${id}: ${titles.map((t, i) => `${t}=${icons[i]}`).join(', ')}`);
     assert.ok(!icons.includes('fa-circle-dot'), `${id}: остался значок-заглушка`);
   }
-  assert.equal(ui.sectionIcon('Молва'), 'fa-comments');
+  assert.equal(ui.sectionIcon('Слухи'), 'fa-comments');
+  assert.equal(ui.sectionIcon('Шепотки'), 'fa-comments');
   assert.equal(ui.sectionIcon('Начало круга'), 'fa-flag-checkered');
 });
 

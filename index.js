@@ -158,7 +158,7 @@ const live = {
   epoch: 0,
   panel: null,
   lastRun: null,
-  /** Последний выпуск молвы: сырой ответ модели и причины отброса — для вкладки «Отладка». */
+  /** Последний выпуск слухов: сырой ответ модели и причины отброса — для вкладки «Отладка». */
   molvaDebug: null,
   /**
    * Лорбук (3.7). `signature` — отпечаток того, чем лорбук должен быть; пока он
@@ -1569,7 +1569,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   }
 
   state = sceneOfTurn(state, text, tokens, mark, c);
-  // Молва (шаг 2): ещё один ответ бота в счёт выпусков; выпуск этого же варианта
+  // Слухи (шаг 2): ещё один ответ бота в счёт выпусков; выпуск этого же варианта
   // ответа, если он уже был (пересчёт, правка, возврат на свайп), ложится заново.
   // Считается от снимка «до ответа», поэтому свайп откатывает и счёт, и выпуск.
   state = replayMolva(tickMolva(state), turn.molva, mark);
@@ -1606,9 +1606,9 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
   await syncLorebook();
   refreshPanel();
-  // Молва выпускается отдельным вызовом и без секретаря; ответ бота не ждёт её.
+  // Слухи выпускается отдельным вызовом и без секретаря; ответ бота не ждёт её.
   if (source === 'received') {
-    autoMolva(mesId, mark).catch((err) => console.error(`[${MODULE}] молва не выпущена:`, err));
+    autoMolva(mesId, mark).catch((err) => console.error(`[${MODULE}] слухи не выпущены:`, err));
   }
   return 'посчитан';
 }
@@ -1799,7 +1799,7 @@ function sceneOfTurn(state, text, tokens, mark, c) {
   const scene = items.filter((x) => x.ev && SCENE_KINDS.includes(x.ev.kind));
   const privateSet = Array.isArray(tokens) ? privateRefs(tokens) : null;
   if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1, privateRefs: privateSet });
-  // Прогул, опоздание, провал и громкая оценка героини — публичные темы слота «Главные» молвы.
+  // Прогул, опоздание, провал и громкая оценка героини — публичные темы слота «Главные» слухов.
   next = applyNotableFacts(next, items, live.preset, {
     src: mark, day, time, heroine: c && c.name1, loud: Array.isArray(tokens) ? loudOf(tokens) : null,
   });
@@ -2110,7 +2110,7 @@ async function analyzeMessage(mesId) {
     if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
     // Недавние посты ленты — те же, что видел секретарь (`buildAnalysisPrompt`):
     // по ним проверяется `reply=f2:…`. У поправки старого ответа их нет.
-    // Посты ленты секретарь не пишет (шаг 3 «Молвы»): строки react=/reply= не принимаются.
+    // Посты ленты секретарь не пишет (шаг 3 «Слухов»): строки react=/reply= не принимаются.
     // `live.legacyPosts` — только для прогонов старых тестов ленты, наружу не настраивается.
     const parsed = parseAnalysis(res.text, lexiconOf(base, c), { posts: live.legacyPosts === true });
     if (!parsed.found) {
@@ -2123,7 +2123,7 @@ async function analyzeMessage(mesId) {
     // прежний текст, и к новому их не приложить.
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
-    // Причины строками, как у молвы: «[Object, Object]» в консоли ничего не говорило (баг 83).
+    // Причины строками, как у слухов: «[Object, Object]» в консоли ничего не говорило (баг 83).
     for (const r of parsed.rejected) console.info(`[${MODULE}] секретарь: отвергнуто: ${r.reason} | ${clip(r.raw, 120)}`);
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
@@ -2607,16 +2607,16 @@ async function handleChatChanged() {
   refreshPanel();
 }
 
-/** Живое состояние → снимок хода: руками сделанное (курс, каст молвы) откатом не отменяется. */
+/** Живое состояние → снимок хода: руками сделанное (курс, каст слухов) откатом не отменяется. */
 function carryManual(live, before) {
   return carryCast(live, carryRoster(live, before));
 }
 
-// --- каст молвы (шаг 1 плана «Молва») ------------------------------------------------
+// --- каст слухов (шаг 1 плана «Слухи») ------------------------------------------------
 //
 // Восемь постоянных статистов ленты. Собирается одним запросом при первой
 // надобности (каст пуст) и по кнопке «Пересобрать каст»; точка входа для выпуска
-// молвы (шаг 2) — `ensureFeedCast`: «убедись, что каст есть, и дай его».
+// слухов (шаг 2) — `ensureFeedCast`: «убедись, что каст есть, и дай его».
 // Каст — решение человека и сборки, а не событие ответа: свайп его не откатывает
 // (`carryManual`), а сюжетики откатывает вместе с остальной лентой.
 
@@ -2657,7 +2657,7 @@ async function ensureFeedCast({ force = false } = {}) {
   castBuilding = (async () => {
     try {
       const res = await api.generateFeedCast(feedCastInput(), storage.apiSettings(c), c);
-      if (!isCurrent(op)) return chatChanged('собирался каст молвы');
+      if (!isCurrent(op)) return chatChanged('собирался каст слухов');
       if (!res.ok) return { ok: false, error: res.error || 'запрос не удался', code: res.code, raw: res.raw };
       const next = cloneState(live.state);
       const cast = setFeedCast(next, res.members);
@@ -2665,7 +2665,7 @@ async function ensureFeedCast({ force = false } = {}) {
       refreshPanel();
       return { ok: true, cast, created: true, warnings: res.warnings || [] };
     } catch (err) {
-      console.error(`[${MODULE}] каст молвы не собран:`, err);
+      console.error(`[${MODULE}] каст слухов не собран:`, err);
       return { ok: false, error: `Каст не собран: ${(err && err.message) || err}` };
     } finally {
       castBuilding = null;
@@ -2674,7 +2674,7 @@ async function ensureFeedCast({ force = false } = {}) {
   return castBuilding;
 }
 
-// --- выпуск молвы (шаг 2 плана «Молва») ------------------------------------------------
+// --- выпуск слухов (шаг 2 плана «Слухи») ------------------------------------------------
 //
 // Отдельный вызов модели, а не хвост секретаря: повестку (слоты, авторы,
 // отвечающие, квота на главных) собирает код, модель пишет реплики
@@ -2683,13 +2683,13 @@ async function ensureFeedCast({ force = false } = {}) {
 // лежит в ходе (`turn.molva`), свайп откатывает её вместе со всей лентой, а
 // пересчёт того же ответа кладёт обратно. Пропущенные выпуски не догоняются.
 
-/** Настройки молвы: раз в сколько ответов и «только по кнопке». */
+/** Настройки слухов: раз в сколько ответов и «только по кнопке». */
 function molvaSettings() {
   const f = storage.loadSettings(ctx()).feed || {};
   return { every: everyOf(f.molvaEvery), manual: f.molvaManual === true };
 }
 
-/** Сколько знаков сырого ответа молвы хранит отладка. */
+/** Сколько знаков сырого ответа слухов хранит отладка. */
 const MOLVA_RAW_MAX = 12000;
 
 /** Одна строка до `max` знаков — для журнала. */
@@ -2706,25 +2706,25 @@ async function autoMolva(mesId, mark) {
   if (!turn || turn.mesId !== mesId || turn.stamp !== mark) return;
   if ((turn.molva || []).some((d) => d.stamp === mark)) return;
   const res = await runMolva({ auto: true, mark });
-  if (!res.ok) console.warn(`[${MODULE}] молва: ${res.error}`);
+  if (!res.ok) console.warn(`[${MODULE}] слухи: ${res.error}`);
 }
 
 /**
- * Выпустить молву: каст (нет — соберётся), повестка, запрос, проверки, запись.
+ * Выпустить слухи: каст (нет — соберётся), повестка, запрос, проверки, запись.
  *
  * @param {{auto?: boolean, mark?: string}} [opts] `auto` — по счёту ответов: тихо и со сбросом счёта при неудаче
  * @returns {Promise<{ok: true, posts: number, replies: number, skipped: number} | {ok: false, error: string}>}
  */
 async function runMolva({ auto = false, mark = '' } = {}) {
   if (!live.state || !live.state.started || !live.preset) return { ok: false, error: 'семестра в этом чате нет' };
-  if (molvaRunning) return { ok: false, error: 'Молва уже обновляется — подождите немного.' };
+  if (molvaRunning) return { ok: false, error: 'Слухи уже обновляются — подождите немного.' };
   const c = ctx();
   const op = captureOperation();
   molvaRunning = (async () => {
     try {
       const cast = await ensureFeedCast();
-      if (!cast.ok) return { ok: false, error: `Каст молвы не собран: ${cast.error}` };
-      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялась молва');
+      if (!cast.ok) return { ok: false, error: `Каст слухов не собран: ${cast.error}` };
+      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялись слухи');
 
       // К какому ответу привязан выпуск: к тому, после которого он вышел
       // (автомат), или к последнему посчитанному (кнопка). Нет хода — без привязки.
@@ -2738,11 +2738,11 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       if (!agenda.slots.length) return { ok: false, error: 'Писать некому: в касте нет подходящих статистов.' };
       const prompt = buildMolvaPrompt(work, live.preset, agenda, { statusLine: statusLine(live.state, live.preset) });
       const res = await api.generateMolva(prompt, storage.apiSettings(c), c);
-      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялась молва');
-      if (!res.ok) return { ok: false, error: `Молва не обновилась: ${res.error}` };
+      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялись слухи');
+      if (!res.ok) return { ok: false, error: `Слухи не обновились: ${res.error}` };
       // Пока шёл запрос, ответ могли свайпнуть: выпуск про прежний вариант не нужен.
-      if (turn && live.turns[live.turns.length - 1] !== turn) return { ok: false, error: 'Ответ сменился, пока писалась молва.' };
-      if (turn && turn.stamp !== stamp) return { ok: false, error: 'Ответ сменился, пока писалась молва.' };
+      if (turn && live.turns[live.turns.length - 1] !== turn) return { ok: false, error: 'Ответ сменился, пока писались слухи.' };
+      if (turn && turn.stamp !== stamp) return { ok: false, error: 'Ответ сменился, пока писались слухи.' };
 
       const parsed = parseIssue(res.text, agenda, {
         pool: rumorAuthors(work, { stop }),
@@ -2755,9 +2755,9 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       const cal = live.state.calendar || {};
       const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time, preset: live.preset });
       // Что отброшено и почему — строками, а не «[Object]»; сырой ответ — в отладку.
-      for (const r of parsed.rejected) console.info(`[${MODULE}] молва: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
-      for (const r of parsed.warned) console.info(`[${MODULE}] молва: замечание${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
-      for (const r of parsed.reassigned) console.info(`[${MODULE}] молва: строка ${r.line}, слот ${r.n}: написал «${r.to}» вместо «${r.from}» — принято`);
+      for (const r of parsed.rejected) console.info(`[${MODULE}] слухи: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      for (const r of parsed.warned) console.info(`[${MODULE}] слухи: замечание${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      for (const r of parsed.reassigned) console.info(`[${MODULE}] слухи: строка ${r.line}, слот ${r.n}: написал «${r.to}» вместо «${r.from}» — принято`);
       live.molvaDebug = {
         at: new Date().toISOString(), auto, ok: out.ok, truncated: res.truncated === true, complete: parsed.complete,
         rows: parsed.rows, posts: out.posts, replies: out.replies,
@@ -2775,7 +2775,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
         }
         const why = parsed.rejected.slice(0, 2).map((r) => r.reason).join('; ');
         return { ok: false, error: res.truncated
-          ? 'Модель оборвалась на середине — молва не обновилась. Попробуйте ещё раз.'
+          ? 'Модель оборвалась на середине — слухи не обновились. Попробуйте ещё раз.'
           : `Модель ответила не по форме — ни одна реплика не прошла проверку${why ? ` (${why})` : ''}. Попробуйте ещё раз; разбор — во вкладке «Отладка».` };
       }
       const next = replayMolva(live.state, [out.delta]);
@@ -2784,8 +2784,8 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       refreshPanel();
       return { ok: true, posts: out.posts, replies: out.replies, skipped: parsed.rejected.length };
     } catch (err) {
-      console.error(`[${MODULE}] молва не обновилась:`, err);
-      return { ok: false, error: `Молва не обновилась: ${(err && err.message) || err}` };
+      console.error(`[${MODULE}] слухи не обновились:`, err);
+      return { ok: false, error: `Слухи не обновились: ${(err && err.message) || err}` };
     } finally {
       molvaRunning = null;
     }
@@ -2990,7 +2990,7 @@ const host = {
     refreshPanel();
   },
   getDebug: () => live.lastRun,
-  /** Последний выпуск молвы: сырой ответ модели, строки отброса и их причины. */
+  /** Последний выпуск слухов: сырой ответ модели, строки отброса и их причины. */
   getMolvaDebug: () => live.molvaDebug,
   /** Очередь поводов «Взять в сюжет» — для вкладки «Поток». */
   getPlot: () => live.plot,
@@ -3255,10 +3255,10 @@ const host = {
       };
     },
 
-    /** Убедиться, что каст молвы есть; нет — собрать (шаг 2 зовёт это перед выпуском). */
+    /** Убедиться, что каст слухов есть; нет — собрать (шаг 2 зовёт это перед выпуском). */
     ensureFeedCast: () => ensureFeedCast(),
 
-    /** Кнопка «Обновить молву»: выпуск сейчас, независимо от счёта ответов. */
+    /** Кнопка «Обновить слухи»: выпуск сейчас, независимо от счёта ответов. */
     refreshMolva: () => runMolva({}),
 
     /** Кнопка «Пересобрать каст»: статисты новые, сюжетики прежнего каста закрываются. */

@@ -770,7 +770,7 @@ function shiftYears(day, dy) {
   return formatDay({ y: y + dy, m, d });
 }
 
-/** Ключи с датами `ГГГГ-ММ-ДД` в состоянии: лента, сюжетики, молва, журнал, посещаемость, оценки, сессия. */
+/** Ключи с датами `ГГГГ-ММ-ДД` в состоянии: лента, сюжетики, слухи, журнал, посещаемость, оценки, сессия. */
 const DATED_KEYS = new Set(['day', 'since', 'on', 'closedOn', 'from', 'to', 'announceOn', 'skipDay', 'start', 'end']);
 
 /**

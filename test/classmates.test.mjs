@@ -271,10 +271,10 @@ test('снимок хода и выгрузка берут курс вместе
 test('отношение однокурсника: та же шкала, свои слова, память «за что»', () => {
   let s = semester([{ id: 'vera', name: 'Вера Соколова' }]);
   assert.equal(findPerson(s, 'vera').name, 'Вера Соколова');
-  assert.equal(relationLabel(s, 'vera', preset), 'ровно');
+  assert.equal(relationLabel(s, 'vera', preset), 'не выделяет');
   const r = changeRelation(s, { teacherId: 'vera', delta: -2, reason: { kind: 'marker', text: 'увидела мою пятёрку' } }, preset);
   assert.ok(r.applied);
-  assert.deepEqual(r.crossed, { from: 'ровно', to: 'неприязнь' });
+  assert.deepEqual(r.crossed, { from: 'не выделяет', to: 'недолюбливает' });
   s = r.state;
   assert.equal(relationOf(s, 'vera'), -2);
   for (let i = 0; i < 10; i += 1) s = changeRelation(s, { teacherId: 'vera', delta: -1 }, preset).state;
@@ -321,7 +321,7 @@ test('запись однокурсника: по имени, коротко, б
   assert.match(e.content, /попасть в тройку лучших/);
   assert.match(e.content, /героиня — соперничает за стипендию/);
   assert.match(e.content, /висит долг по физике/);
-  assert.match(e.content, /К героине: ровно/);
+  assert.match(e.content, /К героине: не выделяет/);
   assert.doesNotMatch(e.content, /завистница/, 'роль-зерно в лорбук не идёт');
   assert.doesNotMatch(e.content, /Говорят/, 'ленты нет — и слуха в записи нет');
   assert.match(classmateEntry(s, 'gleb', preset).content, /Вера Соколова — влюблён в неё/);
@@ -443,7 +443,7 @@ test('вид «Курс»: имя, кружок, желание, связь сл
   assert.equal(vera.club, 'театральный');
   // «С кем связан: с героиней — соперничает…» — без второго двоеточия.
   assert.equal(vera.tieText, 'с героиней — соперничает за стипендию');
-  assert.equal(vera.relationText, 'косится · −1');
+  assert.equal(vera.relationText, 'сторонится · −1');
   assert.deepEqual(vera.memory.map((m) => m.text), ['−1 — увидела пятёрку']);
   assert.ok(!('seed' in vera), 'зерно на карточку не идёт');
   assert.equal(v.people.find((p) => p.id === 'gleb').tieText, 'Вера Соколова — влюблён');
