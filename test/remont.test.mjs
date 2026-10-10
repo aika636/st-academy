@@ -236,12 +236,12 @@ test('9.1.1 свайп после перезагрузки заменяет оц
 
 test('9.1.1 прогулы свайпнутого дня после перезагрузки не удваиваются', async () => {
   let tavern = await withSemester({ day: '2024-09-03' });
-  const id = await reply(tavern, `Прогуляла весь день. ${marker('t=+1 day')}`);
+  const id = await reply(tavern, `Прогуляла химию. ${marker('t=+1 day skip=chemistry')}`);
   const once = skips(tavern);
   assert.ok(once > 0);
 
   tavern = await reload(tavern);
-  await swipeNew(tavern, id, `И этот день тоже мимо. ${marker('t=+1 day')}`);
+  await swipeNew(tavern, id, `И физику тоже мимо. ${marker('t=+1 day skip=physics')}`);
   assert.equal(skips(tavern), once);
   assert.equal(stateOf(tavern).calendar.day, '2024-09-04');
 });

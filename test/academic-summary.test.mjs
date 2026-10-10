@@ -91,11 +91,13 @@ test('принятие далёкой даты сохраняет безопас
   const result = applyResponse(semester(), '📅 12 сентября 2024, 10:15', preset);
   assert.ok(result.heldJump);
   const accepted = resolveHeldJump(result.state, preset, true);
-  assert.deepEqual(accepted.missed, []);
+  assert.ok(accepted.counted > 0, 'пропущенное принятым прыжком записано посещённым');
+  assert.ok(accepted.state.attendance.records.every((record) => record.status !== 'skip'));
 });
 
-test('явно выбранная строгая политика посещаемости продолжает работать', () => {
+test('прежняя строгая политика absent прогулов больше не пишет', () => {
   const strict = { ...preset, attendance: { ...preset.attendance, skipPolicy: 'absent' } };
   const result = applyResponse(semester(), '<!-- [ACADEMY t=+2 day] -->', strict);
-  assert.ok(result.missed.length > 0);
+  assert.equal(result.missed.length, 0);
+  assert.ok(result.state.attendance.records.every((record) => record.status !== 'skip'));
 });

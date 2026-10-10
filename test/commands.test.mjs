@@ -256,26 +256,26 @@ test('/academy-time всегда говорит, что стало с посещ
   const tavern = await withSemester();
 
   const silent = await run(tavern, 'academy-time', { days: '2' });
-  assert.match(silent, /Посещаемость не считалась/, silent);
+  assert.match(silent, /Посещаемость не записывалась/, silent);
   assert.match(silent, /count=yes/, 'про ключ сказано там же, где про пропуск');
 
   const counted = await run(tavern, 'academy-time', { days: '2', count: 'yes' });
-  assert.match(counted, /Прогулов зачтено/, counted);
-  assert.equal(/Посещаемость не считалась/.test(counted), false,
-    'зачтённое не предлагается зачесть второй раз');
-  assert.match(counted, /Репутация/, 'о цене решения сказано сразу');
+  assert.match(counted, /Записано посещёнными/, counted);
+  assert.equal(/Посещаемость не записывалась/.test(counted), false,
+    'записанное не предлагается записать второй раз');
+  assert.equal(/Репутация/.test(counted), false, 'посещённое репутацию не двигает');
 });
 
 test('count= понимает живые слова и не включается пустым', async () => {
   for (const word of ['да', 'true', '1']) {
     const tavern = await withSemester();
     const out = await run(tavern, 'academy-time', { days: '2', count: word });
-    assert.match(out, /Прогулов зачтено/, `«${word}» — это согласие: ${out}`);
+    assert.match(out, /Записано посещёнными/, `«${word}» — это согласие: ${out}`);
   }
 
   const tavern = await withSemester();
   const empty = await run(tavern, 'academy-time', { days: '2', count: '' });
-  assert.match(empty, /Посещаемость не считалась/, empty);
+  assert.match(empty, /Посещаемость не записывалась/, empty);
 });
 
 test('повторный registerCommands не регистрирует дубли', async () => {
@@ -511,12 +511,13 @@ test('/academy-debug говорит словами активного пресе
   tavern.seam = await boot(tavern);
   assert.equal(tavern.seam.host.getPreset().id, 'magic-academy');
 
-  // Прожить день целиком: пропущенные по расписанию занятия дают `missed`.
-  const id = say(tavern, `Она проспала весь день. ${marker('t=+1 day')}`);
+  // Прогул бывает только из прямого факта (`skip=`): сутки, перешагнутые
+  // календарём, посещены и в разборе не светятся.
+  const id = say(tavern, `Она проспала химию. ${marker('t=+1 day skip=chemistry')}`);
   await tavern.eventSource.emit('message_received', id);
   const out = await run(tavern, 'academy-debug');
 
-  assert.ok(/пропущено/.test(out), `в разборе нет пропусков: ${out}`);
+  assert.ok(/посещаемость/.test(out), `в разборе нет отметки посещаемости: ${out}`);
   assert.equal(/(?<!\p{L})пар/iu.test(out), false, `«пары» в магической академии: ${out}`);
   assert.equal(/(?<!\p{L})сесси/iu.test(out), false, `«сессия» в магической академии: ${out}`);
   assert.equal(/(?<!\p{L})хвост/iu.test(out), false, `«хвосты» в магической академии: ${out}`);

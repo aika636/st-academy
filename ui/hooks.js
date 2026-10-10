@@ -175,7 +175,10 @@ export function hookJournal(state, preset, n = 10) {
         }
         break;
       case 'attendance':
-        if (d.jump) {
+        if (d.workedOff) {
+          // Прогул закрыт отработкой: в истории он остаётся, но уже не висит.
+          row = { kind: 'attendance', subjectId: d.subjectId, subject: subjectName(d.subjectId), status: 'worked' };
+        } else if (d.jump) {
           row = { kind: 'attendance-jump', periods: d.periods || 0, missed: d.missed || 0, present: d.present || 0 };
         } else if (d.subjectId && d.status && d.periodIndex !== undefined) {
           row = { kind: 'attendance', subjectId: d.subjectId, subject: subjectName(d.subjectId), status: String(d.status) };

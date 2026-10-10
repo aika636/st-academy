@@ -12,6 +12,11 @@
 // отдельно. Поэтому `mark()` возвращает `effects` — список того, что нужно сделать, —
 // и вызывающий слой применяет их теми модулями, которым они принадлежат.
 //
+// **Прогул — только прямой факт.** Календарь молчаливых прогулов больше не выводит:
+// скачок времени засчитывает пары посещёнными (`engine.skipPolicyOf`), а прогул
+// приходит меткой `skip=`. `inferMissed()` ниже остался как инструмент ядра для
+// тестов и будущих ручных правок, движок его не зовёт.
+//
 // Второе решение: **уважительная причина ставится только руками**. `inferMissed()`
 // выводит пропуски из календаря — пара по расписанию прошла, записи о ней нет,
 // значит прогул, — но никогда не ставит `excused`. Отличить «болела» от «проспала»
@@ -89,6 +94,11 @@ export function mark(state, ev, preset, opts = {}) {
   const same = (r) => r.day === day && r.subjectId === subjectId && r.periodIndex === periodIndex;
   const at = next.attendance.records.findIndex(same);
   const record = { day, subjectId, status, periodIndex };
+  // Во что обошёлся прогул репутации — чтобы отработка вернула ровно это
+  // (`workOff`). Число не выводится из пресета задним числом: шкалу можно
+  // поправить посреди семестра, а возвращают то, что реально сняли.
+  const cost = status === 'skip' ? skipCost(preset) : 0;
+  if (cost) record.cost = cost;
   if (at >= 0) next.attendance.records[at] = record;
   else next.attendance.records.push(record);
 
@@ -122,15 +132,18 @@ function effectsFor(state, subjectId, status, preset, day) {
 
   if (typeof rep[status] === 'number') out.reputation += rep[status];
 
-  // Хвост ставится ровно в тот момент, когда порог перейдён, и один раз: иначе
-  // каждый следующий прогул снова бил бы по репутации за уже поставленный хвост.
+  // Хвост ставится ровно в тот момент, когда порог перейдён, и один раз.
+  //
+  // **Хвост за прогулы репутацию не трогает.** Он возникает из тех же самых
+  // прогулов, за каждый из которых репутация уже заплачена (`rep.skip`); второй
+  // вычет за ту же пару и тот же предмет был бы двойной платой за один поступок.
+  // Ярлык `reputation.delta.debt` в пресетах поэтому не нужен: другого источника
+  // хвоста, который бил бы по репутации, нет — провал на сессии платит своим
+  // `examFailed`.
   const subject = findSubject(state, subjectId);
   const threshold = att.debtAfterSkips;
   if (subject && !subject.debt && typeof threshold === 'number') {
-    if (effectiveSkips(state, subjectId, preset) >= threshold) {
-      out.debt.push(subjectId);
-      if (typeof rep.debt === 'number') out.reputation += rep.debt;
-    }
+    if (effectiveSkips(state, subjectId, preset) >= threshold) out.debt.push(subjectId);
   }
 
   return out;
@@ -143,9 +156,59 @@ function effectsFor(state, subjectId, status, preset, day) {
  */
 export function effectiveSkips(state, subjectId, preset) {
   const s = stats(state, subjectId);
+  // Отработанный прогул (`workOff`) в зачёт хвоста больше не идёт: он закрыт.
+  const open = s.skips - s.worked;
   const per = preset && preset.attendance && preset.attendance.lateEqualsSkip;
-  if (typeof per !== 'number' || per <= 0) return s.skips;
-  return s.skips + Math.floor(s.lates / per);
+  if (typeof per !== 'number' || per <= 0) return open;
+  return open + Math.floor(s.lates / per);
+}
+
+/** Цена одного прогула в репутации (положительное число); `0` — пресет её не задаёт. */
+function skipCost(preset) {
+  const v = preset && preset.reputation && preset.reputation.delta && preset.reputation.delta.skip;
+  return typeof v === 'number' && v < 0 ? -v : 0;
+}
+
+/**
+ * Отработка: закрыть самый старый открытый прогул.
+ *
+ * Прогул, который герой потом отработал — сдал зачёт по предмету, получил
+ * проходную оценку за домашнюю работу, — перестаёт висеть на нём. Запись при этом
+ * не удаляется: история «прогуливал» остаётся (вехи, «призрак аудитории»), а
+ * закрытость отмечается полем `workedOff` с днём закрытия. Репутация, снятая за
+ * этот прогул, возвращается (`effects.reputation > 0`); применяет её вызывающий,
+ * как и остальные эффекты этого модуля.
+ *
+ * Закрывается один прогул за одно событие: сданный зачёт — это одно «отработал»,
+ * а не амнистия всему предмету. `subjectId: null` — событие без предмета (общий
+ * экзамен, сессия): закрывается самый старый открытый прогул любого предмета.
+ * Если открытых нет — ничего не происходит.
+ *
+ * @param {Object} state
+ * @param {{subjectId?: ?string, day?: string}} ev
+ * @param {Object} preset
+ * @returns {{state: Object, closed: ?Object, effects: Object}}
+ */
+export function workOff(state, ev, preset) {
+  const next = cloneState(state);
+  const subjectId = (ev && ev.subjectId) || null;
+  const today = String((ev && ev.day) || (next.calendar && next.calendar.day) || '');
+  const open = (next.attendance.records || [])
+    .filter((r) => r.status === 'skip' && !r.workedOff && (!subjectId || r.subjectId === subjectId))
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : (a.periodIndex || 0) - (b.periodIndex || 0)));
+  const record = open[0];
+  if (!record) return { state: next, closed: null, effects: noEffects() };
+
+  record.workedOff = today;
+  const effects = noEffects();
+  effects.reputation = typeof record.cost === 'number' ? record.cost : skipCost(preset);
+
+  pushJournal(next, {
+    kind: 'attendance',
+    text: `attendance ${record.subjectId}: skip ${record.day} worked off`,
+    data: { workedOff: true, subjectId: record.subjectId, skipDay: record.day, day: today },
+  }, preset);
+  return { state: next, closed: { ...record }, effects };
 }
 
 /**
@@ -261,11 +324,14 @@ export function totalStats(state) {
 }
 
 function count(records, keep) {
-  const out = { present: 0, skips: 0, lates: 0, excused: 0 };
+  const out = { present: 0, skips: 0, lates: 0, excused: 0, worked: 0 };
   for (const r of records) {
     if (!keep(r)) continue;
     if (r.status === 'present') out.present += 1;
-    else if (r.status === 'skip') out.skips += 1;
+    else if (r.status === 'skip') {
+      out.skips += 1;
+      if (r.workedOff) out.worked += 1;
+    }
     else if (r.status === 'late') out.lates += 1;
     else if (r.status === 'excused') out.excused += 1;
   }

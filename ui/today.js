@@ -446,8 +446,8 @@ function heldJumpBlock(host, view, U) {
     // Число пропущенных занятий известно только после ответа ядра, а перерисовка
     // унесёт этот узел, — поэтому итог уходит в память вкладки (`todayNote`).
     if (res && res.ok) {
-      setTodayNote(accept && res.missed
-        ? fill(U.jumpAcceptedMissed, { count: res.missed })
+      setTodayNote(accept && res.counted
+        ? fill(U.jumpAcceptedMissed, { count: res.counted })
         : (accept ? U.jumpAccepted : U.jumpDismissed));
     }
     renderPanel(host);
@@ -502,8 +502,8 @@ function manualTimeBlock(host, view, U) {
         const slot = Number.isInteger(res.to.ordinal) ? ` (${fill(U.slot, { ordinal: res.to.ordinal })})` : '';
         parts.push(fill(U.shiftedTo, { when: `${formatDate(res.to.day)}${res.to.time ? `, ${res.to.time}` : ''}${slot}` }));
       }
-      if (res.missed) parts.push(fill(U.repairCounted, { count: res.missed }));
-      else if (res.wouldMiss) parts.push(fill(U.repairNotCounted, { count: res.wouldMiss }));
+      if (res.counted) parts.push(fill(U.repairCounted, { count: res.counted }));
+      else if (res.wouldCount) parts.push(fill(U.repairNotCounted, { count: res.wouldCount }));
       if (parts.length) setTodayNote(parts.join(' '), true);
     }
     renderPanel(host);

@@ -91,7 +91,7 @@ export function sectionLabel(section, labels = {}) {
   return fillText(section.label, { ...LABELS, ...labels });
 }
 
-const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительный пропуск' };
+const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительный пропуск', worked: 'прогул отработан' };
 
 /**
  * Слова строк по умолчанию — если хост их не передал. У каждого заведения свои

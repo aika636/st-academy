@@ -248,16 +248,16 @@ test('свайп на новую генерацию откатывает сос�
   // ведомостью не обсчитываются вовсе (`attendance.countsAttendance`), и
   // прогуливать в них нечего.
   const tavern = await withSemester({}, { day: '2024-09-03' });
-  const id = say(tavern, `Прогуляла весь день. ${marker('t=+1 day')}`);
+  const id = say(tavern, `Прогуляла химию. ${marker('t=+1 day skip=chemistry')}`);
   await tavern.eventSource.emit('message_received', id);
   const afterFirst = skips(tavern);
-  assert.ok(afterFirst > 0, 'прогулы за пропущенный день должны появиться');
+  assert.ok(afterFirst > 0, 'названный прогул должен появиться');
 
   // Свайп: таверна шлёт MESSAGE_SWIPED, подменяет текст и шлёт MESSAGE_RECEIVED
   // повторно (script.js:6610-6632). Текст обязан быть ДРУГИМ: на том же самом
   // ответ отсеял бы сторож отпечатка, и тест прошёл бы даже без отката —
   // проверял бы не то, ради чего написан.
-  tavern.chat[id].mes = `И этот день она тоже пропустила. ${marker('t=+1 day')}`;
+  tavern.chat[id].mes = `И физику она тоже пропустила. ${marker('t=+1 day skip=physics')}`;
   await tavern.eventSource.emit('message_swiped', id);
   await tavern.eventSource.emit('message_received', id);
 
@@ -299,11 +299,11 @@ test('правка сообщения руками пересчитывает, �
 test('одноразовый инжект живёт ровно одну генерацию', async () => {
   const tavern = await withSemester();
 
-  // Четыре прыжка через день подряд: репутация пробивает порог и приходит
-  // одноразовый инжект (3.4).
+  // Три ответа подряд с четырьмя названными прогулами: репутация пробивает
+  // порог (десятый прогул) и приходит одноразовый инжект (3.4).
   let last = null;
   for (let i = 0; i < 3; i += 1) {
-    last = say(tavern, `Её не было. ${marker('t=+1 day')}`);
+    last = say(tavern, `Её не было. ${marker('t=+1 day skip=chemistry skip=physics skip=history skip=math')}`);
     await tavern.eventSource.emit('message_received', last);
     if (tavern.prompts.academy_oneshot.value) break;
   }

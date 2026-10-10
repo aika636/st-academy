@@ -339,33 +339,28 @@ test('9.4.4 строка: объявление итога — «завтра о�
 
 // --- 9.4.4: прыжок — одна сводка вместо пачки -------------------------------
 
-test('9.4.4 прыжок через дни: одна строка журнала и сводка «+N пар», сдвиги отношения сведены', () => {
+test('9.4.4 прыжок через дни: одна строка журнала и сводка «+N пар», все пары посещены', () => {
   const s = semester('2024-10-07'); // понедельник
-  const withSkip = { ...preset, attendance: { ...preset.attendance, skipPolicy: 'absent' } };
-  const run = applyResponse(s, '<!-- [ACADEMY t=+1 week] -->', withSkip);
+  const run = applyResponse(s, '<!-- [ACADEMY t=+1 week] -->', preset);
   assert.equal(run.state.calendar.day, '2024-10-14');
   assert.ok(run.jump, 'сводка есть');
   assert.equal(run.jump.fromDay, '2024-10-07');
   assert.equal(run.jump.toDay, '2024-10-14');
   assert.equal(run.jump.days, 7);
-  assert.equal(run.jump.missed, run.missed.length);
-  assert.equal(run.jump.periods, run.jump.missed + run.jump.present);
-  assert.ok(run.jump.missed > 4, `прогулов: ${run.jump.missed}`);
+  assert.equal(run.jump.missed, 0, 'скачок прогулов не пишет');
+  assert.equal(run.missed.length, 0);
+  assert.equal(run.jump.periods, run.jump.present);
+  assert.ok(run.jump.present > 4, `посещено: ${run.jump.present}`);
 
   const fresh = run.state.journal.slice(s.journal.length);
   const marks = fresh.filter((e) => e.kind === 'attendance' && /^attendance \w+=/.test(e.text));
   assert.equal(marks.length, 0, 'по строке на пару — это та самая пачка');
   assert.equal(fresh.filter((e) => e.kind === 'attendance' && e.data && e.data.jump).length, 1);
-  // Сдвиги отношения — по одному на наставника, с поводом и счётом.
-  const rels = fresh.filter((e) => e.kind === 'rel');
-  const ids = rels.map((e) => e.data.teacherId);
-  assert.equal(new Set(ids).size, ids.length, 'по одной записи на наставника');
-  for (const e of rels) {
-    assert.equal(e.data.reason.kind, 'skip');
-    assert.ok(e.data.reason.count >= 1);
-  }
+  // Ни отношения, ни репутация за скачок не сдвигаются.
+  assert.equal(fresh.filter((e) => e.kind === 'rel').length, 0);
+  assert.equal(run.state.reputation.value, preset.reputation.start);
   // Ведомость при этом полная: сводка — про журнал, не про отметки.
-  assert.equal(run.state.attendance.records.filter((r) => r.status === 'skip').length, run.jump.missed);
+  assert.equal(run.state.attendance.records.filter((r) => r.status === 'present').length, run.jump.present);
 });
 
 test('9.4.4 сводка прыжка: итог отношения тот же, что при пачке', () => {

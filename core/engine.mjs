@@ -37,13 +37,13 @@ import {
   cloneState, pushJournal, takePending, teacherOfSubject,
 } from './state.mjs';
 import {
-  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays, parseDay,
+  advance, setAbsolute, noteIdle, phaseOf, isStudyDay, isStalled, addDays, parseDay, minutesOf,
 } from './time.mjs';
 import { dayPlan } from './schedule.mjs';
 import { parseMarker, MARKER_RE } from './parse-marker.mjs';
 import { readTime } from './time-source.mjs';
-import { addGrade, setDebt, REJECT_UNKNOWN_VALUE } from './gradebook.mjs';
-import { mark, inferMissed, shouldInfer, countsAttendance } from './attendance.mjs';
+import { addGrade, setDebt, resolveGrade, REJECT_UNKNOWN_VALUE } from './gradebook.mjs';
+import { mark, workOff, countsAttendance } from './attendance.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
@@ -60,38 +60,39 @@ import {
 export const MODES = ['auto', 'context', 'marker'];
 
 /**
- * Как считать посещаемость за дни, перешагнутые промоткой времени (9.2, 3.4):
+ * Как считать посещаемость за дни, перешагнутые промоткой времени (9.2, 3.4).
  *
- * - `attend` — умолчание: человек промотал учёбу, а не прогулял её. По духу
- *   README («ремонт не наказывает»): кнопка «через неделю» в Enhance-Gen — это
- *   монтаж, и платить за монтаж отчислением было бы наказанием за сюжет;
- * - `absent` — как любой прыжок датой: всё, что стояло в пропущенных днях,
- *   прошло без неё (прежнее поведение, для строгих заведений);
- * - `ask` — зарезервировано под вопрос человеку. Спросить можно только
- *   после ответа, а придержать ведомость до ответа значит завести в состоянии
- *   ещё одно ожидание рядом с `heldJump` (схема и панель — не этот шаг). Пока
- *   `ask` ведёт себя как `attend` и оставляет строчку в отладке.
+ * Политика теперь одна: `attend`. Пара, которая прошла за скачком времени, —
+ * посещена, и неважно, на сколько суток скачок и кто его вызвал (промотка
+ * Enhance-Gen, «минувшие четыре дня», принятый прыжок, ручной ремонт с галочкой).
+ * Календарь не знает, что было за скачком; «не знаю» не равно «прогуляла», а цена
+ * ложного прогула выше цены пропуска (раздел 5 плана): на живых прогонах 10.10
+ * скачок на сутки записывал прогулы, а на четыре дня — присутствие, то есть
+ * одна и та же ситуация давала противоположный итог от длины скачка, и пара, на
+ * которую героиня пришла с опозданием, уходила в прогулы. Прогул бывает только из
+ * прямого факта в ролке — метки секретаря `skip=`.
+ *
+ * Список остался списком, а не константой: `ask` зарезервирован под вопрос
+ * человеку и пока ведёт себя так же. Старое `absent` убрано — прежний пресет со
+ * `skipPolicy: absent` читается как `attend`.
  */
-export const SKIP_POLICIES = ['attend', 'absent', 'ask'];
-
-/** Политика пресета (`attendance.skipPolicy`); чего нет или не знаем — `attend`. */
-export function skipPolicyOf(preset) {
-  const raw = preset && preset.attendance && preset.attendance.skipPolicy;
-  return SKIP_POLICIES.includes(raw) ? raw : 'attend';
-}
-
-/** С какого прыжка датой (в днях) пропущенное — монтаж, а не прогул. */
-export const MONTAGE_DAYS = 2;
+export const SKIP_POLICIES = ['attend', 'ask'];
 
 /**
- * Политика ведомости для прыжка без явной промотки. Ход внутри дня и переход
- * на следующий — сцена: пара, которая прошла без героини, — прогул. Прыжок
- * через два дня и дальше — монтаж: пропущенное считается по политике пресета
- * (`skipPolicyOf`), как при явной промотке.
+ * Политика скачка: `attend`, а `ask` — только как заготовка под вопрос человеку
+ * (ведёт себя так же). Всё остальное, включая старое `absent`, читается как `attend`.
  */
-export function jumpPolicyOf(preset, fromDay, toDay) {
-  const days = isDayStr(fromDay) && isDayStr(toDay) ? dayDiff(fromDay, toDay) : 0;
-  return days >= MONTAGE_DAYS ? skipPolicyOf(preset) : 'absent';
+export function skipPolicyOf(preset) {
+  const raw = preset && preset.attendance && preset.attendance.skipPolicy;
+  return raw === 'ask' ? 'ask' : 'attend';
+}
+
+/**
+ * Политика ведомости для прыжка без явной промотки. Любой скачок датой — монтаж,
+ * а не прогул (`skipPolicyOf`): ни длина, ни источник на это не влияют.
+ */
+export function jumpPolicyOf() {
+  return 'attend';
 }
 
 /** Обычный потолок прыжка датой — тот же, что у `time.setAbsolute`. */
@@ -347,6 +348,7 @@ export function applyResponse(state, text, preset, opts = {}) {
   }
   const fromDay = s.calendar.day;
   const fromPos = posOf(s);
+  const fromTime = s.calendar.precision === 'datetime' ? s.calendar.time : null;
   const moveRes = applyTime(s, src, parsed, mode, preset, { ...opts, skip, phoneTurn: Boolean(opts.phoneTurn) });
   s = moveRes.state;
   out.notes.push(...moveRes.notes);
@@ -372,6 +374,15 @@ export function applyResponse(state, text, preset, opts = {}) {
   out.jump = sweep.summary || null;
   absorb(effects, sweep.effects);
   if (sweep.missed.length) out.debug.applied.push({ kind: 'missed', count: sweep.missed.length });
+
+  // --- опоздание по ходу игры -----------------------------------------------
+  // Телефонный ход время не двигает, а значит и опоздать в нём нельзя.
+  if (!opts.phoneTurn) {
+    const late = arrivalLate(s, parsed.events, fromDay, fromTime, preset);
+    s = late.state;
+    absorb(effects, late.effects);
+    for (const subjectId of late.subjectIds) out.debug.applied.push({ kind: 'attendance', subjectId, status: 'late', derived: true });
+  }
 
   // --- отношения из метки ---------------------------------------------------
   // Штампованный повтор гасится до применения (9.3.5). «Новое событие» —
@@ -487,14 +498,21 @@ export function applyResponse(state, text, preset, opts = {}) {
     }
     const r = addGrade(s, { subjectId: ev.subjectId, value: ev.value }, preset);
     s = r.state;
-    if (r.applied) out.debug.applied.push({ kind: 'grade', subjectId: ev.subjectId, value: ev.value });
-    else out.notes.push(r.reason);
+    if (r.applied) {
+      out.debug.applied.push({ kind: 'grade', subjectId: ev.subjectId, value: ev.value });
+      // Проходная оценка по предмету — отработка: закрывает прогул по нему.
+      const spec = resolveGrade(preset, ev.value);
+      if (spec && spec.pass) s = settleWorkOff(s, [ev.subjectId], preset);
+    } else out.notes.push(r.reason);
   }
 
   for (const event of parsed.events.filter((entry) => entry.kind === 'completion')) {
     const completed = applyAcademicCompletion(s, event, preset);
     s = completed.state;
-    if (completed.applied) out.debug.applied.push({ ...event, subjectIds: completed.subjectIds });
+    if (completed.applied) {
+      out.debug.applied.push({ ...event, subjectIds: completed.subjectIds });
+      s = settleWorkOff(s, completed.subjectIds, preset);
+    }
   }
 
   if (opts.exam) {
@@ -547,6 +565,81 @@ export function applyResponse(state, text, preset, opts = {}) {
 }
 
 /**
+ * Отработка (`attendance.workOff`) и её цена: репутация, снятая за закрытый
+ * прогул, возвращается. Один вызов закрывает по одному прогулу на каждый
+ * названный предмет; `subjectIds` из `null` — событие без предмета (общий
+ * экзамен, сессия): закрывается самый старый открытый прогул любого предмета.
+ *
+ * Флаги `warned`/`expelled` и веху «на волоске» возврат не трогает: это история,
+ * а не текущее состояние. Ярлык репутации читается по значению и поднимается
+ * вместе с ним.
+ */
+function settleWorkOff(state, subjectIds, preset) {
+  let s = state;
+  const day = s.calendar.day;
+  for (const subjectId of (subjectIds && subjectIds.length ? subjectIds : [null])) {
+    const res = workOff(s, { subjectId, day }, preset);
+    s = res.state;
+    if (res.effects.reputation) {
+      s = changeReputation(s, { delta: res.effects.reputation, reason: 'workoff' }, preset).state;
+    }
+  }
+  return s;
+}
+
+/**
+ * Опоздание, выведенное по ходу игры (16): время сцены продвинулось внутри дня
+ * и героиня оказалась на занятии позже его начала.
+ *
+ * Самый надёжный способ из доступных — требовать **явный приход**. Одного
+ * времени мало: «стрелка ушла с 08:22 на 09:20» не говорит, что героиня сидит на
+ * паре, а не в общежитии, и записать опоздание по часам значило бы выдумать его
+ * (то же правило, что у прогулов: без прямого факта ничего не пишем). Явным
+ * приходом считается оценка по предмету этой пары в том же ответе (`grade=` —
+ * отвечала у доски, сдала работу): её на паре получает только тот, кто на ней
+ * был. Плюс все условия разом:
+ *
+ * - день не сменился, время известно с точностью до минут, ход не телефонный;
+ * - в начале ответа пара ещё не началась, в конце — она идёт, и пришли позже
+ *   начала на `attendance.lateAfterMinutes` (умолчание 10) и больше;
+ * - по этой паре записи нет (явное `late=`/`skip=` из метки сильнее).
+ *
+ * Явное `late=` из метки записывается отдельно, шагом посещаемости по метке, и
+ * этим не дублируется.
+ *
+ * @returns {{state: Object, effects: Object, subjectIds: string[]}}
+ */
+function arrivalLate(state, events, fromDay, fromTime, preset) {
+  const none = { state, effects: { relation: [], reputation: 0, debt: [] }, subjectIds: [] };
+  const cal = state.calendar || {};
+  if (!fromTime || cal.precision !== 'datetime' || cal.day !== fromDay || !cal.time) return none;
+  const graded = new Set(events.filter((e) => e.kind === 'grade').map((e) => e.subjectId));
+  if (!graded.size || !countsAttendance(state, cal.day)) return none;
+  const grace = Number((preset.attendance || {}).lateAfterMinutes);
+  const limit = Number.isFinite(grace) && grace >= 0 ? grace : 10;
+  const before = minutesOf(fromTime);
+  const after = minutesOf(cal.time);
+
+  let s = state;
+  const effects = { relation: [], reputation: 0, debt: [] };
+  const subjectIds = [];
+  for (const item of dayPlan(s, preset)) {
+    if (!graded.has(item.subjectId) || !item.start || !item.end) continue;
+    const start = minutesOf(item.start);
+    if (!(before < start && after >= start + limit && after < minutesOf(item.end))) continue;
+    const taken = s.attendance.records.some(
+      (r) => r.day === cal.day && r.subjectId === item.subjectId && r.periodIndex === item.index,
+    );
+    if (taken) continue;
+    const res = mark(s, { subjectId: item.subjectId, status: 'late', day: cal.day, periodIndex: item.index }, preset);
+    s = res.state;
+    absorb(effects, res.effects);
+    subjectIds.push(item.subjectId);
+  }
+  return { state: s, effects, subjectIds };
+}
+
+/**
  * Развёртка ведомости за сдвиг плюс всё, что из неё следует: отношения, хвосты,
  * репутация. Ровно те же пять шагов, что в `applyResponse`, но одним вызовом —
  * их повторяют и принятый прыжок, и ручной сдвиг со счётом посещаемости.
@@ -559,7 +652,7 @@ function sweepAndSettle(state, fromDay, fromPos, unit, preset, opts = {}) {
   if (sweep.effects.reputation) {
     s = changeReputation(s, { delta: sweep.effects.reputation, reason: 'attendance' }, preset).state;
   }
-  return { state: s, missed: sweep.missed };
+  return { state: s, missed: sweep.missed, counted: sweep.counted };
 }
 
 /**
@@ -627,16 +720,17 @@ function calendarEvents(state, preset) {
  *
  * `accept = false` просто забывает прыжок: календарь остаётся там, где стоял.
  *
- * @returns {{state: Object, applied: boolean, reason: string, missed: Array}}
+ * @returns {{state: Object, applied: boolean, reason: string, counted: number}}
+ *   `counted` — сколько пар перешагнутых дней записано посещёнными
  */
 export function resolveHeldJump(state, preset, accept = true) {
   const held = state && state.calendar && state.calendar.heldJump;
-  if (!held) return { state, applied: false, reason: 'придержанного прыжка нет', missed: [] };
+  if (!held) return { state, applied: false, reason: 'придержанного прыжка нет', counted: 0 };
 
   if (!accept) {
     const s = cloneState(state);
     s.calendar.heldJump = null;
-    return { state: s, applied: false, reason: `прыжок на ${held.day} отклонён`, missed: [] };
+    return { state: s, applied: false, reason: `прыжок на ${held.day} отклонён`, counted: 0 };
   }
 
   const fromDay = state.calendar.day;
@@ -646,7 +740,7 @@ export function resolveHeldJump(state, preset, accept = true) {
   const r = setAbsolute(state, { day: held.day, time: held.time, daypart: held.daypart }, held.source || 'A', preset, { force: true });
   let s = cloneState(r.state);
   s.calendar.heldJump = null;
-  if (!r.applied) return { state: s, applied: false, reason: r.reason, missed: [] };
+  if (!r.applied) return { state: s, applied: false, reason: r.reason, counted: 0 };
 
   // Прыжок, придержанный из промотки (он вышел за её потолок или перешагнул
   // контрольное), после «принять» обходит ведомость по той же политике, что
@@ -655,7 +749,7 @@ export function resolveHeldJump(state, preset, accept = true) {
   const swept = sweepAndSettle(s, fromDay, fromPos, 'absolute', preset, { policy });
   // И то, что календарь заводит сам: сессия, закрытая или открытая прыжком.
   s = calendarEvents(swept.state, preset).state;
-  return { state: s, applied: true, reason: r.reason, missed: swept.missed };
+  return { state: s, applied: true, reason: r.reason, counted: swept.counted };
 }
 
 /**
@@ -667,15 +761,15 @@ export function resolveHeldJump(state, preset, accept = true) {
  * (`shift`: `{unit, n}` или просто число пар). Если заданы оба, сначала
  * применяется абсолютная точка: она полнее.
  *
- * **Посещаемость по умолчанию не считается** — ремонт календаря не должен
- * наказывать за день, которого не играли. Но и молчать об этом нельзя: человек,
- * двигающий время руками, не обязан догадываться, что половина игры при этом не
- * наступает. Поэтому счёт включается ключом `count`, а `wouldMiss` считается
- * всегда — это то, что зачлось бы, и вызывающий об этом скажет.
+ * **Посещаемость по умолчанию не записывается** — ремонт календаря не пишет в
+ * ведомость день, которого не играли. Прогулом пары не становятся ни так, ни так
+ * (`skipPolicyOf`): ключ `count` включает запись «посещено» за перешагнутые пары,
+ * а `wouldCount` считается всегда — это то, что записалось бы, и вызывающий об
+ * этом скажет.
  *
  * @param {{day?: string, time?: string, shift?: Object|number, count?: boolean}} patch
  * @returns {{state: Object, applied: boolean, reason: string,
- *   missed: Array, wouldMiss: number}}
+ *   counted: number, wouldCount: number}}
  */
 export function manualTime(state, { day, time, shift, count = false } = {}, preset) {
   let s = cloneState(state);
@@ -710,21 +804,21 @@ export function manualTime(state, { day, time, shift, count = false } = {}, pres
   if (applied) s.calendar.source = 'manual';
 
   // Развёртка считается всегда, а применяется по просьбе. Считать «вхолостую»
-  // дешевле, чем объяснять человеку задним числом, почему прогулов нет: ядро
-  // чистое, лишняя копия состояния никуда не уезжает.
-  let missed = [];
-  let wouldMiss = 0;
+  // дешевле, чем объяснять человеку задним числом, почему пар в ведомости нет:
+  // ядро чистое, лишняя копия состояния никуда не уезжает.
+  let counted = 0;
+  let wouldCount = 0;
   if (applied && unit) {
     const swept = sweepAndSettle(s, fromDay, fromPos, unit, preset);
-    wouldMiss = swept.missed.length;
+    wouldCount = swept.counted;
     if (count) {
       s = calendarEvents(swept.state, preset).state;
-      missed = swept.missed;
-      wouldMiss = 0;
+      counted = swept.counted;
+      wouldCount = 0;
     }
   }
 
-  return { state: s, applied, reason: reasons.filter(Boolean).join('; '), missed, wouldMiss };
+  return { state: s, applied, reason: reasons.filter(Boolean).join('; '), counted, wouldCount };
 }
 
 /**
@@ -881,6 +975,8 @@ export function sitExam(state, preset, opts = {}) {
     delta: isPassing(preset, done.outcome) ? delta.examPassed : delta.examFailed,
     reason: 'exam',
   }, preset).state;
+  // Сданное контрольное — отработка прогула по этому предмету (`settleWorkOff`).
+  if (isPassing(preset, done.outcome)) s = settleWorkOff(s, [item.subjectId], preset);
   return {
     state: s,
     // `check` — вся проверка (DC, слагаемые, бросок, ступень): её печатает
@@ -926,6 +1022,8 @@ function sitByStory(state, preset, item, said, dice) {
     delta: isPassing(preset, done.outcome) ? delta.examPassed : delta.examFailed,
     reason: 'exam',
   }, preset).state;
+  // Сданное контрольное — отработка прогула по этому предмету (`settleWorkOff`).
+  if (isPassing(preset, done.outcome)) s = settleWorkOff(s, [item.subjectId], preset);
   return {
     state: s,
     exam: {
@@ -1128,8 +1226,8 @@ function applyTime(state, text, parsed, mode, preset, opts) {
  * Записи, которые уже есть (`skip=` из метки), ни одна ветка не трогает:
  * `inferMissed` их пропускает, `present` ставится только на пустой слот.
  *
- * `opts.policy` — как считать дни, перешагнутые промоткой (`skipPolicyOf`):
- * `absent` — как любой прыжок, прогулом; `attend`/`ask` — присутствием.
+ * Дни, перешагнутые скачком, считаются присутствием (`skipPolicyOf`), а не
+ * прогулом: `missed` всегда пуст, `inferMissed` движок больше не зовёт.
  *
  * **Прыжок через дни — одна сводка, а не пачка (9.4.4).** Неделя без героини —
  * двадцать отметок, и по строке журнала на каждую (плюс строка сдвига
@@ -1143,10 +1241,10 @@ function applyTime(state, text, parsed, mode, preset, opts) {
  */
 export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}) {
   let s = state;
-  const policy = SKIP_POLICIES.includes(opts.policy) ? opts.policy : 'absent';
+  const policy = SKIP_POLICIES.includes(opts.policy) ? opts.policy : 'attend';
   const missed = [];
   const effects = { relation: [], reputation: 0, debt: [] };
-  if (!unit) return { state: s, missed, effects, summary: null };
+  if (!unit) return { state: s, missed, effects, summary: null, counted: 0 };
   const quiet = unit !== 'period';
   const markOpts = quiet ? { journal: false } : {};
   let presentCount = 0;
@@ -1171,9 +1269,13 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}
   };
 
   if (unit === 'period') {
-    if (s.calendar.day === fromDay) return { state: present(s, fromDay, fromPos, posOf(s)), missed, effects, summary: null };
+    if (s.calendar.day === fromDay) {
+      s = present(s, fromDay, fromPos, posOf(s));
+      return { state: s, missed, effects, summary: null, counted: presentCount };
+    }
     s = present(s, fromDay, fromPos, Infinity);
-    return { state: present(s, s.calendar.day, 0, posOf(s)), missed, effects, summary: null };
+    s = present(s, s.calendar.day, 0, posOf(s));
+    return { state: s, missed, effects, summary: null, counted: presentCount };
   }
 
   // Сводка прыжка — одна на вызов, чем бы он ни кончился.
@@ -1192,41 +1294,16 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}
       }, preset);
     }
     // Прыжок внутри тех же суток без единой пары — не о чем и тостить.
-    return { state: acc, missed, effects, summary: summary.days || summary.periods ? summary : null };
+    return { state: acc, missed, effects, summary: summary.days || summary.periods ? summary : null, counted: presentCount };
   };
 
-  // Решение «дозаполнять ли ведомость за этот прыжок» принимает ядро, и ровно
-  // один раз на прыжок: горизонта в сшивке нет ни константой, ни условием.
-  if (!shouldInfer(fromDay, s.calendar.day, preset)) {
-    s = pushJournal(cloneState(s), {
-      kind: 'attendance',
-      text: `attendance skipped: ${fromDay} -> ${s.calendar.day}`,
-      data: { fromDay, toDay: s.calendar.day },
-    }, preset);
-    return finish(s);
-  }
-
-  // Промотка с политикой «была на парах» (`skipPolicy: attend`, 9.2): те же
-  // дни, тот же горизонт, но вместо прогула — присутствие. Человек промотал
-  // скучную неделю, а не прогулял её; «ремонт не наказывает» (README). `ask`
-  // пока ведёт себя как `attend` — см. `skipPolicyOf`.
-  if (policy !== 'absent') {
-    for (let day = fromDay; day < s.calendar.day; day = addDays(day, 1)) {
-      if (!isStudyDay(preset, day, s)) continue;
-      s = present(s, day, day === fromDay ? fromPos : 0, Infinity);
-    }
-    return finish(s);
-  }
-
-  // День сменился прыжком: всё, что стояло в пройденных учебных днях, прошло мимо.
+  // День сменился прыжком: всё, что стояло в пройденных учебных днях, засчитано
+  // посещённым (`skipPolicyOf`). Горизонта нет: пропущенное не наказывается ни в
+  // одну сторону, а «посещено» без цены не может отчислить, сколько бы суток ни
+  // прошло. Прогул сюда не попадает никогда — только метка `skip=`.
   for (let day = fromDay; day < s.calendar.day; day = addDays(day, 1)) {
     if (!isStudyDay(preset, day, s)) continue;
-    const expected = dayPlan(s, preset, day).map((p) => ({ subjectId: p.subjectId, periodIndex: p.index }));
-    if (!expected.length) continue; // сессия и каникулы: лекций нет, прогуливать нечего
-    const res = inferMissed(s, { day, expected }, preset, markOpts);
-    s = res.state;
-    missed.push(...res.missed);
-    absorb(effects, res.effects);
+    s = present(s, day, day === fromDay ? fromPos : 0, Infinity);
   }
   return finish(s);
 }

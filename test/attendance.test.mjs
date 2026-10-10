@@ -30,7 +30,7 @@ test('прогул расходится по трём направлениям �
   }]);
   assert.equal(res.effects.reputation, preset.reputation.delta.skip);
   assert.deepEqual(res.effects.debt, []); // до порога ещё далеко
-  assert.deepEqual(stats(res.state, 'chemistry'), { present: 0, skips: 1, lates: 0, excused: 0 });
+  assert.deepEqual(stats(res.state, 'chemistry'), { present: 0, skips: 1, lates: 0, excused: 0, worked: 0 });
 });
 
 test('присутствие не даёт последствий', () => {
@@ -64,7 +64,8 @@ test('порог прогулов даёт хвост ровно один раз
       assert.equal(i + 1, need, 'хвост должен встать ровно на пороговом прогуле');
       // Эффект применяет зачётка — здесь только его учёт.
       s = setDebt(s, 'chemistry', true, preset);
-      assert.equal(res.effects.reputation, preset.reputation.delta.skip + preset.reputation.delta.debt);
+      // Хвост за прогулы репутацию не трогает: прогул уже оплачен (нет двойной платы).
+      assert.equal(res.effects.reputation, preset.reputation.delta.skip);
     }
   }
 
@@ -123,7 +124,7 @@ test('уважительная причина никогда не выставл
 
   // Руками — пожалуйста, и это перекрывает выведенный прогул.
   const fixed = mark(res.state, { subjectId: 'physics', status: 'excused', day: day(4), periodIndex: 1 }, preset);
-  assert.deepEqual(stats(fixed.state, 'physics'), { present: 0, skips: 0, lates: 0, excused: 1 });
+  assert.deepEqual(stats(fixed.state, 'physics'), { present: 0, skips: 0, lates: 0, excused: 1, worked: 0 });
   assert.deepEqual(fixed.effects, { relation: [], reputation: 0, debt: [] });
 });
 

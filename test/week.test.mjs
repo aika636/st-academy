@@ -165,7 +165,9 @@ test('учебная неделя целиком: пары, оценки, хво
     afterDebt.numbers.some((n) => n.key === 'debts' && n.text.includes('хвосты')),
     `в сводных числах нет хвостов: ${JSON.stringify(afterDebt.numbers)}`,
   );
-  assert.equal(afterDebt.reputation, 'на плохом счету', 'репутация просела, но не в пол');
+  assert.equal(s.reputation.value, preset.reputation.start + 3 * preset.reputation.delta.skip,
+    'репутация просела ровно на три прогула: хвост за них второй платы не берёт');
+  assert.equal(afterDebt.reputation, 'ничем не выделяется', 'просела, но не в пол');
 
   // --- пятница: опоздание, и неделя закрыта ---------------------------------
   // Последний ответ уводит сразу в субботу. Четвёртая пара пятницы при этом не
@@ -181,10 +183,10 @@ test('учебная неделя целиком: пары, оценки, хво
   ]);
   assert.equal(s.calendar.day, '2024-09-07', 'пятница дожита, календарь в субботе');
   assert.equal(stats(s, 'physics').lates, 1);
-  assert.equal(stats(s, 'math').skips, mathSkipsBefore + 1, 'неотмеченная пара выведена прогулом');
+  assert.equal(stats(s, 'math').skips, mathSkipsBefore, 'неотмеченная пара прогулом не выводится');
   assert.equal(
-    totalStats(s).skips, 4,
-    'три названных прогула по истории и один выведенный по математике',
+    totalStats(s).skips, 3,
+    'три названных прогула по истории; календарь молчаливых прогулов не добавляет',
   );
 
   // Суббота: расписание молчит — и объясняет, почему.
@@ -208,7 +210,8 @@ test('учебная неделя целиком: пары, оценки, хво
   s = toSession.state;
 
   assert.equal(s.calendar.day, '2024-12-23');
-  assert.deepEqual(toSession.missed, [], 'три месяца молчания прогулами не становятся');
+  assert.ok(toSession.counted > 0, 'три месяца молчания записаны посещёнными');
+  assert.equal(totalStats(s).skips, 3, 'и прогулами не становятся');
   assert.equal(debts(s).length, weekEndDebts, 'и хвостов от них не прибавилось');
   assert.equal(s.exams.active, true, 'календарь сам открыл сессию');
   assert.equal(s.exams.items.length, SUBJECTS.length);
@@ -244,7 +247,7 @@ test('учебная неделя целиком: пары, оценки, хво
 
   // --- исход второй: сдано броском -------------------------------------------
   // Лента 0.4 — d20 = 9. До проверки против DC (9.4.1) здесь стояло 0.9, но
-  // у физики балл 4.0, DC = 1, и 19 на кубике — запас 18, крит и пятёрка.
+  // у физики балл 4.0, DC = 1 (после пересчёта шкалы репутации — 0), и 19 на кубике — запас 18, крит и пятёрка.
   // Четвёрка теперь — обычный успех: запас от половины `critMargin` до него.
   const second = post(s, 't=+1 day', { exam: true, rng: tape(0.4) });
   s = second.state;
@@ -252,7 +255,7 @@ test('учебная неделя целиком: пары, оценки, хво
   assert.equal(second.exam.reason, 'roll');
   assert.deepEqual(
     { roll: second.exam.check.roll, dc: second.exam.check.dc, tier: second.exam.check.tier },
-    { roll: 9, dc: 1, tier: 'success' },
+    { roll: 9, dc: 0, tier: 'success' },
   );
   assert.equal(second.exam.value, '4');
   assert.equal(gradebookView(s, preset).openExams.length, 2);
@@ -313,20 +316,24 @@ test('учебная неделя целиком: пары, оценки, хво
   const retakeVerdict = retake.injects.find((i) => i.kind === 'exam').text;
   assert.ok(retakeVerdict.includes('попыток осталось: 1'), retakeVerdict);
 
-  // К этому ответу репутация переваливает нижний порог, и предупреждение
-  // уходит в игру вместе с исходом — двумя разными одноразовыми фактами.
+  // Репутация ещё выше порога предупреждения: уходит один исход.
   assert.deepEqual(retake.injects.filter((i) => i.kind !== 'announce').map((i) => i.id),
-    ['exam:0:history:credit:2', 'reputation-warn']);
+    ['exam:0:history:credit:2']);
+  assert.equal(s.reputation.warned, false);
   // Итог математики объявят в следующий учебный день после сдачи (9.4.3): пока
   // он не наступил, мир итога не знает, и объявления среди фактов нет.
   const mathItem = s.exams.items.find((i) => i.subjectId === 'math');
   assert.equal(mathItem.announced, s.calendar.day >= mathItem.announceOn);
   assert.equal(retake.injects.some((i) => i.kind === 'announce'), mathItem.announced);
-  assert.equal(s.reputation.warned, true);
-  assert.equal(gradebookView(s, preset).reputation, 'под угрозой отчисления');
 
   const last = post(s, 't=+1 day', { exam: true, rng: tape(0.1) });
   s = last.state;
+  // К этому ответу репутация переваливает нижний порог, и предупреждение
+  // уходит в игру вместе с исходом — двумя разными одноразовыми фактами.
+  assert.deepEqual(last.injects.filter((i) => i.kind !== 'announce').map((i) => i.id),
+    ['exam:0:history:credit:3', 'reputation-warn']);
+  assert.equal(s.reputation.warned, true);
+  assert.equal(gradebookView(s, preset).reputation, 'под угрозой отчисления');
   assert.equal(last.exam.subjectId, 'history');
   const exhausted = s.exams.items.find((i) => i.subjectId === 'history');
   assert.equal(exhausted.attempts, 3, 'одна попытка и две пересдачи — потолок пресета');
