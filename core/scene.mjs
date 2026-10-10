@@ -153,6 +153,9 @@ export function sceneGist(ev, people, heroine = '') {
 // (иностранное имя на согласную, «-ь»), то не склоняем, а говорим без
 // направления: «Мила и Мэй: вернуть тетрадь».
 
+/** Что накладывают на человека, а не должны ему: отработка, взыскание, штраф. */
+const PENALTY_WORDS = /отработк|наказани|взыскани|штраф|нарядов?/i;
+
 /** Мужские имена на -а/-я: «Никита должен», а не «должна». */
 const MALE_A = new Set(['никита', 'илья', 'миша', 'гоша', 'леша', 'паша', 'дима', 'ваня', 'петя', 'коля', 'вася',
   'сережа', 'митя', 'костя', 'толя', 'юра', 'федя', 'гриша', 'кузьма', 'фома', 'савва', 'лука', 'данила',
@@ -212,6 +215,12 @@ export function genderOfName(name) {
  */
 export function dealText(ev, people, heroine = '') {
   if (!ev) return '';
+  // Наказание и отработку несёт тот, на кого их наложили: «Магистр должен
+  // Ренее: две секции отработки» — перепутанное направление (живой прогон
+  // 10.10). Разборщик записывает «кто назначил → кому», а читать надо наоборот.
+  if (!ev.closed && ev.b === HEROINE && ev.a !== HEROINE && PENALTY_WORDS.test(String(ev.what || ''))) {
+    return dealText({ ...ev, a: ev.b, b: ev.a }, people, heroine);
+  }
   const known = (id) => id === HEROINE || (people || []).some((x) => x && x.id === id);
   const nom = (id) => (known(id) ? personWord(id, people, heroine) : GONE_PERSON.nom);
   const a = nom(ev.a);

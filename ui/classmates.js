@@ -61,8 +61,10 @@ export function classmatesView(state, preset) {
         shift: m.crossed ? fill(U.relationShift, m.crossed) : '',
       };
     });
-    const relation = relationLabel(state, c.id, preset);
-    const score = scoreText(relationOf(state, c.id));
+    // Без записанной истории слова отношения нет (макет «Люди»).
+    const quiet = !memory.length && !relationOf(state, c.id);
+    const relation = quiet ? '' : relationLabel(state, c.id, preset);
+    const score = quiet ? '' : scoreText(relationOf(state, c.id));
     return {
       id: c.id,
       name: c.name,
@@ -149,7 +151,7 @@ function classmateCard(host, p, view, X, castCourse = '') {
     el('div', { class: 'academy-cm-head' }, [
       avatarNode(p.avatar, { size: 'card' }),
       el('span', { class: 'academy-subject', text: p.name }),
-      el('span', { class: 'academy-relation', text: p.relationText }),
+      p.relationText ? el('span', { class: 'academy-relation', text: p.relationText }) : null,
       p.club ? el('span', { class: 'academy-post', text: p.club }) : null,
     ]),
     castCourse ? castWarning(host, p, X, castCourse) : null,

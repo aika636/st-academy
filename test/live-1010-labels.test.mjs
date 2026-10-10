@@ -137,7 +137,7 @@ test('«Сегодня»: пара, с которой начнём, не пов�
 // --- 25: прыжок времени и «без перемен» -------------------------------------
 
 test('плашка при придержанном прыжке не врёт «без перемен»', () => {
-  assert.match(summaryText({ rows: [], analyzed: true, heldJump: true }), /ждёт вашего решения/);
+  assert.match(summaryText({ rows: [], analyzed: true, heldJump: true }), /принять или оставить/);
   assert.equal(summaryText({ rows: [], analyzed: true }), 'без перемен');
   assert.equal(summaryText({ rows: ['химия: 5'], analyzed: true, heldJump: true }), 'химия: 5');
 });

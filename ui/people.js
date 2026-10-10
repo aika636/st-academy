@@ -86,6 +86,7 @@ export function peopleView(state, preset) {
         shift,
       };
     });
+    const quiet = !memory.length && !relationOf(state, t.id);
     const details = teacherDetails(t);
     return {
       id: t.id,
@@ -95,8 +96,10 @@ export function peopleView(state, preset) {
       hasTraits: traits.length > 0,
       subjects: own,
       subjectsText: own.length ? own.join(', ') : U.subjectsNone,
-      relation: relationLabel(state, t.id, preset),
-      score: relationScore(state, t.id),
+      // Без записанной истории слова отношения нет (макет «Люди»): «ровно · 0»
+      // у человека, с которым ещё ничего не было, — шум.
+      relation: quiet ? '' : relationLabel(state, t.id, preset),
+      score: quiet ? '' : relationScore(state, t.id),
       memory,
       memoryText: memory.length ? '' : U.relationNoHistory,
       // Душа преподавателя: пустые — пустые строки, панель их просто не рисует.
@@ -198,7 +201,7 @@ export function renderPeople(host, view, preset) {
           t.portrait ? portraitThumb(t, X) : avatarNode(t.avatar, { size: 'card' }),
           el('span', { class: 'academy-subject', text: t.name }),
           // Ярлык, не число: `peopleView` числа отношения не знает вовсе.
-          el('span', { class: 'academy-relation', text: t.score ? `${t.relation} · ${t.score}` : t.relation }),
+          t.relation ? el('span', { class: 'academy-relation', text: t.score ? `${t.relation} · ${t.score}` : t.relation }) : null,
           // Должность — под именем, мелко: это роль в заведении, а не второй заголовок.
           t.post ? el('span', { class: 'academy-post', text: t.post }) : null,
           detailsEditor(host, t, X),

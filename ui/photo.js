@@ -217,6 +217,10 @@ export function photoEditor(host, p, X, link = null) {
   }
   const canDraw = Boolean(info && info.available && info.available.length);
 
+  // Главное — одна строка: кружок, подпись, «Выбрать фото» / «Убрать». Рисунок,
+  // описание внешности и ссылка свёрнуты в «Ещё»: для простой правки лишнее.
+  // Пока идёт рисование или ждёт решения превью, раскрывашка открыта.
+  const more = canDraw || link;
   return el('div', { class: 'academy-photo' }, [
     el('div', { class: 'academy-photo-head' }, [
       avatarNode(p.avatar, { size: 'card' }),
@@ -224,20 +228,20 @@ export function photoEditor(host, p, X, link = null) {
         el('span', { class: 'academy-card-title', text: X.photoTitle }),
         p.portrait ? null : el('span', { class: 'academy-note', text: X.photoNone }),
       ]),
+      el('div', { class: 'academy-row academy-row-buttons academy-photo-buttons' }, [pick, remove]),
     ]),
-    el('div', { class: 'academy-row academy-row-buttons academy-photo-buttons' }, [
-      pick,
-      remove,
-      slot,
-    ]),
-    box,
     input,
-    el('p', { class: 'academy-note academy-photo-note', text: X.photoNote }),
-    canDraw ? looksEditor(host, p, X) : null,
-    link ? el('details', { class: 'academy-photo-link' }, [
-      el('summary', { text: X.photoLink }),
-      link,
-    ]) : null,
     status,
+    more ? el('details', { class: 'academy-photo-more', open: drawPending(p.id) }, [
+      el('summary', { text: X.photoMore }),
+      el('div', { class: 'academy-row academy-row-buttons academy-photo-buttons' }, [slot]),
+      box,
+      el('p', { class: 'academy-note academy-photo-note', text: X.photoNote }),
+      canDraw ? looksEditor(host, p, X) : null,
+      link ? el('details', { class: 'academy-photo-link' }, [
+        el('summary', { text: X.photoLink }),
+        link,
+      ]) : null,
+    ]) : el('p', { class: 'academy-note academy-photo-note', text: X.photoNote }),
   ]);
 }

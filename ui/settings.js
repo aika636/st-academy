@@ -30,6 +30,10 @@ export const SURVEY_FIELDS = [
   { key: 'lang', label: 'Язык названий и имён', hint: 'русский' },
 ];
 
+/** Код языка в анкете по умолчанию — «ru»; человеку он показывается словом, как после ввода. */
+const LANG_WORDS = { ru: 'русский', en: 'английский', ja: 'японский', zh: 'китайский', de: 'немецкий', fr: 'французский', es: 'испанский' };
+export const langWord = (code) => LANG_WORDS[String(code || '').trim().toLowerCase()] || String(code || '');
+
 /** Три положения источника времени (3.2). */
 export const TIME_MODES = [
   { id: 'auto', label: 'Авто', hint: 'сначала контекст, при неудаче — метка' },
@@ -221,7 +225,10 @@ export function settingsView(state, settings, preset, extra = {}) {
   if (started) blockers.push(U.blockStarted);
 
   return {
-    survey: SURVEY_FIELDS.map((f) => ({ ...f, value: String(surveyOf(state, settings, extra.chatId)[f.key] || '') })),
+    survey: SURVEY_FIELDS.map((f) => {
+      const raw = String(surveyOf(state, settings, extra.chatId)[f.key] || '');
+      return { ...f, value: f.key === 'lang' ? langWord(raw) : raw };
+    }),
     subjects: rows.subjects,
     teachers: rows.teachers,
     validation: check,
@@ -509,6 +516,8 @@ export function renderSettings(host) {
   });
   if (!view.canStart) startBtn.classList.add('academy-btn-off');
 
+  const startOpen = mounted.focusStart === true;
+  mounted.focusStart = false;
   box.append(section(U.startSection, [
     view.startBlockers.length
       ? el('p', { class: 'academy-note', text: `Пока нельзя: ${view.startBlockers.join('; ')}.` })
@@ -527,7 +536,7 @@ export function renderSettings(host) {
     }),
     el('div', { class: 'academy-row academy-row-buttons' }, [startBtn]),
     startStatus,
-  ]));
+  ], startOpen));
 
   return box;
 }

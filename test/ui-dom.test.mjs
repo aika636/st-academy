@@ -790,7 +790,8 @@ test('ручной сдвиг: куда встали часы, видно и п�
     if (n.textContent) texts.push(n.textContent);
     if (n.className === 'academy-repair') repair = n;
   });
-  assert.ok(texts.some((t) => /Календарь поправлен\. Теперь: .*24 декабря, 09:00 \(1-я пара\)/.test(t)), texts.join(' | '));
+  assert.ok(texts.some((t) => /^Теперь: .*24 декабря, 09:00 \(1-я пара\)\.$/.test(t)), texts.join(' | '));
+  assert.ok(!texts.some((t) => /Календарь поправлен.*Календарь поправлен/.test(t)), 'фраза не двоится');
   assert.ok(repair && repair.attrs.open !== undefined, 'ремонтный блок схлопнулся');
   api.destroy();
 });

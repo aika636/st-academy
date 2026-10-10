@@ -2,7 +2,7 @@
 // ожидание объявленных результатов.
 
 import { debts, overallScore, subjectScore } from '../core/gradebook.mjs';
-import { relationLabel, relationMemory } from '../core/relations.mjs';
+import { relationLabel, relationMemory, relationOf } from '../core/relations.mjs';
 import { stats as attendanceStats } from '../core/attendance.mjs';
 import { reputationLabel } from '../core/reputation.mjs';
 import { termsOf } from '../core/time.mjs';
@@ -30,22 +30,34 @@ export function gradebookView(state, preset) {
     const teacher = s.teacherId ? (state.teachers || []).find((t) => t.id === s.teacherId) : null;
     // За что преподаватель так относится — последний повод из журнала: слово
     // «холодно» без причины читалось приговором (живой прогон 10.10).
-    const last = teacher ? relationMemory(state, teacher.id, preset, 1)[0] : null;
+    // Причина — только у предмета, к которому она относится («прогул химии»
+    // не висит под физикой того же наставника). Повод без предмета (общий)
+    // показывается у первого предмета наставника.
+    const firstOfTeacher = teacher && (state.subjects || []).find((x) => x.teacherId === teacher.id);
+    const last = teacher
+      ? relationMemory(state, teacher.id, preset, 12).find((m) => (m.subjectId
+        ? m.subjectId === s.id
+        : Boolean(firstOfTeacher) && firstOfTeacher.id === s.id)) || null
+      : null;
     const sign = last ? (last.delta > 0 ? `+${last.delta}` : `−${-last.delta}`) : '';
     const att = attendanceStats(state, s.id);
+    // Наставник, с которым ничего не было: «ровно · 0» — шум (см. «Люди»).
+    const quiet = Boolean(teacher) && !relationOf(state, teacher.id)
+      && !relationMemory(state, teacher.id, preset, 1).length;
     return {
       id: s.id,
       name: s.name,
       teacher: teacher ? teacher.name : '',
       teacherId: teacher ? teacher.id : null,
       // Ярлык словом и число шкалы отдельно: «недоволен» и «−3».
-      relation: teacher ? relationLabel(state, teacher.id, preset) : '',
-      score: teacher ? relationScore(state, teacher.id) : '',
+      relation: teacher && !quiet ? relationLabel(state, teacher.id, preset) : '',
+      score: teacher && !quiet ? relationScore(state, teacher.id) : '',
       reason: last && last.reason ? fill(X0.memoryLine, { sign, reason: last.reason }) : '',
       // Прогулы и опоздания по предмету: раньше их не было видно нигде, кроме
       // последствий. Нули не пишутся.
+      // Отработанный прогул помечается: «1 прогул (отработан)», а не просто «1 прогул».
       attendanceText: [
-        att.skips ? `${att.skips} ${plural(att.skips, 'прогул', 'прогула', 'прогулов')}` : '',
+        skipsText(att),
         att.lates ? `${att.lates} ${plural(att.lates, 'опоздание', 'опоздания', 'опозданий')}` : '',
       ].filter(Boolean).join(', '),
       grades: (score.grades || []).map((g) => g.value),
@@ -135,6 +147,15 @@ function examsTermLine(state, preset, mode, U) {
   return fill(U.examsTerm, { name: termTitle(term, U) });
 }
 
+/** «1 прогул (отработан)» / «3 прогула, отработано 1»; пусто без прогулов. */
+function skipsText(att) {
+  if (!att.skips) return '';
+  const base = `${att.skips} ${plural(att.skips, 'прогул', 'прогула', 'прогулов')}`;
+  if (!att.worked) return base;
+  if (att.worked >= att.skips) return att.skips === 1 ? `${base} (отработан)` : `${base} (все отработаны)`;
+  return `${base}, отработано ${att.worked}`;
+}
+
 /** «физика: итог объявят вторник, 24 декабря» — по событиям с `announced: false`. */
 export function awaitingView(state, preset) {
   const X = extraLabels(preset);
@@ -159,7 +180,7 @@ export function renderGradebook(host, view, preset) {
   const box = el('div', { class: 'academy-gradebook' });
 
   box.append(el('div', { class: 'academy-head' }, [
-    el('div', { class: 'academy-date', text: `${view.scoreName}: ${view.overallText}` }),
+    el('div', { class: 'academy-date', text: `${view.scoreName}: ${Number.isFinite(view.overall) ? view.overallText : U.scoreNone}` }),
     el('div', { class: 'academy-week' }, [
       el('span', { class: 'academy-phase', text: view.reputation }),
       view.expelled ? el('span', { class: 'academy-alarm', text: U.expelledTag })
@@ -187,6 +208,10 @@ export function renderGradebook(host, view, preset) {
     return box;
   }
 
+  // Ни одной оценки ни у одного предмета: одна строка вместо «оценок пока нет» в каждой.
+  const noGradesAtAll = view.subjects.every((s) => !s.grades.length);
+  if (noGradesAtAll) box.append(el('div', { class: 'academy-silent', text: U.noGradesAll }));
+
   // Одно и то же дерево: на широком экране `style.css` кладёт его строками
   // таблицы, на узком — карточками. Второй вёрстки нет (3.9).
   box.append(el('div', { class: 'academy-table academy-table-grades' },
@@ -204,10 +229,11 @@ export function renderGradebook(host, view, preset) {
         s.reason ? el('span', { class: 'academy-note academy-reason', text: s.reason }) : null,
       ]),
       el('div', { class: 'academy-td academy-td-grades' }, [
-        // Без оценок — одна подпись, а не «— —» без заголовков столбцов.
+        // Без оценок — одна подпись, а не «— —» без заголовков столбцов; когда их
+        // нет нигде, подпись одна на весь список (выше).
         s.grades.length
           ? el('span', { class: 'academy-grades', text: s.grades.join(' ') })
-          : el('span', { class: 'academy-grades academy-grades-none', text: U.noGrades }),
+          : (noGradesAtAll ? null : el('span', { class: 'academy-grades academy-grades-none', text: U.noGrades })),
         s.grades.length ? el('span', { class: 'academy-avg', text: fill(U.cmdAverage, { value: s.averageText }) }) : null,
       ]),
     ]))));

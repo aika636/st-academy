@@ -594,16 +594,20 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   // а календарь заведён по сегодняшнему 2026): якорь календаря — просто дата по
   // умолчанию, а не факт сюжета. Иначе каждая дата сюжета была бы «откатом на
   // двести лет», время не двинулось бы никогда (живой прогон 10.10). Якорь
-  // переезжает на год текста целиком — месяц и число остаются, — но только пока
-  // на календаре ничего не построено: время не двигалось, посещаемости и записей
-  // журнала (кроме отладочных) нет. Разница в год-два — обычный переход через
-  // Новый год, её не трогаем.
+  // переезжает на год текста целиком — месяц и число остаются. Сразу — пока на
+  // календаре ничего не построено (время не двигалось, посещаемости нет); а если
+  // что-то уже было (круг начат, нажато «+1 занятие»), — когда два ответа подряд
+  // назвали один и тот же далёкий год: чат живёт там стабильно, а не мелькнул
+  // чужой инфоблок. Разница в год-два — обычный переход через Новый год, её не
+  // трогаем.
   if (payload.day !== undefined && payload.day !== null) {
-    const shifted = reanchoredTerm(next, day);
+    const era = eraDrift(next, day);
+    const shifted = era ? reanchoredTerm(next, era) : null;
     if (shifted) {
       pushJournal(next, { kind: 'debug', text: `календарь перенесён на эпоху сюжета: ${cal.day} → ${shifted.day}`, data: { at, source } }, preset);
       cal.day = shifted.day;
       cal.termStart = shifted.termStart;
+      delete cal.eraSeen;
     }
   }
 
@@ -614,7 +618,7 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
 
   const back = isBackwards(cal, day, rawTime);
   if (back && !opts.force) {
-    const reason = `откат времени назад: ${cal.day} ${cal.time || ''} → ${day} ${rawTime || ''}`.trim();
+    const reason = `откат времени назад: ${[cal.day, cal.time].filter(Boolean).join(' ')} → ${[day, rawTime].filter(Boolean).join(' ')}`;
     pushJournal(next, { kind: 'debug', text: reason, data: { at, source } }, preset);
     // Источник всё-таки сработал — календарь не завис, а ошибся. Простой не растёт.
     next.calendar.idle = 0;
@@ -673,16 +677,36 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
 }
 
 /**
- * Новые `{day, termStart}` для календаря, который ещё ничего не пережил и живёт
- * в году, далёком от года первой даты сюжета; иначе `null`. См. `setAbsolute`.
+ * Далёкий год текста относительно календаря: `{dy, stable}` или `null`, если
+ * разница меньше двух лет. Заодно ведёт счёт подряд идущих ответов с одним и тем
+ * же далёким годом (`calendar.eraSeen`): второй такой ответ — `stable`. Год
+ * рядом с календарным счётчик гасит.
  */
-function reanchoredTerm(state, textDay) {
+function eraDrift(state, textDay) {
   const cal = state.calendar;
-  if (numberOr(cal.moved, 0) !== 0) return null;
-  if (state.attendance && Array.isArray(state.attendance.records) && state.attendance.records.length) return null;
-  if ((state.journal || []).some((e) => e.kind !== 'debug')) return null;
-  const dy = parseDay(textDay).y - parseDay(cal.day).y;
-  if (Math.abs(dy) < 2) return null;
+  const year = parseDay(textDay).y;
+  const dy = year - parseDay(cal.day).y;
+  if (Math.abs(dy) < 2) {
+    delete cal.eraSeen;
+    return null;
+  }
+  const seen = cal.eraSeen && cal.eraSeen.year === year ? numberOr(cal.eraSeen.n, 0) : 0;
+  cal.eraSeen = { year, n: seen + 1 };
+  return { dy, stable: seen + 1 >= 2 };
+}
+
+/**
+ * Новые `{day, termStart}` для календаря, живущего в году, далёком от года даты
+ * сюжета: либо ещё ничего не переживший, либо с далёким годом текста два ответа
+ * подряд (`eraDrift`); иначе `null`. См. `setAbsolute`.
+ */
+function reanchoredTerm(state, era) {
+  const cal = state.calendar;
+  const dy = era.dy;
+  if (!era.stable) {
+    if (numberOr(cal.moved, 0) !== 0) return null;
+    if (state.attendance && Array.isArray(state.attendance.records) && state.attendance.records.length) return null;
+  }
   const shift = (day) => {
     const { y, m, d } = parseDay(day);
     // 29 февраля в невисокосном году станет 1 марта: нормализует formatDay.

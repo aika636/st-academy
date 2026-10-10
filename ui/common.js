@@ -28,7 +28,8 @@ const SECTION_ICONS = [
   [/лорбук/i, 'fa-book-atlas'],
   [/отладк|доктор/i, 'fa-bug'],
   [/выгруз|загруз|файл/i, 'fa-file-arrow-down'],
-  [/вех/i, 'fa-trophy'],
+  [/вех|достижен/i, 'fa-trophy'],
+  [/персонаж/i, 'fa-masks-theater'],
   [/звук/i, 'fa-bell'],
   [/ремонт|поправ/i, 'fa-screwdriver-wrench'],
   [/портрет/i, 'fa-palette'],
@@ -88,7 +89,7 @@ export const DEFAULT_UI = {
   silentOver: 'Занятия на сегодня кончились.',
   nowTitle: 'Сейчас',
   breakTitle: 'Перемена, дальше',
-  beforeTitle: 'Сегодня начнём с',
+  beforeTitle: 'Первая пара',
   nextCardTitle: 'Дальше',
   slot: '{ordinal}-я пара',
   slotTime: '{ordinal}-я пара, {start}–{end}',
@@ -141,10 +142,14 @@ export const DEFAULT_UI = {
   warnedLine: 'Есть предупреждение.',
   noSubjects: 'Предметов нет. Заполните таблицу в настройках.',
   noGrades: 'оценок пока нет',
+  scoreNone: 'пока нет',
+  noGradesAll: 'Оценок ещё нет ни по одному предмету.',
 
   // --- здоровье состояния ---------------------------------------------------
   notStartedTitle: 'Семестр не начат',
   openSurvey: 'Открыть анкету',
+  // План уже есть, анкета не нужна: кнопка ведёт к началу {startButton}.
+  goToStart: 'К кнопке «{start}»',
   openSettings: 'Открыть настройки',
   noStateText: 'Заполните анкету из шести полей и нажмите «начать семестр».',
   notStartedWithPlan: 'Учебный план уже есть. Осталось нажать «начать семестр».',
@@ -205,16 +210,16 @@ export const DEFAULT_UI = {
   startButton: 'Начать семестр',
   startedButton: 'Семестр идёт',
   startedOk: 'Семестр начат.',
-  startNote: 'Расписание соберётся из таблицы выше по правилам пресета.',
+  startNote: 'Расписание соберётся из списка выше по правилам пресета.',
   startDayField: 'Первый учебный день',
   // --- ручной сдвиг и посещаемость ------------------------------------------
   repairCount: 'Записать пропущенные пары посещёнными',
-  repairCountNote: 'По умолчанию ручной сдвиг посещаемость не трогает: ремонт календаря не наказывает за день, которого не играли. С галочкой пропущенные пары запишутся как посещённые, как при обычной промотке. Прогулом они не станут.',
+  repairCountNote: 'По умолчанию ручной сдвиг посещаемость не трогает: ремонт календаря не наказывает за день, которого не играли. С галочкой пропущенные пары запишутся как посещённые, как при обычной промотке. Прогулом они не станут. Галочка действует и на кнопки «+1», и остаётся, пока открыта панель.',
   // Результат ручного сдвига: блок после действия перерисовывается, и без этой
   // строки человек не видит, куда ушли часы.
-  shiftedTo: 'Календарь поправлен. Теперь: {when}.',
-  repairCounted: 'Календарь поправлен, пар записано посещёнными: {count}.',
-  repairNotCounted: 'Календарь поправлен. Посещаемость не записывалась: пар за сдвиг — {count}.',
+  shiftedTo: 'Теперь: {when}.',
+  repairCounted: 'Посещаемость: записано посещёнными — {count}.',
+  repairNotCounted: 'Посещаемость не записывалась: пар за сдвиг — {count}.',
   cmdCounted: 'Пар записано посещёнными: {count}.',
   cmdNotCounted: 'Посещаемость не записывалась: пар за сдвиг — {count}. Нужно записать — добавьте count=yes.',
   cmdReputationMoved: 'Репутация: {from} → {to}.',
@@ -398,11 +403,15 @@ export function stateHealth(state, preset) {
   // предметы и преподавателей без календаря, схемы и пресета, и проверка
   // целого семестра объявила бы их «повреждёнными». Проверяется только начатое.
   if (state.started !== true) {
+    const hasPlan = Array.isArray(state.subjects) && state.subjects.length > 0;
     return {
       kind: 'not-started',
       title: U.notStartedTitle,
-      text: Array.isArray(state.subjects) && state.subjects.length ? U.notStartedWithPlan : U.notStartedNoPlan,
-      action: { id: 'open-settings', label: U.openSurvey },
+      text: hasPlan ? U.notStartedWithPlan : U.notStartedNoPlan,
+      // Есть план — не «Открыть анкету» (она уже заполнена), а переход к кнопке начала.
+      action: hasPlan
+        ? { id: 'open-start', label: fill(U.goToStart, { start: U.startButton }) }
+        : { id: 'open-settings', label: U.openSurvey },
       errors: [],
     };
   }
@@ -716,6 +725,7 @@ export const EXTRA_UI = {
   photoPick: 'Выбрать фото',
   photoRemove: 'Убрать фото',
   photoLink: 'или ссылка',
+  photoMore: 'Ещё: нарисовать, ссылка',
   photoSaved: 'Фото на месте.',
   photoRemoved: 'Фото убрано.',
   photoNone: 'Пока без фото — в кружке инициалы.',
@@ -920,6 +930,11 @@ export const mounted = {
   // действия строится заново, и без этой памяти слова о результате исчезали бы
   // вместе со старым узлом. `{text, at, repair}`; живёт недолго (`todayNoteOf`).
   todayNote: null,
+  // Галочка «записать пропущенные посещёнными» в ручном ремонте времени: не
+  // сбрасывается после нажатия и действует на все кнопки блока, включая «+1».
+  repairCount: false,
+  // «К кнопке начала»: следующая отрисовка настроек раскрывает блок начала семестра.
+  focusStart: false,
 };
 
 export function el(tag, attrs, children) {
@@ -1092,7 +1107,11 @@ export function renderEmpty(host, view) {
       ? el('div', {
         class: 'menu_button academy-btn academy-btn-main',
         text: view.action.label,
-        onclick: () => { mounted.tab = 'settings'; renderPanel(host); },
+        onclick: () => {
+          mounted.tab = 'settings';
+          if (view.action.id === 'open-start') mounted.focusStart = true;
+          renderPanel(host);
+        },
       })
       : null,
   ]);

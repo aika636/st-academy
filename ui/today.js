@@ -486,7 +486,11 @@ function manualTimeBlock(host, view, U) {
   const day = el('input', { type: 'date', class: 'text_pole academy-input', value: view.day || '' });
   const time = el('input', { type: 'time', class: 'text_pole academy-input', value: view.time || '' });
   // Выключена по умолчанию — то же решение, что у ключа `count=yes` в команде.
+  // Помнится на время панели: перерисовка после каждого нажатия иначе снимала бы
+  // галочку, и следующее «+1» молча не записывало посещаемость.
   const count = el('input', { type: 'checkbox' });
+  count.checked = Boolean(mounted.repairCount);
+  count.addEventListener('change', () => { mounted.repairCount = Boolean(count.checked); });
 
   const send = (patch, btn) => runAction(
     btn, status,

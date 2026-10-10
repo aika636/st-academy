@@ -482,8 +482,12 @@ test('«Люди»: у преподавателя видны предмет, ч�
   assert.equal(petrova.name, 'Петрова Анна Сергеевна');
   assert.deepEqual(petrova.subjects, ['аналитическая химия', 'высшая математика']);
   assert.equal(petrova.traitsText, 'злопамятна');
-  assert.equal(petrova.relation, 'ровно', 'ярлык из таблицы пресета, а не число');
-  assert.ok(preset.relations.labels.some((l) => l.label === petrova.relation));
+  // Без записанной истории слова отношения нет (макет «Люди», п. 10).
+  assert.equal(petrova.relation, '');
+  assert.equal(petrova.score, '');
+  const moved = changeRelation(started(), { teacherId: 'petrova', delta: -1, reason: 'прогул' }, preset).state;
+  const after = peopleView(moved, preset).teachers.find((t) => t.id === 'petrova');
+  assert.ok(preset.relations.labels.some((l) => l.label === after.relation), 'ярлык из таблицы пресета, а не число');
 });
 
 test('«Люди»: число отношения видно рядом со словом — со знаком, по краю шкалы', () => {
@@ -499,7 +503,7 @@ test('«Люди»: число отношения видно рядом со с�
   const petrova = peopleView(state, preset).teachers.find((t) => t.id === 'petrova');
   assert.equal(petrova.relation, 'ненавидит', 'слово осталось');
   assert.equal(petrova.score, `−${-value}`, 'число со знаком минус, а не дефисом');
-  assert.equal(peopleView(started(), preset).teachers.find((t) => t.id === 'petrova').score, '0');
+  assert.equal(peopleView(started(), preset).teachers.find((t) => t.id === 'petrova').score, '', 'без истории числа нет');
 });
 
 test('«Люди»: память «за что» — каждый сдвиг со знаком и поводом, переход ярлыка — при нём', () => {

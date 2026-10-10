@@ -160,7 +160,8 @@ export function statusText(host) {
     today.next && (today.silent || !today.next.sameDay)
       ? fill(U.cmdNext, { name: today.next.name, when: today.next.when }) : null,
     plan,
-    book.kind === 'ok' ? `${book.scoreName}: ${book.overallText}` : null,
+    // Без единой оценки строка «Сила дара: —» ничего не говорит — её нет.
+    book.kind === 'ok' && Number.isFinite(book.overall) ? `${book.scoreName}: ${book.overallText}` : null,
     book.kind === 'ok' && book.debts.length ? `${U.debtsTitle}: ${book.debts.join(', ')}` : null,
     today.timeMark,
   ]);
@@ -190,7 +191,7 @@ export function gradesText(host) {
     : [U.cmdNoSubjects];
 
   return lines([
-    `${view.scoreName}: ${view.overallText}`,
+    `${view.scoreName}: ${Number.isFinite(view.overall) ? view.overallText : U.scoreNone}`,
     `${U.reputationTitle}: ${view.reputation}`,
     view.expelled ? U.expelledLine : (view.warned ? U.warnedLine : null),
     '',

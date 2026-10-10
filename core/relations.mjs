@@ -290,6 +290,8 @@ export function relationMemory(state, teacherId, preset, limit = MEMORY_SIZE) {
     out.push({
       day: e.day || '',
       delta: to - from,
+      // Предмет повода: зачётка вешает причину на тот предмет, к которому она относится.
+      subjectId: (e.data.reason && typeof e.data.reason === 'object' && e.data.reason.subjectId) || '',
       reason: reasonText(e.data.reason, state, preset).replace(/\s+/g, ' ').trim(),
       from,
       to,
