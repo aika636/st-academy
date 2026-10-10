@@ -430,7 +430,7 @@ test('состояние чужого пресета: не отказ, но пр
   assert.equal(parsed.presetMatches, false);
   const note = parsed.warnings.find((w) => w.includes('jp-highschool'));
   assert.ok(note, JSON.stringify(parsed.warnings));
-  assert.ok(note.includes(preset.id), 'сказано, чем именно оно разъехалось');
+  assert.ok(note.includes(preset.displayName), 'сказано, чем именно оно разъехалось');
   assert.ok(/шкала оценок|виды контрольных/.test(note), 'сказано, что именно возьмётся из активного пресета');
 
   // Даже в пустом чате чужой пресет требует подтверждения: терять нечего, но

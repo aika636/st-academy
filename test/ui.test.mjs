@@ -178,7 +178,7 @@ test('отметка «время сдвинулось тогда-то» и пр
 
   const stuck = todayView(started({ source: 'B', idle: preset.limits.idleWarnAfter }), preset);
   assert.equal(stuck.stalled, true);
-  assert.match(stuck.timeMark, /Время стоит, проверьте источник/);
+  assert.match(stuck.timeMark, /Время в чате давно не двигалось/);
 
   const never = todayView(started(), preset);
   assert.match(never.timeMark, /ещё не сдвигалось/);
@@ -297,8 +297,8 @@ test('дубли, пустые названия и ссылка на несущ�
 
   assert.equal(res.ok, false);
   const texts = res.errors.map((e) => e.text).join(' | ');
-  assert.match(texts, /уже занят другим преподавателем/);
-  assert.match(texts, /уже занят другим предметом/);
+  assert.match(texts, /слишком похоже на уже записанное имя/);
+  assert.match(texts, /слишком похоже на уже записанное название/);
   assert.match(texts, /которого нет в списке/);
   assert.match(texts, /нет названия/);
   // Годные строки при этом уцелели: правится одна ячейка, а не всё заново.

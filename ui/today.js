@@ -126,7 +126,7 @@ export function todayView(state, preset) {
   const stalled = isStalled(state, preset);
   const idle = Number(cal.idle) || 0;
   const timeMark = stalled
-    ? 'Время стоит, проверьте источник.'
+    ? 'Время в чате давно не двигалось: проверьте, печатается ли дата в ответах.'
     : cal.source
       ? (idle === 0
         ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`

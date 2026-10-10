@@ -124,7 +124,7 @@ test('японская середина заводится на седьмой �
   assert.ok(step.out.debug.applied.some((a) => a.kind === 'exams-dated' && a.added === SUBJECTS.length));
   const записи = s.journal.filter((r) => r.data && r.data.kind === 'midterm');
   assert.equal(записи.length, 1);
-  assert.ok(записи[0].text.includes('中間考査'), `фраза не назвала вид: ${записи[0].text}`);
+  assert.ok(записи[0].text.includes('промежуточная аттестация'), `фраза не назвала вид: ${записи[0].text}`);
 });
 
 test('до седьмой недели середины нет ни в один день', () => {
@@ -435,7 +435,7 @@ test('назначенная середина видна в панели, хот
   assert.equal(view.examsActive, false, 'панель объявила сессию посреди учебных недель');
   assert.equal(view.openExams.length, SUBJECTS.length);
   assert.ok(view.openExams.every((e) => e.day === day));
-  assert.ok(view.openExams.every((e) => e.kind.includes('中間考査')), 'вид назван не своим именем');
+  assert.ok(view.openExams.every((e) => e.kind.includes('промежуточная аттестация')), 'вид назван не своим именем');
 
   // Сданное с экрана уходит: несданных становится на одну меньше.
   const sat = post(state, JP, 't=+0', { exam: true, rng: () => 0.9 }).state;

@@ -9,6 +9,7 @@
 
 import { validateState } from '../core/state.mjs';
 import { dayOfWeek, parseDay } from '../core/time.mjs';
+import { plural } from '../core/plural.mjs';
 
 /** Потолок сводных чисел на экране (3.3). Пресет вправе задать свой. */
 export const DEFAULT_MAX_NUMBERS = 6;
@@ -97,7 +98,7 @@ export const DEFAULT_UI = {
   nextToday: 'сегодня, {start}',
   nextDay: '{date}, {start}',
   nextDayNoTime: '{date}',
-  noNext: 'Следующей пары в ближайшие две недели нет.',
+  noNext: 'Следующей пары в расписании пока нет.',
   dayTitle: 'День целиком',
   shiftPeriod: '+1 пара',
 
@@ -131,8 +132,8 @@ export const DEFAULT_UI = {
   rowExamMissed: 'Не сдано к концу сессии: {subject}',
   rowReputation: 'Репутация: {from} → {to}',
   // Подсказка правила «Сюжет» в настройках: чем кончается не сыгранное контрольное.
-  examRuleStoryHint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — хвост',
-  openExamsTitle: 'Не сдано',
+  examRuleStoryHint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — остаётся долгом',
+  openExamsTitle: 'Несданные контрольные',
   debtTag: 'хвост',
   passedTag: 'сдано',
   expelledTag: 'отчислена',
@@ -151,8 +152,8 @@ export const DEFAULT_UI = {
   // План уже есть, анкета не нужна: кнопка ведёт к началу {startButton}.
   goToStart: 'К кнопке «{start}»',
   openSettings: 'Открыть настройки',
-  noStateText: 'Заполните анкету из шести полей и нажмите «начать семестр».',
-  notStartedWithPlan: 'Учебный план уже есть. Осталось нажать «начать семестр».',
+  noStateText: 'Заполните анкету из шести полей и нажмите «Начать семестр».',
+  notStartedWithPlan: 'Учебный план уже есть. Осталось нажать «Начать семестр».',
   notStartedNoPlan: 'Заполните анкету из шести полей и сгенерируйте учебный план.',
   brokenTitle: 'Состояние повреждено',
   brokenText: 'Расширение не берётся показывать семестр, который не сходится сам с собой. '
@@ -224,18 +225,18 @@ export const DEFAULT_UI = {
   cmdNotCounted: 'Посещаемость не записывалась: пар за сдвиг — {count}. Нужно записать — добавьте count=yes.',
   cmdReputationMoved: 'Репутация: {from} → {to}.',
   startDayFromChat: 'Дата взята из чата: в нём уже написан год ({matched}). Так календарь не разойдётся с тем, что печатают соседние расширения.',
-  startDayFromPreset: 'Дата — начало учебного года из пресета в нынешнем году по часам компьютера. Пока в игре ничего не произошло, первая дата сюжета из года, что отстоит от этого на два года и больше, переведёт календарь в её год сама; дальше год сам не меняется — поправьте его здесь.',
+  startDayFromPreset: 'Дата — начало учебного года из пресета в нынешнем году по часам компьютера. Если в сюжете называют дату из года, который отстоит от этого на два года и больше, календарь переедет в её год сам: сразу, пока в игре ничего не произошло, а позже — когда два ответа подряд назовут такой далёкий год. В остальных случаях год сам не меняется — поправьте его здесь.',
   blockNoSubjects: 'нет ни одного предмета',
   blockBadTable: 'таблица предметов не сходится',
   blockStarted: 'семестр уже начат',
 
   // --- проверка таблицы руками ----------------------------------------------
   errTeacherName: 'У преподавателя нет имени.',
-  errTeacherDup: 'Идентификатор «{id}» уже занят другим преподавателем.',
+  errTeacherDup: '«{name}» слишком похоже на уже записанное имя: назовите иначе.',
   errSubjectName: 'У предмета нет названия.',
-  errSubjectId: 'Идентификатор «{id}»: нужны латиница, цифры, дефис и подчёркивание.',
-  errSubjectDup: 'Идентификатор «{id}» уже занят другим предметом.',
-  errSubjectTeacher: 'Предмет «{name}» ссылается на преподавателя «{teacherId}», которого нет в списке.',
+  errSubjectId: 'Название «{name}» не подходит: используйте буквы, цифры и дефис.',
+  errSubjectDup: '«{name}» слишком похоже на уже записанное название: назовите иначе.',
+  errSubjectTeacher: 'Предмет «{name}» ссылается на преподавателя, которого нет в списке.',
   errManyTeachers: 'Преподавателей {count}, потолок {max}.',
   errManySubjects: 'Предметов {count}, потолок {max}.',
   errNoSubjects: 'Ни одного предмета: семестр начать не из чего.',
@@ -275,7 +276,7 @@ export const DEFAULT_UI = {
   summaryCurrent: 'Сейчас в чате',
   summaryIncoming: 'Приедет из файла',
   summaryNothing: 'пусто',
-  summaryLine: 'пресет {presetId}, день {day}, предметов {subjects}, оценок {grades}',
+  summaryLine: 'день {day}, предметов {subjects}, оценок {grades}',
   summaryNotStarted: 'не начат',
 
   // --- вопросы перед заменой состояния (`storage.js`, `index.js: setPreset`) --
@@ -374,7 +375,7 @@ export function fill(template, vars) {
 // `A+` — машинный тег времени соседнего расширения (`core/time-source.mjs`,
 // план 9.2): Phone-ST, RP_DATE, дневник, Horae, BB-телефон. Какой именно —
 // в строке «Применено» (`describeApplied`, поле `via`).
-export const SOURCE_LABEL = { 'A+': 'тег соседнего расширения', A: 'из контекста', B: 'метка', manual: 'вручную' };
+export const SOURCE_LABEL = { 'A+': 'время из другого расширения', A: 'из контекста', B: 'метка', manual: 'вручную' };
 
 /** Откуда пришло время — для строки на «Сегодня» (в отладке свои слова: `SOURCE_LABEL`). */
 export const TIME_VIA = { 'A+': 'время взято у другого расширения', A: 'время взято из текста ответа', B: 'по метке Академии', manual: 'вручную' };
@@ -551,15 +552,8 @@ export const PRESET_TEXT = {
   userMark: 'свой',
 };
 
-/** «1 ответ / 2 ответа / 5 ответов». */
-export function plural(n, one, few, many) {
-  const a = Math.abs(n) % 100;
-  const b = a % 10;
-  if (a > 10 && a < 20) return many;
-  if (b > 1 && b < 5) return few;
-  if (b === 1) return one;
-  return many;
-}
+/** «1 ответ / 2 ответа / 5 ответов» — помощник живёт в `core/plural.mjs`. */
+export { plural };
 
 export const str = (v) => (v == null ? '' : String(v)).trim();
 
@@ -593,7 +587,7 @@ export const EXTRA_UI = {
   achEarnedNone: 'Пока ничего — всё впереди.',
   achCatalogTitle: 'Все достижения',
   achSecretName: '???',
-  achSecretHint: 'Тайное достижение: откроется, когда случится.',
+  achSecretHint: 'Скрыто: откроется, когда случится.',
   achSecretMark: 'тайное',
   achGlobalTitle: 'Во всех историях',
   achGlobalLine: 'историй: {n}',
