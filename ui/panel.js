@@ -26,7 +26,7 @@ export const TABS = [
   { id: 'gradebook', label: 'Зачётка' },
   { id: 'people', label: 'Люди' },
   // Лента курса (шаг 4): чат курса, анонимка и «Взять в сюжет».
-  { id: 'feed', label: 'Поток' },
+  { id: 'feed', label: 'Слухи' },
   { id: 'achievements', label: 'Достижения' },
   { id: 'settings', label: 'Настройки' },
 ];

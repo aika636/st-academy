@@ -318,7 +318,8 @@ test('сессия по-прежнему снимает хвост за прог
 });
 
 test('исчерпанные попытки называют хвост своим именем', () => {
-  const preset = MAGIC; // retakes: 0 — первая же неудача исчерпывает попытки
+  // В пресете одна пересдача; здесь пересдач нет — первая же неудача исчерпывает попытки.
+  const preset = { ...MAGIC, exams: { ...MAGIC.exams, retakes: 0 } };
   let s = school(preset, '2024-09-23');
   s = scheduleExams(s, preset, { day: '2024-12-16' });
   const item = s.exams.items.find((i) => i.subjectId === 'math');

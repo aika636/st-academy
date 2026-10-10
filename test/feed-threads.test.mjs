@@ -198,7 +198,7 @@ test('секретарь: недавние посты ленты в промпт
   assert.deepEqual(posts.map((p) => p.ref), ['f1', 'f2']);
   assert.equal(posts[1].replies, 2);
   const { user } = buildAnalysisPrompt(old, preset, { reply: 'Соколова опять ворчит.', heroine: 'Аня' });
-  // Шаг 3 «Молвы»: секретарь постов не пишет — ни ленты, ни реплик, ни ников в его промпте.
+  // Шаг 3 «Слухов»: секретарь постов не пишет — ни ленты, ни реплик, ни ников в его промпте.
   assert.doesNotMatch(user, /Недавно в ленте|reply=куда|react=номер|смешными никами/);
   assert.match(user, /loud=0\.\.3/);
   assert.match(user, /private=номера ключей блока 1/);
@@ -380,7 +380,7 @@ test('типаж под ником: в ленте ник, рассказчику
   const c = hookCore(res.next, post.id, { heroine: 'Аня', preset });
   assert.match(c.core, /^футболист-альфа пишет в чате: «Ещё бы, попробуй подойди к ней»/);
   assert.doesNotMatch(c.core, /альфа футбольной|@|~/);
-  // Секретарь ников больше не видит: посты пишет молва.
+  // Секретарь ников больше не видит: посты пишет слухи.
   const posts = recentPosts(res.next);
   assert.equal(posts[0].type, 'футболист-альфа');
   const { user } = buildAnalysisPrompt(res.next, preset, { reply: '…', heroine: 'Аня' });
@@ -390,10 +390,10 @@ test('типаж под ником: в ленте ник, рассказчику
 test('типажи и примеры ников — из своего сеттинга: в космосе нет чирлидерши', () => {
   const load = (id) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
   const s = semester();
-  // Списки идут в каст молвы (`buildCastPrompt`), а не секретарю.
+  // Списки идут в каст слухов (`buildCastPrompt`), а не секретарю.
   const prompt = (p) => buildCastPrompt({ preset: p, heroine: 'Аня' }).user;
   const space = prompt(load('space-academy'));
-  assert.match(space, /механик-ворчун/);
+  assert.match(space, /ворчун из техотсека/);
   assert.match(space, /из реакторного отсека/);
   assert.doesNotMatch(space, /чирлидер|футбол|никки|школьный бес|королева школы/);
   assert.match(prompt(load('us-highschool')), /чирлидерша|альфа футбольной команды/);
