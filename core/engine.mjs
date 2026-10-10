@@ -47,7 +47,7 @@ import { mark, workOff, countsAttendance } from './attendance.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { applyRelationDeltas, dampRepeats, teachersOfSubjects, mergeDeltas } from './relations.mjs';
 import { changeReputation } from './reputation.mjs';
-import { armHolidayHooks, planEvent } from './holidays.mjs';
+import { armHolidayHooks, planEvent, planPause } from './holidays.mjs';
 import { markerPeople } from './classmates.mjs';
 import {
   scheduleExams, examMode, rollOutcome, applyOutcome, resolveConflict, permissionLine,
@@ -547,6 +547,27 @@ export function applyResponse(state, text, preset, opts = {}) {
       out.debug.applied.push({ kind: 'event', id: planned.event.id, name: planned.event.name, from: planned.event.from });
     } else if (planned.duplicate) {
       out.debug.applied.push({ kind: 'event-known', name: ev.name });
+    }
+  }
+
+  // --- приостановка занятий (`pause=`, разбор секретаря) ---------------------
+  // Каникулы, закрытие, карантин: свой период с `off: true` от дня сцены. Тот же
+  // период обновляется, а не плодится; `pause=end` закрывает идущий. Экзамены и
+  // дедлайны это не отменяет: `off` гасит расписание и прогулы, а контрольные
+  // живут своими датами.
+  for (const ev of parsed.events.filter((e) => e.kind === 'pause')) {
+    const planned = planPause(s, preset, ev);
+    if (planned.ok) {
+      s = planned.state;
+      out.debug.applied.push({
+        kind: 'pause',
+        action: planned.action,
+        name: (planned.event || planned.prev).name,
+        from: (planned.event || planned.prev).from,
+        receipt: { action: planned.action, id: (planned.event || planned.prev).id, prev: planned.prev },
+      });
+    } else if (planned.duplicate) {
+      out.debug.applied.push({ kind: 'pause-known', name: ev.name || '' });
     }
   }
 

@@ -28,7 +28,7 @@ import { mark } from './attendance.mjs';
 import { changeRelation, findPerson } from './relations.mjs';
 import { SCENE_KINDS, SCENE_RECEIPTS, applySceneEvent, revertSceneEvent } from './scene.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
-import { planEvent } from './holidays.mjs';
+import { planEvent, planPause } from './holidays.mjs';
 import { addDays } from './time.mjs';
 
 /** Remember only the academic fields changed by a summary, leaving later play intact. */
@@ -99,6 +99,14 @@ export function applyCorrection(state, ev, preset, opts = {}) {
     const r = planEvent(state, preset, ev, day);
     if (!r.ok) return { state, receipt: r.duplicate ? { kind: 'event', known: true, name: ev.name } : null };
     return { state: r.state, receipt: { kind: 'event', id: r.event.id, name: r.event.name, from: r.event.from } };
+  }
+
+  // Приостановка занятий: квитанция помнит прежнее событие (`prev`), чтобы снять
+  // разбор — вернуть период, каким он был, или убрать заведённый.
+  if (ev.kind === 'pause') {
+    const r = planPause(state, preset, ev, day);
+    if (!r.ok) return { state, receipt: r.duplicate ? { kind: 'pause', known: true } : null };
+    return { state: r.state, receipt: { kind: 'pause', action: r.action, id: (r.event || r.prev).id, prev: r.prev } };
   }
 
   // Факты курса (шаг 3): кто был, стычка, слух, новое имя, дело — со своей
@@ -190,6 +198,18 @@ export function revertCorrection(state, receipt, preset) {
     const list = Array.isArray(next.events) ? next.events : [];
     const at = list.findIndex((e) => e && (receipt.id ? e.id === receipt.id : e.name === receipt.name && e.from === receipt.from));
     if (at >= 0) list.splice(at, 1);
+    return next;
+  }
+
+  if (receipt.kind === 'pause') {
+    if (receipt.known) return next;
+    const list = Array.isArray(next.events) ? next.events : [];
+    const at = list.findIndex((e) => e && e.id === receipt.id);
+    if (receipt.prev) {
+      if (at >= 0) list[at] = { ...receipt.prev };
+      else list.push({ ...receipt.prev });
+    } else if (at >= 0) list.splice(at, 1);
+    next.events = list;
     return next;
   }
 

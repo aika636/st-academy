@@ -89,6 +89,7 @@ export const SECTIONS = [
   { kind: 'attendance', icon: 'fa-person-walking', label: 'Прогулы и опоздания', tone: 'red' },
   { kind: 'rel', icon: 'fa-heart', label: '{rel}', tone: 'pink' },
   { kind: 'event', icon: 'fa-calendar-day', label: 'В планы: праздники и события', tone: 'blue' },
+  { kind: 'pause', icon: 'fa-calendar-xmark', label: 'Занятия: каникулы, закрытие', tone: 'blue' },
   { kind: 'course', icon: 'fa-user-group', label: '{course}: кто был, стычки, слухи, дела', tone: 'green' },
 ];
 

@@ -50,7 +50,7 @@ import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump, skipToDayEnd } from './core/engine.mjs';
 import { alignToGrid } from './core/time.mjs';
-import { addEvent, removeEvent, armHolidayHooks, alreadyPlanned } from './core/holidays.mjs';
+import { addEvent, removeEvent, updateEventDates, armHolidayHooks, alreadyPlanned } from './core/holidays.mjs';
 import {
   BUILTIN_PRESETS, DEFAULT_BASE, USER_PRESETS_MAX, freeId, freeName, normalizePreset,
   presetEnvelope, presetFilename, presetSummary, readPresetFile,
@@ -1707,6 +1707,7 @@ function recordLedger(mark, before, after, { marker = false, exam = null } = {})
   const relations = journal.slice(boundary + 1).filter((row) => row.kind === 'rel' && Number.isFinite(row.data?.from) && Number.isFinite(row.data?.to));
   const applied = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'rel');
   const planned = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'event' || ev.kind === 'event-known');
+  const pauses = (live.lastRun?.debug?.applied || []).filter((ev) => ev.kind === 'pause' || ev.kind === 'pause-known');
   const receipts = tokens && tokens.map((token) => {
     const ev = tokenEvent(token, lexiconOf(before, ctx()));
     // Событие: записано — квитанция с id; было в планах — `known`, чтобы
@@ -1716,6 +1717,13 @@ function recordLedger(mark, before, after, { marker = false, exam = null } = {})
       const info = at >= 0 ? planned.splice(at, 1)[0] : null;
       if (info?.kind === 'event-known') return { kind: 'event', known: true, name: ev.name };
       if (info) return { kind: 'event', id: info.id, name: info.name, from: info.from };
+    }
+    // Приостановка занятий: квитанция несёт прежнее событие, чтобы снятие
+    // разбора вернуло период каким был; не записана — `known`.
+    if (ev?.kind === 'pause') {
+      const info = pauses.shift();
+      if (info?.receipt) return { kind: 'pause', ...info.receipt };
+      return { kind: 'pause', known: true };
     }
     if (ev?.kind === 'rel') {
       const at = applied.findIndex((item) => item.teacherId === ev.teacherId && item.delta === ev.delta);
@@ -3491,6 +3499,17 @@ const host = {
     async removeEvent(id) {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const res = removeEvent(cloneState(live.state), id);
+      if (!res.ok) return res;
+      await commit(res.state);
+      setInjects({});
+      refreshPanel();
+      return { ok: true };
+    },
+
+    /** Поправить даты своего события («Изменить» на плашке приостановки занятий). */
+    async updateEvent(id, patch = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const res = updateEventDates(cloneState(live.state), id, patch);
       if (!res.ok) return res;
       await commit(res.state);
       setInjects({});

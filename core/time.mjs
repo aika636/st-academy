@@ -267,8 +267,10 @@ export function isVacation(preset, day, state = null) {
   const holidays = Array.isArray(preset.holidays) ? preset.holidays : [];
   if (holidays.some((h) => h && h.off === true && inMD(h))) return true;
   const events = state && Array.isArray(state.events) ? state.events : [];
-  return events.some((e) => e && e.off === true && isDay(e.from)
-    && day >= e.from && day <= (isDay(e.to) && e.to >= e.from ? e.to : e.from));
+  // Открытый период (`open: true`, «до отмены») длится с `from` без конца; без
+  // флага событие без `to` — один день.
+  return events.some((e) => e && e.off === true && isDay(e.from) && day >= e.from
+    && (e.open === true && !isDay(e.to) ? true : day <= (isDay(e.to) && e.to >= e.from ? e.to : e.from)));
 }
 
 /** Учебный ли день: стоит в `preset.week.studyDays` и не попал в каникулы. */

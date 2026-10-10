@@ -9,7 +9,7 @@ import {
   extraLabels, whereText, slotText, mounted, el, runAction, setStatus, renderEmpty, call,
   renderPanel,
 } from './common.js';
-import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock } from './holidays.js';
+import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock, pauseView, pauseBlock } from './holidays.js';
 
 /** Ночь: до первого звонка утра и после того, как заведение закрылось. */
 const NIGHT_FROM = 22 * 60;
@@ -226,7 +226,9 @@ export function todayView(state, preset) {
     // как оценки в зачётке, а не сводная метрика.
     exams: examResultsToday(state, preset),
     holidays: holidaysView(state, preset),
-    ownEvents: ownEventsView(state),
+    ownEvents: ownEventsView(state, preset),
+    // Идущая приостановка занятий (секретарь увидел «начались каникулы»).
+    pause: pauseView(state, preset),
     numbers: capped.shown,
     droppedNumbers: capped.dropped,
   };
@@ -341,6 +343,7 @@ export function renderToday(host, view, preset) {
   // Вопрос про прыжок времени — самым первым: внизу под расписанием его не
   // замечали, а пока он висит, календарь стоит на месте.
   if (view.heldJump) box.append(heldJumpBlock(host, view, U));
+  if (view.pause) box.append(pauseBlock(host, view.pause, extraLabels(preset)));
 
   const X0 = extraLabels(preset);
   if (X0.weekHint) box.append(el('div', { class: 'academy-note academy-week-hint', text: X0.weekHint }));
