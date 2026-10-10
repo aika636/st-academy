@@ -33,6 +33,8 @@ export const PANEL_TEXT = {
   discard: 'Не сохранять',
   drop: 'Вычеркнуть',
   nothing: 'без перемен',
+  // Время прыгнуло, и ядро ждёт слова человека: «без перемен» тут было бы неправдой.
+  jumpHeld: 'время прыгнуло — ждёт вашего решения на «Сегодня»',
   notAnalyzed: 'не разобрано',
   analyzed: 'разобрано',
   correction: 'поправка',
@@ -41,8 +43,8 @@ export const PANEL_TEXT = {
   lookingForHint: 'Секретарь читает этот ответ и реплику перед ним и записывает то, что случилось с героиней и людьми вокруг неё, а праздники и события на две недели вперёд — в планы. Время не трогает.',
   events: 'Изменилось в Академии',
   empty: '—',
-  correctionNote: 'Это не последний ответ: выводы лягут поправкой — датой этого ответа, поверх нынешнего состояния.',
-  liveNote: 'Это последний ответ: после сохранения выводы лягут так, будто рассказчик отметил их сам.',
+  correctionNote: 'Это не последний ответ: выводы запишутся поправкой задним числом, поверх нынешнего состояния.',
+  liveNote: 'Это последний ответ: после сохранения выводы сразу попадут в текущее состояние.',
   notCounted: 'ответ ещё не посчитан',
   uncounted: 'Академия этот ответ ещё не считала. Разбор подготовит черновик; изменения применятся после сохранения.',
   onlyLast: 'Этот ответ сейчас не разобрать.',
@@ -89,36 +91,52 @@ export function sectionLabel(section, labels = {}) {
   return fillText(section.label, { ...LABELS, ...labels });
 }
 
-const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная' };
+const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительный пропуск' };
+
+/**
+ * Слова строк по умолчанию — если хост их не передал. У каждого заведения свои
+ * («хвост» вуза, «долг» школы, «прореха» магов): слова приходят из `ui` пресета
+ * (`index.js: rowWords`), здесь только запасной вариант.
+ */
+const ROW_WORDS = {
+  rowDebt: 'Долг по предмету: {subject}',
+  rowDebtClosed: 'Долг закрыт: {subject}',
+  rowJump: 'Пропущено занятий: {count}',
+  rowExamMissed: 'Не сдано к концу сессии: {subject}',
+  rowReputation: 'Репутация: {from} → {to}',
+};
 
 /**
  * Строка события (`ui.hookJournal`) словами. Отметка «был на паре» —
  * не событие для плашки: промотка ставит их пачками, и сводка утонула бы.
+ * @param {Object} row
+ * @param {Object} [words] слова заведения (`ROW_WORDS`)
  * @returns {string} пустая — не показывать
  */
-export function rowText(row) {
+export function rowText(row, words = {}) {
   if (!row || typeof row !== 'object') return '';
+  const W = { ...ROW_WORDS, ...words };
   switch (row.kind) {
     case 'grade': {
       const label = row.label && row.label !== row.value ? ` (${row.label})` : '';
       return `${row.subject}: ${row.value}${label}`;
     }
-    case 'debt': return row.debt ? `хвост: ${row.subject}` : `хвост закрыт: ${row.subject}`;
+    case 'debt': return fillText(row.debt ? W.rowDebt : W.rowDebtClosed, { subject: row.subject });
     case 'attendance': return ATTENDANCE[row.status] ? `${ATTENDANCE[row.status]}: ${row.subject}` : '';
     case 'attendance-jump':
-      return row.missed ? `промотка: пропущено пар — ${row.missed}` : '';
+      return row.missed ? fillText(W.rowJump, { count: row.missed }) : '';
     case 'relation': {
       const how = row.changed ? `${row.from} → ${row.to}` : (row.direction === 'up' ? 'теплее' : row.direction === 'down' ? 'холоднее' : '');
       if (!how) return '';
       return `${row.teacher}: ${how}${row.reason ? ` — ${row.reason}` : ''}`;
     }
     case 'reputation':
-      return row.from && row.to && row.from !== row.to ? `репутация: ${row.from} → ${row.to}` : '';
+      return row.from && row.to && row.from !== row.to ? fillText(W.rowReputation, { from: row.from, to: row.to }) : '';
     case 'exam': {
       const label = row.label && row.label !== row.value ? ` (${row.label})` : '';
       return `${row.subject}: ${row.value}${label}${row.passed ? ' — сдано' : ' — не сдано'}`;
     }
-    case 'exam-missed': return `не сдано к концу сессии: ${row.subject}`;
+    case 'exam-missed': return fillText(W.rowExamMissed, { subject: row.subject });
     case 'exam-conflict': return `${row.subject}: по сцене — ${row.said}`;
     case 'exams-scheduled': return `назначено контрольных: ${row.count}`;
     default: return '';
@@ -138,10 +156,12 @@ export function summaryText(view) {
     .filter(Boolean);
   const head = lines.slice(0, 2);
   const rest = lines.length - head.length;
-  if (!when && !lines.length) return view.analyzed ? PANEL_TEXT.nothing : PANEL_TEXT.notAnalyzed;
+  // Прыжок времени ждёт решения: «без перемен» об этом ответе молчало бы о главном.
+  const quiet = view.heldJump ? PANEL_TEXT.jumpHeld : PANEL_TEXT.nothing;
+  if (!when && !lines.length) return view.analyzed ? quiet : PANEL_TEXT.notAnalyzed;
   const what = lines.length
     ? `${head.join(' · ')}${rest > 0 ? ` · ${PANEL_TEXT.more.replace('{n}', rest)}` : ''}`
-    : PANEL_TEXT.nothing;
+    : quiet;
   return when ? `${when} | ${what}` : what;
 }
 
@@ -248,8 +268,10 @@ function place(mes, panel) {
 }
 
 function buildPanel(host, mesId, view) {
-  const isOpen = open.has(mesId) || Boolean(view.draft);
-  if (view.draft) open.add(mesId);
+  // Черновик и ошибка разбора раскрывают плашку сами и держат её раскрытой:
+  // иначе после неудачи человек не видит, что случилось, пока не нажмёт.
+  const isOpen = open.has(mesId) || Boolean(view.draft) || Boolean(view.error);
+  if (view.draft || view.error) open.add(mesId);
   const busy = Boolean(view.busy);
   const content = el('div', { class: 'academy-mes-content' });
   if (!isOpen) content.hidden = true;
@@ -281,6 +303,8 @@ function buildPanel(host, mesId, view) {
     el('span', { class: 'academy-mes-icon' }, [icon('fa-graduation-cap')]),
     el('span', { class: 'academy-mes-summary', text: busy ? PANEL_TEXT.analyzing : summaryText(view) }),
     state,
+    // Шеврон: строка раскрывается нажатием, и «ещё 7» без него читалось тупиком.
+    el('span', { class: 'academy-mes-chevron', 'aria-hidden': 'true' }, [icon('fa-chevron-down')]),
     el('button', {
       type: 'button',
       class: 'academy-mes-action',

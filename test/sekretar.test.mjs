@@ -567,7 +567,7 @@ test('сквозной: ответ без метки → сбой словами
   const id = await reply(tavern, 'Сцена.');
   const res = await actions(tavern).analyzeMessage(id);
   assert.equal(res.ok, false);
-  assert.match(res.error, /не по форме/);
+  assert.match(res.error, /ответил не так, как нужно/);
   assert.equal(tavern.seam.panel.panelFor(id).error, res.error, 'отказ виден на плашке');
 });
 

@@ -220,13 +220,34 @@ test('все пять команд регистрируются, алиас на
   assert.equal(P.commands['academy-status'], P.commands.academy);
   assert.deepEqual(P.duplicates, []);
 
-  // Аргументы `/academy-time` — те пять, что понимает `manualTime`. Пятый,
-  // `count`, включает счёт посещаемости за пропущенное; по умолчанию его нет,
-  // и ремонт календаря ведомость не трогает.
+  // Аргументы `/academy-time` — те пять, что понимает `manualTime`, и общий
+  // `quiet`. Пятый, `count`, включает счёт посещаемости за пропущенное; по
+  // умолчанию его нет, и ремонт календаря ведомость не трогает.
   const time = P.commands['academy-time'];
-  assert.deepEqual(time.namedArgumentList.map((a) => a.name), ['day', 'time', 'days', 'periods', 'count']);
+  assert.deepEqual(time.namedArgumentList.map((a) => a.name), ['day', 'time', 'days', 'periods', 'count', 'quiet']);
   assert.ok(time.namedArgumentList.every((a) => a.isRequired === false));
   assert.ok(P.commands.academy.helpString.length > 0);
+});
+
+test('команда показывает результат окошком и всё равно возвращает его в пайп; quiet=yes окошко гасит', async () => {
+  const tavern = await withSemester();
+  const popups = [];
+  tavern.POPUP_TYPE = { TEXT: 1 };
+  tavern.callGenericPopup = (html) => { popups.push(html); return Promise.resolve(); };
+
+  const out = await run(tavern, 'academy');
+  assert.ok(out.length > 0, 'в пайп строка уходит, как раньше');
+  assert.equal(popups.length, 1, 'и человеку она показана');
+  assert.match(popups[0], /<h3>\/academy<\/h3>/);
+
+  const quiet = await run(tavern, 'academy-grades', { quiet: 'yes' });
+  assert.ok(quiet.length > 0);
+  assert.equal(popups.length, 1, 'quiet=yes — только пайп');
+
+  const help = await run(tavern, 'academy-time');
+  assert.doesNotMatch(help, /count=yes\./, 'сырой список полей заменён пояснением');
+  assert.match(help, /day=.* — перейти на эту дату/);
+  assert.equal(popups.length, 2);
 });
 
 test('/academy-time всегда говорит, что стало с посещаемостью', async () => {

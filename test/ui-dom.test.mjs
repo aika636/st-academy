@@ -507,7 +507,7 @@ test('выбор API: актуальное подключение таверны
 
   const radios = inputs.filter((n) => n.attrs.type === 'radio');
   assert.equal(radios.length, 2, 'графа выбора источника: два пункта');
-  assert.ok(texts.includes('Актуальный API таверны'));
+  assert.ok(texts.includes('Подключение таверны'));
   assert.ok(texts.includes('Свой адрес с ключом'));
   assert.ok(texts.some((t) => /Ключ здесь вводить не нужно/.test(t)),
     `про ключ не сказано ни слова: ${texts.join(' | ')}`);
@@ -680,8 +680,8 @@ test('прыжок вперёд панель показывает вопросо
   assert.ok(texts.some((t) => /Время прыгнуло вперёд/.test(t)), 'вопроса на «Сегодня» нет');
   assert.ok(texts.some((t) => /24 декабря/.test(t)), `дата прыжка не показана: ${texts.join(' | ')}`);
 
-  const accept = buttons.find((b) => b.textContent === 'Принять');
-  const dismiss = buttons.find((b) => b.textContent === 'Не надо');
+  const accept = buttons.find((b) => b.textContent === 'Принять скачок');
+  const dismiss = buttons.find((b) => b.textContent === 'Оставить как было');
   assert.ok(accept && dismiss, 'кнопок ответа нет');
 
   await dismiss.listeners.click[0]({ currentTarget: dismiss });
@@ -769,6 +769,29 @@ test('галочка «зачесть пропущенные» доезжает 
   await button.listeners.click[0]({ currentTarget: button });
   await new Promise((resolve) => { setTimeout(resolve, 0); });
   assert.deepEqual(sent[1], { shift: { days: 1 }, count: true });
+  api.destroy();
+});
+
+test('ручной сдвиг: куда встали часы, видно и после перерисовки, блок остаётся раскрытым', async () => {
+  const host = fakeHost(started, {}, LOREBOOK_FULL, {
+    manualTime: async () => ({ ok: true, missed: 0, wouldMiss: 0, to: { day: '2024-12-24', time: '09:00', ordinal: 1 } }),
+  });
+  const { api, node } = mount(host);
+  let button = null;
+  walk(openTab(node, 'today'), (n) => { if (n.textContent === ui.uiLabels(preset).shiftPeriod) button = n; });
+  assert.ok(button, 'кнопки сдвига на пару нет');
+  await button.listeners.click[0]({ currentTarget: button });
+  await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  const body = openTab(node, 'today');
+  const texts = [];
+  let repair = null;
+  walk(body, (n) => {
+    if (n.textContent) texts.push(n.textContent);
+    if (n.className === 'academy-repair') repair = n;
+  });
+  assert.ok(texts.some((t) => /Календарь поправлен\. Теперь: .*24 декабря, 09:00 \(1-я пара\)/.test(t)), texts.join(' | '));
+  assert.ok(repair && repair.attrs.open !== undefined, 'ремонтный блок схлопнулся');
   api.destroy();
 });
 
@@ -931,7 +954,7 @@ test('«Сегодня»: исход сегодняшней проверки —
   };
   const { api, node } = mount(fakeHost(s, {}, LOREBOOK_FULL));
   let body = openTab(node, 'today');
-  assert.ok(allTexts(body).includes('бросок 15 против DC 7 — успех'), allTexts(body).join(' | '));
+  assert.ok(allTexts(body).includes('бросок 15 против порога 7 — успех'), allTexts(body).join(' | '));
   const roll = findNode(body, (n) => n.textContent === '15');
   assert.match(roll.className, /academy-roll-fresh/, 'первый показ — с анимацией');
   body = openTab(node, 'today');

@@ -230,7 +230,11 @@ export function settingsView(state, settings, preset, extra = {}) {
     modes: TIME_MODES.map((m) => ({ ...m, active: m.id === (s.mode || 'auto') })),
     // Секретарь (`core/analysis`) — настройка общая; правило экзаменов — своё
     // у каждого чата и есть только у заведённого семестра.
-    examRules: state ? EXAM_RULE_VIEW.map((r) => ({ ...r, active: r.id === examRule(state) })) : [],
+    // Подсказка правила «Сюжет» — словами заведения («итоговая неделя», «долг»),
+    // а не вузовскими: её пишет пресет.
+    examRules: state
+      ? EXAM_RULE_VIEW.map((r) => ({ ...r, hint: r.id === 'story' ? U.examRuleStoryHint : r.hint, active: r.id === examRule(state) }))
+      : [],
     // В режиме «из контекста» инжект инструкции не имеет смысла (3.2).
     injectMarker: s.mode === 'context' ? false : s.injectMarker !== false,
     injectMarkerLocked: s.mode === 'context',

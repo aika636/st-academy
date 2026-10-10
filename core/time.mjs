@@ -523,6 +523,15 @@ function advancePeriods(next, n, preset) {
     : numberOr(next.calendar.periodIndex, 0);
 
   let target = from + n;
+  // Часы вне пары (до первого звонка, перемена, вечер): `from` — уже ближайшая
+  // пара, и «+1 пара» значит именно её. Без этой поправки сдвиг с 08:22 при паре в
+  // 09:00 перешагивал её и вставал на следующую.
+  if (datetime && n > 0) {
+    const bells = bellsOf(preset);
+    const t = minutesOf(next.calendar.time);
+    const inside = from < bells.length && t !== null && t >= minutesOf(bells[from].start);
+    if (!inside) target -= 1;
+  }
   let day = next.calendar.day;
   const step = n > 0 ? 1 : -1;
 

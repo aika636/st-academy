@@ -2,13 +2,14 @@
 // ожидание объявленных результатов.
 
 import { debts, overallScore, subjectScore } from '../core/gradebook.mjs';
-import { relationLabel } from '../core/relations.mjs';
+import { relationLabel, relationMemory } from '../core/relations.mjs';
+import { stats as attendanceStats } from '../core/attendance.mjs';
 import { reputationLabel } from '../core/reputation.mjs';
 import { termsOf } from '../core/time.mjs';
 import { awaitingAnnouncement, examMode, datedExams } from '../core/exams.mjs';
 import { milestones } from '../core/milestones.mjs';
 import {
-  uiLabels, fill, stateHealth, formatDate, termTitle, formatScore, capNumbers, capitalize,
+  uiLabels, fill, stateHealth, formatDate, termTitle, formatScore, capNumbers, capitalize, plural,
   extraLabels, el, renderEmpty,
 } from './common.js';
 import { milestonesView } from './achievements.js';
@@ -23,9 +24,15 @@ export function gradebookView(state, preset) {
   const health = stateHealth(state, preset);
   if (health.kind !== 'ok') return { ...health, subjects: [], numbers: [] };
 
+  const X0 = extraLabels(preset);
   const subjects = (state.subjects || []).map((s) => {
     const score = subjectScore(state, s.id, preset);
     const teacher = s.teacherId ? (state.teachers || []).find((t) => t.id === s.teacherId) : null;
+    // За что преподаватель так относится — последний повод из журнала: слово
+    // «холодно» без причины читалось приговором (живой прогон 10.10).
+    const last = teacher ? relationMemory(state, teacher.id, preset, 1)[0] : null;
+    const sign = last ? (last.delta > 0 ? `+${last.delta}` : `−${-last.delta}`) : '';
+    const att = attendanceStats(state, s.id);
     return {
       id: s.id,
       name: s.name,
@@ -34,6 +41,13 @@ export function gradebookView(state, preset) {
       // Ярлык словом и число шкалы отдельно: «недоволен» и «−3».
       relation: teacher ? relationLabel(state, teacher.id, preset) : '',
       score: teacher ? relationScore(state, teacher.id) : '',
+      reason: last && last.reason ? fill(X0.memoryLine, { sign, reason: last.reason }) : '',
+      // Прогулы и опоздания по предмету: раньше их не было видно нигде, кроме
+      // последствий. Нули не пишутся.
+      attendanceText: [
+        att.skips ? `${att.skips} ${plural(att.skips, 'прогул', 'прогула', 'прогулов')}` : '',
+        att.lates ? `${att.lates} ${plural(att.lates, 'опоздание', 'опоздания', 'опозданий')}` : '',
+      ].filter(Boolean).join(', '),
       grades: (score.grades || []).map((g) => g.value),
       average: score.average,
       averageText: formatScore(score.average),
@@ -181,15 +195,20 @@ export function renderGradebook(host, view, preset) {
         el('span', { class: 'academy-subject', text: s.name }),
         s.debt ? el('span', { class: 'academy-tag academy-tag-debt', text: U.debtTag }) : null,
         s.passed ? el('span', { class: 'academy-tag', text: U.passedTag }) : null,
+        s.attendanceText ? el('span', { class: 'academy-note academy-att', text: s.attendanceText }) : null,
       ]),
       el('div', { class: 'academy-td academy-td-teacher' }, [
         el('span', { text: s.teacher || '—' }),
         // Отношение — словом из пресета. Числа наружу не идут (3.3).
         s.relation ? el('span', { class: 'academy-relation', text: s.score ? `${s.relation} · ${s.score}` : s.relation }) : null,
+        s.reason ? el('span', { class: 'academy-note academy-reason', text: s.reason }) : null,
       ]),
       el('div', { class: 'academy-td academy-td-grades' }, [
-        el('span', { class: 'academy-grades', text: s.grades.length ? s.grades.join(' ') : '—' }),
-        el('span', { class: 'academy-avg', text: s.averageText }),
+        // Без оценок — одна подпись, а не «— —» без заголовков столбцов.
+        s.grades.length
+          ? el('span', { class: 'academy-grades', text: s.grades.join(' ') })
+          : el('span', { class: 'academy-grades academy-grades-none', text: U.noGrades }),
+        s.grades.length ? el('span', { class: 'academy-avg', text: fill(U.cmdAverage, { value: s.averageText }) }) : null,
       ]),
     ]))));
 

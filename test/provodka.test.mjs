@@ -106,14 +106,14 @@ function examState(item, preset = ru) {
   });
 }
 
-test('исход проверки: сегодняшний бросок одной строкой — вид, предмет, оценка словом, d20 против DC', () => {
+test('исход проверки: сегодняшний бросок одной строкой — вид, предмет, оценка, бросок против порога', () => {
   const s = examState({
     id: '0:chemistry:exam', subjectId: 'chemistry', kind: 'exam', outcome: '4',
     rolls: [{ day: '2024-12-23', roll: 15, dc: 7, tier: 'success', value: '4' }],
   });
   const [r] = todayView(s, ru).exams;
-  assert.equal(r.head, 'экзамен, аналитическая химия: хорошо');
-  assert.equal(r.rollText, 'бросок 15 против DC 7 — успех');
+  assert.equal(r.head, 'аналитическая химия: экзамен — 4');
+  assert.equal(r.rollText, 'бросок 15 против порога 7 — успех');
   assert.equal(r.passed, true);
   assert.equal(r.key, '0:chemistry:exam:1:2024-12-23', 'ключ анимации — попытка и день');
 });
