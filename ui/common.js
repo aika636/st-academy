@@ -114,13 +114,13 @@ export const DEFAULT_UI = {
   // Слова нейтральные: расширение не знает, чей это был текст — отыгрыша или
   // соседнего расширения, — и решать это человеку, а не панели.
   jumpTitle: 'Время прыгнуло вперёд',
-  jumpLine: 'В ответе прочитано {date} — это на {days} {plural} вперёд. Календарь пока стоит на {from}.',
+  jumpLine: 'Бот пишет {date}, календарь стоит на {from}. Принять новую дату?',
   jumpMatched: 'Прочитано в строке: {matched}',
   jumpNote: 'Так бывает и в отыгрыше (сон, отъезд), и по ошибке — когда время печатает соседнее расширение. Пропущенные за скачок занятия засчитаются как посещённые, если прыжок принять.',
   jumpAccept: 'Принять скачок',
   jumpDismiss: 'Оставить как было',
   jumpAccepted: 'Время переведено.',
-  jumpAcceptedMissed: 'Время переведено, пар засчитано посещёнными: {count}.',
+  jumpAcceptedMissed: 'Перескочили {days} {plural}: пар засчитано как посещённые — {count}.',
   jumpDismissed: 'Прыжок отклонён, календарь на месте.',
 
   // --- «Зачётка» ------------------------------------------------------------
@@ -823,7 +823,7 @@ export const EXTRA_UI = {
   feedAnon: 'Анонимка',
   feedEmpty: 'Пока тихо. Молва появится сама через несколько ответов — или нажмите «Обновить молву».',
   feedEmptyChat: 'В чате пока тихо.',
-  feedEmptyAnon: 'Анонимка молчит — и это хорошо.',
+  feedEmptyAnon: 'Пока тихо. Сюда попадают слухи о сценах без свидетелей.',
   feedFromScene: 'из сцены',
   // «Кто-то с курса» — словом пресета `vocab.someone` (`extraLabels`).
   feedSomeone: 'кто-то с курса',
@@ -943,6 +943,8 @@ export const mounted = {
   repairCount: false,
   // «К кнопке начала»: следующая отрисовка настроек раскрывает блок начала семестра.
   focusStart: false,
+  // «Открыть анкету»: то же для блока «Анкета».
+  focusSurvey: false,
 };
 
 export function el(tag, attrs, children) {
@@ -1068,6 +1070,8 @@ export function field(label, value, onInput, placeholder, onCommit) {
  */
 export function section(title, children, open = false) {
   const key = `${sectionScope}::${title}`;
+  // `'focus'` — открыть и показать, даже если человек раньше свернул блок: его позвали кнопкой.
+  if (open === 'focus') sectionOpen.set(key, true);
   const wasOpen = sectionOpen.has(key) ? sectionOpen.get(key) === true : open === true;
   const node = el('details', { class: 'academy-section', open: wasOpen }, [
     // Название — текстом самого заголовка, иконки — после него в DOM, а
@@ -1082,6 +1086,10 @@ export function section(title, children, open = false) {
   // Читаем `open` у самого узла, а не считаем нажатия: `<details>` умеет
   // раскрываться и мимо мыши (Ctrl+F по странице, клавиатура).
   node.addEventListener('toggle', () => { sectionOpen.set(key, node.open === true); });
+  if (open === 'focus') {
+    // Узел ещё не в документе: прокрутка — на следующем такте.
+    setTimeout(() => { try { node.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch { /* вне браузера */ } }, 0);
+  }
   return node;
 }
 
@@ -1119,6 +1127,7 @@ export function renderEmpty(host, view) {
         onclick: () => {
           mounted.tab = 'settings';
           if (view.action.id === 'open-start') mounted.focusStart = true;
+          if (view.action.id === 'open-settings') mounted.focusSurvey = true;
           renderPanel(host);
         },
       })

@@ -419,8 +419,10 @@ export function parseAnalysis(raw, lexicon, opts = {}) {
   const posted = reactions.length > 0 || replies.length > 0;
   if (posted) tokens.push(...reactions, ...replies);
   tokens.push(...privates);
-  // Громкость нужна, когда есть что озвучивать: факт или реплика. Голая `loud=` без них — шум.
-  if (posted || (loud !== null && tokens.some(isFactToken))) tokens.push(`loud=${loud === null ? 1 : loud}`);
+  // Громкость нужна, когда есть что озвучивать: факт, реплика, отвергнутый факт (сцена
+  // всё равно была громкой) или громкая сцена сама по себе (2+, баг 79). Голая тихая
+  // `loud=` без них — шум.
+  if (posted || (loud !== null && (loud >= 2 || rejected.length > 0 || tokens.some(isFactToken)))) tokens.push(`loud=${loud === null ? 1 : loud}`);
 
   // «Кратко: …» — что секретарь вычитал словами; показывается на плашке, в
   // состояние не идёт.
@@ -806,7 +808,11 @@ export function pruneReactions(tokens) {
 /** Вычеркнуть строку с плашки: факт уносит свои реакции, реакция — свою ветку. */
 export function dropTokenAt(tokens, index) {
   if (!Array.isArray(tokens)) return tokens;
-  return pruneReactions(tokens.filter((_, i) => i !== index));
+  const left = tokens.filter((_, i) => i !== index);
+  // Вычеркнут последний факт — человек сказал «этого не было»: громкость уходит с ним,
+  // иначе она сама стала бы поводом «громкая сцена» (баг 79).
+  if (isFactToken(tokens[index]) && !left.some(isFactToken)) return pruneReactions(left.filter((t) => !isLoudToken(t)));
+  return pruneReactions(left);
 }
 
 /** Событие разборщика → канонический токен; время и прочее — `null`. */

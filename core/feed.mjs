@@ -452,7 +452,7 @@ export function normalizeCastList(raw) {
 export function normalizeThread(raw, ids) {
   if (!raw || typeof raw !== 'object') return null;
   const id = str(raw.id);
-  const topic = oneLine(raw.topic, THREAD_TEXT_MAX.topic);
+  const topic = clipText(raw.topic, THREAD_TEXT_MAX.topic);
   if (!ID_RE.test(id) || !topic) return null;
   const members = [];
   for (const m of Array.isArray(raw.members) ? raw.members : []) {
@@ -515,13 +515,13 @@ export function normalizeMolva(raw) {
     facts: (Array.isArray(src.facts) ? src.facts : []).map(str).filter(Boolean).slice(-MOLVA_FACTS_MAX),
     at: { day: str(src.at && src.at.day), time: str(src.at && src.at.time) },
     // Темы последних выпусков и тема, что открывала прошлый: молва не начинается дважды одним.
-    topics: (Array.isArray(src.topics) ? src.topics : []).map((t) => oneLine(t, 90)).filter(Boolean).slice(-MOLVA_TOPICS_MAX),
-    lead: { topic: oneLine(src.lead && src.lead.topic, 90), stage: str(src.lead && src.lead.stage) },
+    topics: (Array.isArray(src.topics) ? src.topics : []).map((t) => clipText(t, 90)).filter(Boolean).slice(-MOLVA_TOPICS_MAX),
+    lead: { topic: clipText(src.lead && src.lead.topic, 90), stage: str(src.lead && src.lead.stage) },
     // Открывающие темы трёх последних выпусков и когда в последний раз шёл слот «Календарь» о событии.
     leads: (Array.isArray(src.leads) ? src.leads : [])
-      .map((l) => ({ topic: oneLine(l && l.topic, 90), stage: str(l && l.stage) })).filter((l) => l.topic).slice(-MOLVA_LEADS_MAX),
+      .map((l) => ({ topic: clipText(l && l.topic, 90), stage: str(l && l.stage) })).filter((l) => l.topic).slice(-MOLVA_LEADS_MAX),
     cal: (Array.isArray(src.cal) ? src.cal : [])
-      .map((c) => ({ topic: oneLine(c && c.topic, 90), issue: num(c && c.issue) })).filter((c) => c.topic).slice(-6),
+      .map((c) => ({ topic: clipText(c && c.topic, 90), issue: num(c && c.issue) })).filter((c) => c.topic).slice(-6),
   };
 }
 

@@ -19,7 +19,7 @@ import {
   THREADS_MAX, THREAD_MEMBERS, STAGES, THREAD_SOURCES, THREAD_TEXT_MAX, ensureFeed, normalizeFeed, freeId, normalizeThread,
 } from './feed.mjs';
 import { castOf, similar } from './feed-cast.mjs';
-import { feedWorldTopics } from './feed.mjs';
+import { feedWorldTopics, clipText } from './feed.mjs';
 import { holidaysAhead } from './holidays.mjs';
 import { upcomingEvents } from './upcoming.mjs';
 import { diffDays, addDays } from './time.mjs';
@@ -147,8 +147,9 @@ function disputeOf(a, b, topic) {
     : `${a.nick} и ${b.nick} по-разному видят, как быть с темой «${topic}»`;
 }
 
+// Тема не обрывается посреди слова (баг 81): по слову, с «…».
 function clip(s, max) {
-  return String(s || '').replace(/\s+/g, ' ').trim().slice(0, max).trim();
+  return clipText(s, max);
 }
 
 /** День, когда событие кончается: у своего события — его последний день, у праздника пресета — по числам. */
@@ -199,7 +200,8 @@ export function studyTopics(state, preset) {
  */
 function pairTopics(state, preset) {
   const pairs = pickMembers(state).map(({ a, b }) => ({
-    topic: clip(a.interest && b.interest ? `${a.interest} или ${b.interest}` : `${a.nick} и ${b.nick}`, THREAD_TEXT_MAX.topic),
+    // Одна тема пресета, а не склейка двух через «или» (баг 81).
+    topic: clip(a.interest || b.interest || `${a.nick} и ${b.nick}`, THREAD_TEXT_MAX.topic),
     pair: [a.id, b.id],
   }));
   return [...pairs, ...feedWorldTopics(preset).map((topic) => ({ topic: clip(topic, THREAD_TEXT_MAX.topic) }))];

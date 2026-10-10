@@ -23,7 +23,7 @@
 
 import { cloneState } from './state.mjs';
 import * as course from './classmates.mjs';
-import { HEROINE } from './parse-marker.mjs';
+import { HEROINE, isCardParty, cardPartyName } from './parse-marker.mjs';
 import { normName, stopHit } from './stop-names.mjs';
 import { gradeInfo } from './exams.mjs';
 import {
@@ -45,6 +45,7 @@ export function peopleOf(state) {
 /** Человек словом: имя, «героиня» (или её имя), а незнакомый id — как есть. */
 export function personWord(id, people, heroine = '') {
   if (id === HEROINE) return heroine || 'героиня';
+  if (isCardParty(id)) return cardPartyName(id);
   const p = (people || []).find((x) => x && x.id === id);
   return (p && (p.name || p.id)) || String(id || 'кто-то');
 }
@@ -222,7 +223,7 @@ export function dealText(ev, people, heroine = '') {
   if (!ev.closed && ev.b === HEROINE && ev.a !== HEROINE && PENALTY_WORDS.test(String(ev.what || ''))) {
     return dealText({ ...ev, a: ev.b, b: ev.a }, people, heroine);
   }
-  const known = (id) => id === HEROINE || (people || []).some((x) => x && x.id === id);
+  const known = (id) => id === HEROINE || isCardParty(id) || (people || []).some((x) => x && x.id === id);
   const nom = (id) => (known(id) ? personWord(id, people, heroine) : GONE_PERSON.nom);
   const a = nom(ev.a);
   const b = nom(ev.b);
@@ -295,7 +296,7 @@ function placeEvent(next, ev, preset, opts) {
       at,
       factRef: token,
       kind: 'fact',
-      who: ev.kind === 'clash' ? ev.a : '',
+      who: ev.kind === 'clash' && !isCardParty(ev.a) ? ev.a : '',
       chan: 'chat',
       text: sceneText(ev, peopleOf(next), opts.heroine),
       gist: sceneGist(ev, peopleOf(next), opts.heroine),
@@ -379,6 +380,45 @@ export function notableFact(ev, state, preset, opts = {}) {
     if (fail || triumph) level = Math.max(level, 2);
   }
   return gist ? { text: gist, gist, loud: Math.max(0, Math.min(3, level)) } : null;
+}
+
+/**
+ * Громкая сцена без своего факта (баг 79): секретарь поставил `loud=2+`, а факт отвергнут
+ * или его не было. Сцена при всех всё равно случилась с героиней — это повод слота
+ * «Главные». Если в ответе есть стычка, слух, дело, новое лицо или заметный факт, он и несёт громкость.
+ * Идемпотентно (id от отпечатка ответа). Возвращается копия или то же состояние.
+ *
+ * @param {Object} state
+ * @param {Array<{ev: Object, token: string}>} items события разбора
+ * @param {Object} preset
+ * @param {{src?: string, day?: string, time?: string, heroine?: string, loud?: ?number}} [opts]
+ */
+export function applyLoudScene(state, items, preset, opts = {}) {
+  const loud = Number.isInteger(opts.loud) ? opts.loud : null;
+  if (loud === null || loud < 2) return state;
+  const list = items || [];
+  if (list.some((x) => x && x.ev && (['clash', 'rumor', 'deal', 'new'].includes(x.ev.kind) || notableFact(x.ev, state, preset, opts)))) return state;
+  const H = String(opts.heroine || '').trim() || 'героиня';
+  const text = `громкая сцена при всех: ${H} в центре внимания`;
+  const next = cloneState(state);
+  const at = { day: opts.day || (next.calendar && next.calendar.day) || '', time: opts.time || '' };
+  addFeedItem(next, {
+    id: factId(opts.src || '', `loud=${loud}`),
+    src: opts.src || '',
+    at,
+    factRef: `loud=${loud}`,
+    kind: 'fact',
+    chan: 'chat',
+    text,
+    gist: text,
+    rumor: false,
+    truth: null,
+    about: [HEROINE],
+    heroine: true,
+    loud,
+    read: true,
+  });
+  return next;
 }
 
 /**

@@ -478,7 +478,7 @@ test('/academy-debug после ответа без метки: говорит, 
   await tavern.eventSource.emit('message_received', id);
 
   const out = await run(tavern, 'academy-debug');
-  assert.match(out, /Метки в ответе не было/);
+  assert.match(out, /Метка времени в ответе не найдена/);
 });
 
 /**

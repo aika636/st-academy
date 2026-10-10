@@ -32,7 +32,7 @@
 
 import {
   FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
-  feedItems, hash, feedWorldTopics, THREADS_MAX, MOLVA_LEADS_MAX, CALENDAR_GAP,
+  feedItems, hash, feedWorldTopics, THREADS_MAX, MOLVA_LEADS_MAX, CALENDAR_GAP, clipText,
 } from './feed.mjs';
 import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, brokenManner, END_MARK } from './feed-cast.mjs';
 import { openThreads, spawnThread, advanceThread, settleThreads, threadOver, studyTopics, CALENDAR_HORIZON } from './feed-threads.mjs';
@@ -547,6 +547,8 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     '— Статист знает только то, что видел сам или о чём шумит чат; слух — неточно и с перевираниями.',
     '— Голос — поведением и манерой, а не словом из типажа («завистница»). Реплики разных людей не похожи.',
     '— Манера — словарь, интонация, привычные фразы и отношение к собеседнику. Слова пишутся правильно: без вставок внутрь слов, заикания и искажённой орфографии.',
+    '— Присказка автора — не в каждой реплике: не чаще одной реплики из трёх. Манера живёт в интонации и словаре, а не в повторе одной фразы.',
+    '— Только реалии этого мира и заведения. Никаких заклинаний, названий и терминов из чужих произведений (фильмов, книг, игр): не «Люмос» и не «Обливиэйт», а то, что есть в мире выше.',
     '— Героиню игрока и персонажей карточки не называй и не пиши от их имени, кроме слотов, где факт о них назначен.',
     '— Не повторяй темы последних веток: сдвигай историю дальше.',
   );
@@ -554,6 +556,36 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
 }
 
 // --- разбор и проверки -----------------------------------------------------------------------
+
+/** Присказки манеры: то, что в ней взято в кавычки («только никому»). */
+export function catchphrases(manner) {
+  const out = [];
+  for (const m of String(manner == null ? '' : manner).matchAll(/[«"“„]([^»"”“]{3,40})[»"”]/gu)) {
+    const p = normPhrase(m[1]);
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+const normPhrase = (s) => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * Присказка автора, что уже стоит в двух его последних репликах (лента и этот
+ * же выпуск), — третью с ней отбрасываем (баг 84): механичный тик. Возвращает
+ * присказку или пустую строку.
+ */
+export function overusedCatchphrase(text, author, history, said) {
+  const phrases = catchphrases(author && author.manner);
+  if (!phrases.length) return '';
+  const key = keyOfAuthor(author);
+  const past = [
+    ...(Array.isArray(history) ? history : []).filter((x) => x && x.kind === 'reaction' && keyOfItem(x) === key).map((x) => x.text),
+    ...((said && said.get(key)) || []),
+  ].slice(-2);
+  if (past.length < 2) return '';
+  const now = normPhrase(text);
+  return phrases.find((p) => now.includes(p) && past.every((x) => normPhrase(x).includes(p))) || '';
+}
 
 /**
  * Слова, на которых мысль не заканчивается. Жёсткие — предлоги и союзы: после
@@ -747,6 +779,8 @@ export function brokenWords(text, manner = '') {
  *   `line` — номер строки в ответе модели (с единицы), `rows` — сколько строк формата нашлось
  */
 export function parseIssue(text, agenda, opts = {}) {
+  const history = Array.isArray(opts.history) ? opts.history : [];
+  const said = new Map();
   const raw = String(text == null ? '' : text)
     .replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '')
     .replace(/<!--[\s\S]*?(?:-->|$)/g, '')
@@ -802,6 +836,9 @@ export function parseIssue(text, agenda, opts = {}) {
     const piece = brokenWords(t, author && author.manner);
     if (piece) return { reason: `в словах вставлен кусок «${piece}» — написание искажено` };
     if (dup(t)) return { reason: 'повтор уже сказанного' };
+    const tic = author ? overusedCatchphrase(t, author, history, said) : '';
+    if (tic) return { reason: `присказка «${tic}» в третьей реплике автора подряд` };
+    if (author) said.set(keyOfAuthor(author), [...(said.get(keyOfAuthor(author)) || []), t]);
     return { text: t };
   };
   const whoOf = (row) => {
@@ -991,14 +1028,14 @@ export function applyIssue(work, result, agenda, opts = {}) {
   // Первый слот выпуска и темы всех слотов: следующий выпуск не откроется той же темой.
   const posted = (agenda.slots || []).filter((s) => idOf.has(s.n) || made.some((id) => id.endsWith(`^${s.n}`)));
   const lead = posted[0] || (agenda.slots || [])[0];
-  const leadNow = lead && lead.topic ? { topic: clip(lead.topic, 90), stage: lead.stage || '' } : null;
-  const calNow = posted.filter((s) => s.kind === 'calendar' && s.topic).map((s) => ({ topic: clip(s.topic, 90), issue }));
+  const leadNow = lead && lead.topic ? { topic: clipText(lead.topic, 90), stage: lead.stage || '' } : null;
+  const calNow = posted.filter((s) => s.kind === 'calendar' && s.topic).map((s) => ({ topic: clipText(s.topic, 90), issue }));
   after.molva = {
     issue,
     since: 0,
     facts: [...after.molva.facts, ...usedFacts].slice(-MOLVA_FACTS_MAX),
     at: { day, time },
-    topics: [...after.molva.topics, ...(agenda.slots || []).filter((s) => s.topic).map((s) => clip(s.topic, 90))].slice(-MOLVA_TOPICS_MAX),
+    topics: [...after.molva.topics, ...(agenda.slots || []).filter((s) => s.topic).map((s) => clipText(s.topic, 90))].slice(-MOLVA_TOPICS_MAX),
     lead: leadNow || after.molva.lead,
     // Открывающие темы трёх последних выпусков и последний слот календаря по событиям (баги 65, 72).
     leads: leadNow ? [...after.molva.leads, leadNow].slice(-MOLVA_LEADS_MAX) : after.molva.leads,

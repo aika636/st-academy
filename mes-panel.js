@@ -53,6 +53,8 @@ export const PANEL_TEXT = {
   // Посты ленты секретарь больше не пишет (шаг 3 «Молвы»): у нового разбора здесь
   // только громкость и пометка «наедине». `{crowdIn}` — слово пресета: «в классе».
   heard: 'Слышно {crowdIn}',
+  // После «Сохранить» плашка говорит, что записано (баг 86): черновика больше нет, и без этих слов кнопка просто исчезала.
+  saved: 'Сохранено',
   heardHint: 'Сплетни пишет «{tab}» отдельно. Громкость решает, насколько событие заметно.',
   // `{tab}` — слово пресета: «Молва». Реплики старых разборов, пока они лежат в ленте.
   talkHint: 'Ничего не меняет — появится во вкладке «{tab}». Вычеркнутый факт уносит свои реакции.',
@@ -176,6 +178,8 @@ const HORAE_CLASS = 'horae-message-panel';
 
 /** Какие плашки раскрыты — по индексу сообщения, на время жизни страницы. */
 const open = new Set();
+// Плашки, у которых только что нажали «Сохранить»: пока не начат новый разбор, под ними стоит «Сохранено».
+const saved = new Set();
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -282,6 +286,7 @@ function buildPanel(host, mesId, view) {
 
   const analyze = (e) => {
     if (e) e.stopPropagation();
+    saved.delete(mesId);
     run(host.analyze(mesId));
   };
 
@@ -447,15 +452,24 @@ function buildPanel(host, mesId, view) {
   else content.append(el('div', { class: 'academy-mes-note', text: view.live ? PANEL_TEXT.liveNote : PANEL_TEXT.correctionNote }));
 
   if (view.error) content.append(el('div', { class: 'academy-mes-error', text: view.error }));
+  if (saved.has(mesId) && view.analyzed && !view.draft && !view.error) {
+    content.append(el('div', { class: 'academy-mes-note academy-mes-saved' }, [icon('fa-check'), el('span', { text: PANEL_TEXT.saved })]));
+  }
 
   content.append(el('div', { class: 'academy-mes-buttons' }, [
     view.draft ? el('button', {
       type: 'button', class: 'menu_button academy-mes-btn academy-mes-btn-main', disabled: busy,
-      onclick: () => run(host.saveAnalysis(mesId)),
+      onclick: () => run(Promise.resolve(host.saveAnalysis(mesId)).then((res) => {
+        if (res && res.ok) {
+          saved.add(mesId);
+          open.add(mesId);
+          renderMessagePanels(host);
+        }
+      })),
     }, [icon('fa-floppy-disk'), el('span', { text: PANEL_TEXT.save })]) : null,
     view.draft ? el('button', {
       type: 'button', class: 'menu_button academy-mes-btn', disabled: busy,
-      onclick: () => run(host.discardAnalysis(mesId)),
+      onclick: () => { saved.delete(mesId); run(host.discardAnalysis(mesId)); },
     }, [icon('fa-xmark'), el('span', { text: PANEL_TEXT.discard })]) : null,
     el('button', {
       type: 'button',
@@ -469,7 +483,7 @@ function buildPanel(host, mesId, view) {
         class: 'menu_button academy-mes-btn',
         title: PANEL_TEXT.undoAllHint,
         disabled: busy,
-        onclick: () => run(host.clearAnalysis(mesId)),
+        onclick: () => { saved.delete(mesId); run(host.clearAnalysis(mesId)); },
       }, [icon('fa-rotate-left'), el('span', { text: PANEL_TEXT.undoAll })])
       : null,
   ]));

@@ -66,6 +66,14 @@ const KEY_GROUPS = [
 /** Как метка называет героиню в стычке, слухе и деле. Тот же знак, что у `tie.to` курса. */
 export const HEROINE = '@heroine';
 
+/**
+ * Персонаж карточки как сторона факта (баг 79): `@card/Вандрел Харис`. Он не человек
+ * академии — в «Люди» не попадает, id держит только имя, чтобы факт был о нём.
+ */
+export const CARD_PREFIX = '@card/';
+export const isCardParty = (id) => String(id || '').startsWith(CARD_PREFIX);
+export const cardPartyName = (id) => String(id || '').slice(CARD_PREFIX.length);
+
 /** Слова, которыми модель зовёт героиню вместо знака. */
 const HEROINE_WORDS = ['@heroine', 'heroine', '@hero', 'героиня', '@героиня'];
 
@@ -552,15 +560,25 @@ function parseEvent(value, raw, events, rejected) {
 // стоп-листа здесь не отказ, а она сама. Карточка (бот) стороной не бывает,
 // если такого человека нет в списках: «Рассказчик поссорился» — шум.
 
-/** Сторона: `{id}` или `{error}`. */
-function parseParty(raw, ctx) {
+/**
+ * Сторона: `{id}` или `{error}`. С `opts.card` персонаж карточки, которого нет в
+ * списках, — сторона факта (`@card/имя`): стычка, слух и дело о нём бывают, а
+ * сокурсником, встречей и автором он не становится.
+ */
+function parseParty(raw, ctx, opts = {}) {
   const v = String(raw || '').replace(/[[\]()]/g, '').trim();
   if (!v) return { error: 'пустая сторона' };
   if (HEROINE_WORDS.includes(norm(v))) return { id: HEROINE };
+  // Канонический токен (`clash=@heroine:@card/Имя`) читается обратно при пересчёте,
+  // когда имён карточки у разбора может не быть.
+  if (opts.card && isCardParty(v) && cardPartyName(v).trim()) return { id: v, card: true };
   const said = ctx.stopHit(v);
   if (said && said.kind === STOP_USER) return { id: HEROINE };
   const id = ctx.findPerson(v);
   const hit = strictest([said, id ? ctx.stopHit(ctx.teacherName(id)) : null]);
+  if (opts.card && !id && hit && hit.kind === STOP_CHAR) {
+    return { id: `${CARD_PREFIX}${hit.name.replace(/[:=;]/g, ' ').replace(/\s+/g, ' ').trim()}`, card: true };
+  }
   if (hit && (HARD_STOPS.includes(hit.kind) || !id)) {
     return { error: `стоп-лист (${STOP_WORDS[hit.kind] || hit.kind}): «${v}»` };
   }
@@ -597,9 +615,9 @@ function parseMet(value, raw, ctx, events, rejected) {
 
 /** Две стороны в начале значения: стычка и дело. */
 function parsePair(parts, raw, ctx, rejected) {
-  const a = parseParty(parts[0], ctx);
-  const b = parseParty(parts[1], ctx);
-  const bad = a.error || b.error;
+  const a = parseParty(parts[0], ctx, { card: true });
+  const b = parseParty(parts[1], ctx, { card: true });
+  const bad = a.error || b.error || (a.card && b.card ? 'обе стороны — персонажи карточки' : '');
   if (bad) {
     rejected.push({ raw, reason: bad });
     return null;
@@ -634,7 +652,7 @@ function parseRumor(value, raw, ctx, events, rejected) {
     rejected.push({ raw, reason: 'ожидается rumor=о ком:что говорят' });
     return;
   }
-  const about = parseParty(value.slice(0, at), ctx);
+  const about = parseParty(value.slice(0, at), ctx, { card: true });
   if (about.error) {
     rejected.push({ raw, reason: about.error });
     return;

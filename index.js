@@ -21,7 +21,7 @@ import {
   dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf, privateRefs,
   unparsedNames, repliesOf, replyOf, isReplyToken, tokenAbout, talkParts,
 } from './core/analysis.mjs';
-import { applySceneEvents, applyNotableFacts, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
+import { applySceneEvents, applyNotableFacts, applyLoudScene, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
   reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, postByRef,
   feedItems as feedItemsOf,
@@ -1793,9 +1793,10 @@ function sceneOfTurn(state, text, tokens, mark, c) {
   next = applyNotableFacts(next, items, live.preset, {
     src: mark, day, time, heroine: c && c.name1, loud: Array.isArray(tokens) ? loudOf(tokens) : null,
   });
+  const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
+  next = applyLoudScene(next, items, live.preset, { src: mark, day, time, heroine: c && c.name1, loud });
   const reactions = Array.isArray(tokens) ? reactionsWithFacts(tokens, lexicon) : [];
   const replies = Array.isArray(tokens) ? repliesOf(tokens) : [];
-  const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
   if (reactions.length || replies.length) {
     const facts = new Map(items.filter((x) => x.ev).map((x) => [x.token, x.ev]));
     next = applyReactions(next, mark, reactions, facts, { day, time, cap: reactionCap(live.preset), loud, replies });
@@ -2107,7 +2108,8 @@ async function analyzeMessage(mesId) {
     // прежний текст, и к новому их не приложить.
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
-    if (parsed.rejected.length) console.info(`[${MODULE}] секретарь: отвергнуто`, parsed.rejected);
+    // Причины строками, как у молвы: «[Object, Object]» в консоли ничего не говорило (баг 83).
+    for (const r of parsed.rejected) console.info(`[${MODULE}] секретарь: отвергнуто: ${r.reason} | ${clip(r.raw, 120)}`);
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
       stamp: mark,
@@ -2732,6 +2734,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
         stop,
         truncated: res.truncated === true,
         existing: feedItemsOf(live.state).slice(-40).map((x) => x.text),
+        history: feedItemsOf(live.state),
       });
       // Дата записей — день выпуска, по живому календарю (после скачка времени — новый, не прежний).
       const cal = live.state.calendar || {};

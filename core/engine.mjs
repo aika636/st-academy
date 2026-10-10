@@ -730,6 +730,8 @@ export function resolveHeldJump(state, preset, accept = true) {
   if (!accept) {
     const s = cloneState(state);
     s.calendar.heldJump = null;
+    // «Оставить как было» помнится: тот же день из следующих ответов плашка не переспрашивает (баг 86).
+    s.calendar.dismissedJump = { day: held.day };
     return { state: s, applied: false, reason: `прыжок на ${held.day} отклонён`, counted: 0 };
   }
 
@@ -1150,8 +1152,12 @@ function applyTime(state, text, parsed, mode, preset, opts) {
       // спорить с видимым текстом поста расширение не вправе (3.2). Поэтому
       // прыжок придерживается со строкой, из которой он вычитан, и человек
       // отвечает «принять» или «не надо» одной кнопкой в панели.
-      if (r.held) {
+      if (r.held && s.calendar.dismissedJump && s.calendar.dismissedJump.day === r.held.day) {
+        // Человек уже сказал «оставить» для этой даты: тихо, без вопроса.
+        notes.push('дата чата расходится с календарём');
+      } else if (r.held) {
         s = cloneState(s);
+        delete s.calendar.dismissedJump;
         // Подпись источника едет вместе с прыжком: панель скажет, чей это тег,
         // а «принять» применит его под той же подписью (`resolveHeldJump`).
         s.calendar.heldJump = { ...r.held, matched: hit.matched, source: who, via };
@@ -1200,9 +1206,10 @@ function applyTime(state, text, parsed, mode, preset, opts) {
   // Время всё-таки пошло — придержанный прыжок протух: он был про «отсюда
   // туда», а «отсюда» уже другое. Держать его дальше значит однажды предложить
   // человеку прыгнуть из позапрошлого дня.
-  if (moved && s.calendar.heldJump && s.calendar.heldJump !== held) {
+  if (moved && ((s.calendar.heldJump && s.calendar.heldJump !== held) || s.calendar.dismissedJump)) {
     s = cloneState(s);
     s.calendar.heldJump = null;
+    delete s.calendar.dismissedJump;
   }
   return { state: s, moved, unit, source, via, notes, applied, held };
 }

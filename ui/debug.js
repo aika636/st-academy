@@ -35,10 +35,10 @@ export const DEBUG_TEXT = {
   moved: 'сдвинулось',
   notMoved: 'осталось на месте',
   marker: 'Метка: {marker}',
-  noMarker: 'Метки в ответе не было.',
+  noMarker: 'Метка времени в ответе не найдена.',
   appliedTitle: 'Применено',
   noApplied: 'Применять было нечего.',
-  rejectedTitle: 'Отброшено',
+  rejectedTitle: 'Что отброшено и почему',
   notesTitle: 'Замечания',
   // Без слова заведения: строка под этим заголовком приходит из
   // `core/exams.mjs: permissionLine` и уже начинается названием периода из
@@ -57,10 +57,10 @@ export const DEBUG_TEXT = {
   noDivergence: 'Расхождений посчитанного с версией модели не было.',
   // Выпуск молвы: что ответила модель и почему строки отброшены (баг 70).
   molvaTitle: 'Последний выпуск молвы',
-  molvaHead: 'Строк по формату: {rows}; легло постов {posts}, ответов {replies}{tail}.',
+  molvaHead: 'Строк нужного вида в ответе: {rows}; легло постов {posts}, ответов {replies}{tail}.',
   molvaTruncated: ' (ответ модели оборвался)',
   molvaNoEnd: ' (без строки КОНЕЦ)',
-  molvaRejectedTitle: 'Отброшено в молве',
+  molvaRejectedTitle: 'Что отброшено в молве и почему',
   molvaMovedTitle: 'Принято с заменой автора',
   molvaRawSummary: 'Сырой ответ модели',
   molvaNoRaw: 'Модель ничего не ответила.',

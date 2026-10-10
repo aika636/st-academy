@@ -456,7 +456,7 @@ function heldJumpBlock(host, view, U) {
     // унесёт этот узел, — поэтому итог уходит в память вкладки (`todayNote`).
     if (res && res.ok) {
       setTodayNote(accept && res.counted
-        ? fill(U.jumpAcceptedMissed, { count: res.counted })
+        ? fill(U.jumpAcceptedMissed, { count: res.counted, days, plural: plural(days, 'день', 'дня', 'дней') })
         : (accept ? U.jumpAccepted : U.jumpDismissed));
     }
     renderPanel(host);

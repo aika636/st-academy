@@ -622,6 +622,7 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
     const shifted = era ? reanchoredTerm(next, era) : null;
     if (shifted) {
       pushJournal(next, { kind: 'debug', text: `календарь перенесён на эпоху сюжета: ${cal.day} → ${shifted.day}`, data: { at, source } }, preset);
+      shiftStateDates(next, era.dy);
       cal.day = shifted.day;
       cal.termStart = shifted.termStart;
       delete cal.eraSeen;
@@ -654,6 +655,10 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   // ночёвка под ним не ходят вовсе, а месяц вперёд из чужой шапки — ходит.
   // `force` (ручная правка) снимает потолок так же, как снимает запрет отката:
   // человек знает, что делает.
+  // День недели метки считается до решения о скачке (баг 85): придержанный прыжок
+  // тоже говорит, как в этой истории зовутся дни, и два таких ответа сдвиг ставят.
+  if (payload.day !== undefined && payload.day !== null) noteWeekday(next, day, payload.weekday);
+
   const jump = diffDays(cal.day, day);
   const jumpCap = numberOr(preset && preset.limits && preset.limits.maxForwardJump, 1);
   if (jump > jumpCap && !opts.force) {
@@ -671,8 +676,6 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
       held: { day, time: rawTime || null, daypart: payload.daypart || null, ...(payload.weekday ? { weekday: payload.weekday } : {}), jump, from: cal.day },
     };
   }
-
-  if (payload.day !== undefined && payload.day !== null) noteWeekday(next, day, payload.weekday);
 
   cal.day = day;
   cal.time = time;
@@ -754,12 +757,58 @@ function reanchoredTerm(state, era) {
     if (numberOr(cal.moved, 0) !== 0) return null;
     if (state.attendance && Array.isArray(state.attendance.records) && state.attendance.records.length) return null;
   }
-  const shift = (day) => {
-    const { y, m, d } = parseDay(day);
-    // 29 февраля в невисокосном году станет 1 марта: нормализует formatDay.
-    return formatDay({ y: y + dy, m, d });
+  return { day: shiftYears(cal.day, dy), termStart: isDay(cal.termStart) ? shiftYears(cal.termStart, dy) : cal.termStart };
+}
+
+/** Та же дата на `dy` лет дальше. 29 февраля в невисокосном году станет 1 марта: нормализует formatDay. */
+function shiftYears(day, dy) {
+  const { y, m, d } = parseDay(day);
+  return formatDay({ y: y + dy, m, d });
+}
+
+/** Ключи с датами `ГГГГ-ММ-ДД` в состоянии: лента, сюжетики, молва, журнал, посещаемость, оценки, сессия. */
+const DATED_KEYS = new Set(['day', 'since', 'on', 'closedOn', 'from', 'to', 'announceOn', 'skipDay', 'start', 'end']);
+
+/**
+ * Переезд календаря на год сюжета (баг 80): все даты, привязанные к старому
+ * календарю, едут на ту же разницу лет. Иначе сюжетик «Мабон» с датой 2026-09-21
+ * при календаре 1248-10 не закрылся бы никогда, а посты ленты остались бы
+ * подписаны сентябрём. Правит переданное состояние; сам `calendar.day` и
+ * `termStart` не трогает — их сдвигает вызывающий.
+ *
+ * @param {Object} state
+ * @param {number} dy разница в годах
+ * @returns {number} сколько дат сдвинуто
+ */
+export function shiftStateDates(state, dy) {
+  if (!state || typeof state !== 'object' || !Number.isInteger(dy) || dy === 0) return 0;
+  let n = 0;
+  const walk = (node, key) => {
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => {
+        if (v && typeof v === 'object') walk(v, key);
+        else if (typeof v === 'string' && DATED_KEYS.has(key) && isDay(v)) { node[i] = shiftYears(v, dy); n += 1; }
+      });
+      return;
+    }
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === 'object') walk(v, k);
+      else if (typeof v === 'string' && DATED_KEYS.has(k) && isDay(v)) { node[k] = shiftYears(v, dy); n += 1; }
+    }
   };
-  return { day: shift(cal.day), termStart: isDay(cal.termStart) ? shift(cal.termStart) : cal.termStart };
+  for (const k of Object.keys(state)) {
+    // Календарь сдвигает вызывающий; пресет, если он лежит в состоянии, — справочник, не история.
+    if (k === 'calendar' || k === 'preset') continue;
+    if (state[k] && typeof state[k] === 'object') walk(state[k], k);
+  }
+  const cal = state.calendar;
+  if (cal) {
+    if (cal.heldJump && typeof cal.heldJump === 'object') walk(cal.heldJump, 'heldJump');
+    if (cal.weekdaySeen && typeof cal.weekdaySeen === 'object') walk(cal.weekdaySeen, 'weekdaySeen');
+    if (cal.dismissedJump && typeof cal.dismissedJump === 'object') walk(cal.dismissedJump, 'dismissedJump');
+  }
+  return n;
 }
 
 /**

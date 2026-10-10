@@ -443,6 +443,8 @@ export function renderSettings(host) {
     },
   });
 
+  const surveyOpen = mounted.focusSurvey === true;
+  mounted.focusSurvey = false;
   box.append(section(U.surveySection, [
     el('p', { class: 'academy-note', text: U.surveyNote }),
     surveyBox,
@@ -451,7 +453,7 @@ export function renderSettings(host) {
     guessStatus,
     el('div', { class: 'academy-row academy-row-buttons' }, [genBtn]),
     planStatus,
-  ]));
+  ], surveyOpen ? 'focus' : false));
   mounted.planStatus = planStatus;
 
   // --- персонаж карточки --------------------------------------------------
@@ -541,7 +543,7 @@ export function renderSettings(host) {
     }),
     el('div', { class: 'academy-row academy-row-buttons' }, [startBtn]),
     startStatus,
-  ], startOpen));
+  ], startOpen ? 'focus' : false));
 
   return box;
 }
