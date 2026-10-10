@@ -555,8 +555,11 @@ export function applyResponse(state, text, preset, opts = {}) {
   // период обновляется, а не плодится; `pause=end` закрывает идущий. Экзамены и
   // дедлайны это не отменяет: `off` гасит расписание и прогулы, а контрольные
   // живут своими датами.
+  // Дата в этом же ответе, которую календарь ещё не принял (прыжок придержан,
+  // ждёт «принять»), — день сцены: иначе период встал бы в прошлое.
+  const heldNow = out.debug.applied.find((a) => a.kind === 'time-held' && typeof a.day === 'string');
   for (const ev of parsed.events.filter((e) => e.kind === 'pause')) {
-    const planned = planPause(s, preset, ev);
+    const planned = planPause(s, preset, ev, heldNow ? heldNow.day : s.calendar.day);
     if (planned.ok) {
       s = planned.state;
       out.debug.applied.push({

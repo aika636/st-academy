@@ -107,7 +107,7 @@ test('89: плашка скачка — «в календаре — {дата}»
   assert.equal(ids.length, 12);
   for (const id of ids) {
     const line = load(id).ui.jumpLine;
-    assert.equal(line, 'Бот пишет {date}, в календаре — {from}. Принять новую дату?', id);
+    assert.equal(line, 'В ответе — {date}, в календаре — {from}. Принять новую дату?', id);
     assert.ok(!/стоит на/.test(line), id);
   }
 });

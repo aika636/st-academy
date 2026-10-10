@@ -680,7 +680,7 @@ test('прыжок вперёд панель показывает вопросо
     if (n.textContent) texts.push(n.textContent);
     if (n.listeners && n.listeners.click) buttons.push(n);
   });
-  assert.ok(texts.some((t) => /Время прыгнуло вперёд/.test(t)), 'вопроса на «Сегодня» нет');
+  assert.ok(texts.some((t) => /В ответе другая дата/.test(t)), 'вопроса на «Сегодня» нет');
   assert.ok(texts.some((t) => /24 декабря/.test(t)), `дата прыжка не показана: ${texts.join(' | ')}`);
 
   const accept = buttons.find((b) => b.textContent === 'Принять скачок');
@@ -697,7 +697,7 @@ test('без придержанного прыжка вопроса на «Се�
   const { api, node } = mount(fakeHost(started, {}, LOREBOOK_FULL));
   const texts = [];
   walk(openTab(node, 'today'), (n) => { if (n.textContent) texts.push(n.textContent); });
-  assert.equal(texts.some((t) => /Время прыгнуло вперёд/.test(t)), false);
+  assert.equal(texts.some((t) => /В ответе другая дата/.test(t)), false);
   api.destroy();
 });
 
@@ -1476,7 +1476,7 @@ test('«Слухи»: в настройках один блок — частот
   assert.ok(block, 'блок слухов на месте');
   assert.equal(findSection(body, X.mobSection), null, 'отдельного блока статистов больше нет');
   const texts = allTexts(block);
-  for (const want of [X.molvaWhen, X.molvaEvery, X.molvaEveryUnit, X.molvaManual, X.molvaPrice, X.molvaButton, X.mobSection]) {
+  for (const want of [X.molvaWhen, X.molvaEvery, X.molvaManual, X.molvaPrice, X.molvaButton, X.mobSection]) {
     assert.ok(texts.includes(want), `в блоке нет: ${want}`);
   }
   const every = findNode(block, (n) => String(n.className).includes('academy-molva-every'));

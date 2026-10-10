@@ -6,6 +6,7 @@
 // без `id` и `ally`. Что показать (`castView`) — без DOM, проверяется в Node;
 // чем показать (`renderCastBlock`) — ниже.
 
+import { plural } from '../core/plural.mjs';
 import { normalizeFeed, nickWord, THREADS_MAX } from '../core/feed.mjs';
 import { extraLabels, fill, el, runAction, setStatus, section, call, safe, renderPanel, renderSettingsBlock } from './common.js';
 
@@ -13,6 +14,17 @@ import { extraLabels, fill, el, runAction, setStatus, section, call, safe, rende
 export const CAST_FIELDS = [
   ['nick', 'mobNick'], ['type', 'mobType'], ['interest', 'mobInterest'], ['goal', 'mobGoal'], ['manner', 'mobManner'],
 ];
+
+/** «Новые слухи: 2 поста, 5 ответов.» — числа со склонением; хвост, если часть реплик отброшена. */
+export function molvaDoneText(X, res) {
+  const posts = Number(res && res.posts) || 0;
+  const replies = Number(res && res.replies) || 0;
+  return fill(X.molvaDone, {
+    posts, replies,
+    postsWord: plural(posts, ...X.molvaPostForms),
+    repliesWord: plural(replies, ...X.molvaReplyForms),
+  }) + (res && res.skipped ? X.molvaDoneSkipped : '');
+}
 
 /**
  * Что показать. Без DOM.
@@ -112,7 +124,7 @@ export function molvaRefresh(host, preset) {
       if (res && res.ok !== false) {
         keepMolvaNote({
           kind: 'ok',
-          text: fill(X.molvaDone, { posts: res.posts || 0, replies: res.replies || 0 }) + (res.skipped ? X.molvaDoneSkipped : ''),
+          text: molvaDoneText(X, res),
         });
         renderPanel(host);
       } else if (res) {

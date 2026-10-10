@@ -9,6 +9,7 @@ import {
   extraLabels, whereText, slotText, mounted, el, runAction, setStatus, renderEmpty, call,
   renderPanel, hintIcon,
 } from './common.js';
+import { activePause } from '../core/holidays.mjs';
 import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock, pauseView, pauseBlock } from './holidays.js';
 
 /** Ночь: до первого звонка утра и после того, как заведение закрылось. */
@@ -76,7 +77,11 @@ export function todayView(state, preset) {
   // Почему расписание молчит. Порядок — от самого информативного слова.
   let silent = false;
   let silentReason = '';
-  if (phase === 'vacation') { silent = true; silentReason = U.silentVacation; }
+  // Нерабочий период из текста (`pause: true`) зовётся своим именем, а не словом
+  // каникул пресета: «закрытие академии», а не «перерыв между кругами».
+  const pause = phase === 'vacation' ? activePause(state, cal.day) : null;
+  const pauseName = pause ? (String(pause.name || '').trim() || extraLabels(preset).pauseTitle) : '';
+  if (phase === 'vacation') { silent = true; silentReason = pauseName ? `${pauseName} — занятий нет.` : U.silentVacation; }
   // Промежуток между периодами — своя причина, а не каникулы и не выходной:
   // без этой ветки панель бодро показывала бы пары, которых нет.
   else if (phase === 'break') { silent = true; silentReason = U.silentBreak; }
@@ -138,9 +143,14 @@ export function todayView(state, preset) {
     : cal.dismissedJump
       ? ''
       : cal.source
-        ? (idle === 0
-          ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`
-          : `Время сдвинулось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${TIME_VIA[cal.source] || cal.source}).`)
+        ? (cal.source === 'manual'
+          // «Вручную» — человек сам поправил дату (ремонт календаря, кнопка «Задать»), а не текст ответа.
+          ? (idle === 0
+            ? 'Время в последнем ответе поправлено вручную.'
+            : `Время поправлено вручную ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад.`)
+          : idle === 0
+            ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`
+            : `Время сдвинулось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${TIME_VIA[cal.source] || cal.source}).`)
         : 'Время в чате ещё не сдвигалось.';
 
   // Имя периода на экране: только когда периодов в году больше одного. У
@@ -182,7 +192,7 @@ export function todayView(state, preset) {
     termsCount: at.terms.length,
     termScope: at.scope,
     phase,
-    phaseLabel: U.phases[phase] || phase,
+    phaseLabel: pauseName || U.phases[phase] || phase,
     precision: cal.precision,
     time: hasClock ? cal.time : null,
     // Кнопка «До конца занятий»: только в учебный день, пока занятия ещё впереди.

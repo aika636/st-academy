@@ -1030,7 +1030,7 @@ export function renderFeedBlock(host, preset, settings, extra = null) {
     el('p', { class: 'academy-note', text: X.feedAutoNote }),
     el('p', { class: 'academy-note', text: X.feedMuteNote }),
     el('div', { class: 'academy-mob-title academy-mob-heading', text: X.molvaWhen }),
-    el('label', { class: 'academy-field academy-field-inline' }, [el('span', { text: X.molvaEvery }), every, el('span', { text: X.molvaEveryUnit })]),
+    el('label', { class: 'academy-field academy-field-inline' }, [el('span', { text: X.molvaEvery }), every]),
     el('p', { class: 'academy-note academy-molva-price', text: X.molvaPrice }),
     el('label', { class: 'academy-check' }, [manual, el('span', { text: X.molvaManual })]),
     el('p', { class: 'academy-note', text: X.molvaManualNote }),

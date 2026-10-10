@@ -220,10 +220,10 @@ test('86: «Оставить как было» — тот же день из с�
   assert.ok(r.debug.notes.some((n) => /расходится с календарём/.test(n)), r.debug.notes.join('; '));
 });
 
-test('86: подписи скачка во всех пресетах — «Бот пишет … Принять новую дату?» и «Перескочили …»', () => {
+test('86: подписи скачка во всех пресетах — «В ответе — … Принять новую дату?» и «Перескочили …»', () => {
   for (const f of ['cadet-academy', 'cn-highschool', 'dark-academia', 'hero-academy', 'jp-highschool', 'magic-academy', 'ru-school', 'ru-university', 'space-academy', 'us-college', 'us-highschool', 'xianxia-sect']) {
     const ui = load(f).ui;
-    assert.match(ui.jumpLine, /^Бот пишет \{date\}, в календаре — \{from\}\. Принять новую дату\?$/, f);
+    assert.match(ui.jumpLine, /^В ответе — \{date\}, в календаре — \{from\}\. Принять новую дату\?$/, f);
     assert.match(ui.jumpAcceptedMissed, /^Перескочили \{days\} \{plural\}: \S+ засчитано как посещённые — \{count\}\.$/, f);
   }
 });

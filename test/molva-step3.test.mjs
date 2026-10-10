@@ -239,7 +239,7 @@ test('п. 66: в промпте у ответа назван пост-родит
 
 test('подписи: слухи и настройки читаются без склеек', () => {
   const X = extraLabels(preset);
-  assert.equal(X.molvaDoneSkipped, ' Часть реплик не прошла проверку и пропущена.');
+  assert.equal(X.molvaDoneSkipped, ' Часть реплик отброшена.');
   assert.doesNotMatch(X.molvaPrice, /раз в 1 ответ/);
   assert.match(X.molvaPrice, /Каждый ответ/);
   for (const k of ['feedHooksNote', 'feedBackgroundNote', 'feedAutoNote', 'feedMuteNote', 'molvaManualNote']) assert.ok(X[k], k);

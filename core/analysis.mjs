@@ -26,7 +26,7 @@
 //
 // Модуль чистый: состояние, пресет и тексты на входе, строки на выходе.
 
-import { parseMarker, keepMarkerKinds, markerKeys, partyOf, salvageMarker, MARKER_RE, HEROINE } from './parse-marker.mjs';
+import { parseMarker, keepMarkerKinds, markerKeys, partyOf, salvageMarker, cardDisplayName, MARKER_RE, HEROINE } from './parse-marker.mjs';
 import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
@@ -453,8 +453,31 @@ export function parseAnalysis(raw, lexicon, opts = {}) {
   // «Кратко: …» — что секретарь вычитал словами; показывается на плашке, в
   // состояние не идёт.
   const m = /кратко\s*[:：]\s*(.+)/i.exec(text);
-  const summary = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 300) : '';
+  const summary = m ? tidySummary(m[1].replace(/<!--[\s\S]*?-->/g, ''), lexicon) : '';
   return { found, partial, tokens, summary, rejected };
+}
+
+/**
+ * «Кратко» для показа: служебное «к учёбе не относится» в начале — не часть
+ * сводки (остаётся то, что секретарь сказал дальше), а имена персонажей карточки
+ * латиницей заменены написанием на языке анкеты, как в ленте (`cardDisplayName`).
+ */
+export function tidySummary(text, lexicon) {
+  let out = String(text || '').trim();
+  out = out.replace(/^(?:к\s+учёбе\s+не\s+относится[\s:.,;—–-]*)+/i, '').trim();
+  const names = (lexicon && lexicon.names) || {};
+  const lang = ((lexicon && lexicon.survey) || {}).lang || (lexicon && lexicon.lang);
+  for (const person of Array.isArray(names.cast) ? names.cast : []) {
+    const all = [person && person.name, ...((person && person.aliases) || [])].filter((n) => typeof n === 'string' && n.trim());
+    const own = cardDisplayName('', all[0], [person], lang);
+    if (!own) continue;
+    for (const n of all) {
+      if (n === own || /[а-яё]/i.test(n) === /[а-яё]/i.test(own)) continue;
+      const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])`, 'giu'), () => own);
+    }
+  }
+  return out.slice(0, 300);
 }
 
 // --- реакции: блок «что сочинено» -------------------------------------------------
