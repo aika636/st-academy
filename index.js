@@ -1271,7 +1271,9 @@ function sceneNames(c) {
   // всегда имя («Your Himbo Roommate» — это Джаспер Мираж).
   const cast = castMainNames(c);
   if (cast.length) char = [...[].concat(char == null ? [] : char), ...cast];
-  return { user, char };
+  // Написания людей карточки — чтобы факт о них говорил по-русски (баг 87).
+  const people = castAvatars(c).flatMap((a) => (castOf(a) || { people: [] }).people).filter((p) => p.role === 'main');
+  return { user, char, cast: people.map((p) => ({ name: p.name, aliases: p.aliases })) };
 }
 
 // --- персонаж карточки (core/card-cast.mjs) -----------------------------------
@@ -1937,6 +1939,11 @@ function tokenAvatar(author) {
  * новое лицо — с кнопкой «в курс», пока кандидат ждёт галочки.
  */
 function panelTokens(list, lexicon, entry, isDraft) {
+  // День сцены этого ответа и день календаря: событие — датой от сцены, а не вечным «завтра».
+  const when = {
+    day: (entry && entry.day) || (live.state && live.state.calendar && live.state.calendar.day) || '',
+    today: (live.state && live.state.calendar && live.state.calendar.day) || '',
+  };
   return list.map((t, i) => {
     if (isReactToken(t)) {
       const r = reactionOf(t, list);
@@ -1970,8 +1977,8 @@ function panelTokens(list, lexicon, entry, isDraft) {
     const known = ev?.kind === 'event' && eventKnown(ev, entry, isDraft ? null : i);
     const kind = ev ? (ev.kind === 'completion' ? 'grade' : SCENE_KINDS.includes(ev.kind) ? 'course' : ev.kind) : 'other';
     return {
-      text: tokenText(t, lexicon, { known }),
-      brief: tokenText(t, lexicon, { known, brief: true }),
+      text: tokenText(t, lexicon, { known, ...when }),
+      brief: tokenText(t, lexicon, { known, brief: true, ...when }),
       kind,
     };
   });
@@ -2741,6 +2748,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time, preset: live.preset });
       // Что отброшено и почему — строками, а не «[Object]»; сырой ответ — в отладку.
       for (const r of parsed.rejected) console.info(`[${MODULE}] молва: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      for (const r of parsed.warned) console.info(`[${MODULE}] молва: замечание${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
       for (const r of parsed.reassigned) console.info(`[${MODULE}] молва: строка ${r.line}, слот ${r.n}: написал «${r.to}» вместо «${r.from}» — принято`);
       live.molvaDebug = {
         at: new Date().toISOString(), auto, ok: out.ok, truncated: res.truncated === true, complete: parsed.complete,
@@ -2748,6 +2756,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
         raw: String(res.text == null ? '' : res.text).slice(0, MOLVA_RAW_MAX),
         rejected: parsed.rejected.map((r) => ({ line: r.line || 0, reason: r.reason, raw: clip(r.raw, 160) })),
         reassigned: parsed.reassigned,
+        warned: parsed.warned.map((r) => ({ line: r.line || 0, reason: r.reason, raw: clip(r.raw, 160) })),
       };
       if (!out.ok) {
         // Автомат не бьёт по запросам после каждого ответа: счёт сбрасывается, дельта-пустышка

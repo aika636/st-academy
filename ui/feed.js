@@ -164,7 +164,8 @@ export function feedView(state, preset, opts = {}) {
     });
 
   const people = [...((state && state.teachers) || []), ...((state && state.classmates) || [])];
-  const deals = openDeals(state).map((d) => ({
+  // Дела — общие для курса, а не слух: в «Анонимке» их нет (баг 88).
+  const deals = chan !== 'chat' ? [] : openDeals(state).map((d) => ({
     id: d.id,
     // «Мила должна Вере: вернуть тетрадь» (`scene.dealText`).
     text: dealText({ ...d, closed: false }, people, opts.heroine),

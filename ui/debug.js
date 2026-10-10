@@ -62,6 +62,7 @@ export const DEBUG_TEXT = {
   molvaNoEnd: ' (без строки КОНЕЦ)',
   molvaRejectedTitle: 'Что отброшено в молве и почему',
   molvaMovedTitle: 'Принято с заменой автора',
+  molvaWarnedTitle: 'Принято с замечанием',
   molvaRawSummary: 'Сырой ответ модели',
   molvaNoRaw: 'Модель ничего не ответила.',
   molvaLine: 'строка {line}: {reason} — {raw}',
@@ -321,6 +322,7 @@ export function molvaDebugView(d) {
   return {
     head: fill(T.molvaHead, { rows: d.rows || 0, posts: d.posts || 0, replies: d.replies || 0, tail }),
     rejected: (d.rejected || []).map((r) => fill(r.line ? T.molvaLine : T.molvaNoLine, { line: r.line, reason: r.reason, raw: r.raw })),
+    warned: (d.warned || []).map((r) => fill(r.line ? T.molvaLine : T.molvaNoLine, { line: r.line, reason: r.reason, raw: r.raw })),
     moved: (d.reassigned || []).map((r) => fill(T.molvaMoved, { line: r.line, n: r.n, to: r.to, from: r.from })),
     raw: str(d.raw),
     at: str(d.at),
@@ -369,6 +371,7 @@ export function renderDebug(host, view) {
     ]));
     add(debugList(T.molvaRejectedTitle, molva.rejected, ''));
     add(debugList(T.molvaMovedTitle, molva.moved, ''));
+    add(debugList(T.molvaWarnedTitle, molva.warned, ''));
     box.append(el('details', { class: 'academy-repair' }, [
       el('summary', { text: T.molvaRawSummary }),
       el('div', { class: 'academy-repair-body' }, [

@@ -34,11 +34,11 @@ import {
   FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
   feedItems, hash, feedWorldTopics, THREADS_MAX, MOLVA_LEADS_MAX, CALENDAR_GAP, clipText,
 } from './feed.mjs';
-import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, brokenManner, END_MARK } from './feed-cast.mjs';
+import { castOf, rumorAuthors, worldRealities, calendarNames, textKey, similar, brokenManner, foreignSpell, END_MARK } from './feed-cast.mjs';
 import { openThreads, spawnThread, advanceThread, settleThreads, threadOver, studyTopics, CALENDAR_HORIZON } from './feed-threads.mjs';
 import { holidaysOn, holidaysAhead } from './holidays.mjs';
 import { normName } from './stop-names.mjs';
-import { diffDays } from './time.mjs';
+import { diffDays, addDays } from './time.mjs';
 import { shortName } from './scene.mjs';
 
 /** Окно, по которому считается доля главных, — последние тредов. */
@@ -55,6 +55,8 @@ export const MIN_LETTERS = 3;
 
 /** Ответ короче стольких знаков — не ответ по существу («Грубый выпад.», баг 66). */
 export const REPLY_MIN = 25;
+/** Сколько последних реплик автора помнят проверка оборотов и промпт. */
+export const RECENT_OWN = 3;
 
 /** Сколько ветвей прошлого видит модель как «израсходованные». */
 export const RECENT_BRANCHES = 6;
@@ -238,6 +240,70 @@ export function calendarEvents(state, preset) {
   return out.filter((e) => e.name);
 }
 
+/** Сколько дней назад ещё помнится прошедшее событие календаря. */
+export const PAST_HORIZON = 21;
+
+/**
+ * Календарь мира относительно сегодняшнего дня (баг 90): каждое событие, что идёт,
+ * недавно прошло или скоро будет, с числом дней. Модель не должна гадать по названию,
+ * было ли это уже: «Мабон» после праздника обсуждали как будущее.
+ *
+ * @returns {Array<{name: string, state: 'now'|'past'|'ahead', days: number}>}
+ *   `days` — сколько дней назад кончилось (past) или через сколько начнётся (ahead)
+ */
+export function calendarTimeline(state, preset) {
+  const day = state && state.calendar && state.calendar.day;
+  if (!day) return [];
+  const seen = new Map();
+  try {
+    for (let n = -PAST_HORIZON; n <= CALENDAR_HORIZON; n += 1) {
+      const at = addDays(day, n);
+      for (const h of holidaysOn(preset, at, state)) {
+        const name = clip(h.name, 90);
+        if (!name) continue;
+        const e = seen.get(name) || { name, first: n, last: n };
+        e.last = n;
+        seen.set(name, e);
+      }
+    }
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of seen.values()) {
+    if (e.first <= 0 && e.last >= 0) out.push({ name: e.name, state: 'now', days: 0 });
+    else if (e.last < 0) out.push({ name: e.name, state: 'past', days: -e.last });
+    else out.push({ name: e.name, state: 'ahead', days: e.first });
+  }
+  return out.sort((a, b) => (a.state === 'past' ? -a.days : a.days) - (b.state === 'past' ? -b.days : b.days));
+}
+
+const dayCount = (n) => {
+  const a = n % 100;
+  const b = a % 10;
+  return `${n} ${a > 10 && a < 20 ? 'дней' : b === 1 ? 'день' : b > 1 && b < 5 ? 'дня' : 'дней'}`;
+};
+
+/** «Мабон — уже прошло, 3 дня назад», «Самайн — ещё не наступило, будет через 12 дней». */
+export function timelineLine(e) {
+  if (e.state === 'now') return `${e.name} — идёт сейчас`;
+  if (e.state === 'past') return `${e.name} — уже прошло, ${e.days === 1 ? 'вчера' : `${dayCount(e.days)} назад`}`;
+  return `${e.name} — ещё не наступило, будет ${e.days === 1 ? 'завтра' : `через ${dayCount(e.days)}`}`;
+}
+
+/** Слово прошедшего события в будущем смысле: «к Мабону», «на бал», «до Самайна», «перед балом». */
+function futureMention(text, name) {
+  const words = String(name).toLowerCase().replace(/ё/g, 'е').match(/\p{L}{3,}/gu) || [];
+  const t = textKey(text);
+  for (const w of words) {
+    const stem = w.length > 5 ? w.slice(0, -2) : w.length > 3 ? w.slice(0, -1) : w;
+    const re = new RegExp(`(?:^| )(?:к|ко|на|до|перед|накануне|ждем|ждет|скоро)(?: \\p{L}+)? ${stem}\\p{L}{0,${w.length <= 5 ? 2 : 3}}(?![\\p{L}])`, 'u');
+    const hit = re.exec(t);
+    if (hit) return hit[0].trim();
+  }
+  return '';
+}
+
 /**
  * Завести сюжетики до потолка (три): молве есть что продвигать, а свободное место
  * не пустует (баг 73). Правит переданную копию состояния.
@@ -284,7 +350,7 @@ export function buildAgenda(state, preset, opts = {}) {
   const size = issueSize(opts.every);
   const pool = rumorAuthors(state, { stop: opts.stop }).map(slim);
   const cast = pool.filter((a) => a.kind === 'cast');
-  if (!cast.length) return { issue, size, slots: [], mainDenied: false };
+  if (!cast.length) return { issue, size, slots: [], mainDenied: false, past: [] };
   const pos = recency(state);
   const roots = feed.items.filter((x) => x.kind === 'reaction' && !x.parent);
   const lastKey = roots.length ? keyOfItem(roots[roots.length - 1]) : '';
@@ -435,7 +501,7 @@ export function buildAgenda(state, preset, opts = {}) {
     slots.push(slot);
   }
   slots.forEach((s, i) => { s.n = i + 1; });
-  return { issue, size, slots, mainDenied, lastKey };
+  return { issue, size, slots, mainDenied, lastKey, past: calendarTimeline(state, preset).filter((e) => e.state === 'past') };
 }
 
 /** Порядок слотов в выпуске: массовка, календарь, главные, мир — главные не открывают выпуск. */
@@ -505,11 +571,22 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
   lines.push(cal.length
     ? `Календарь мира (праздники и события есть только эти, других не выдумывай): ${cal.join('; ')}.`
     : 'В календаре мира нет ни праздников, ни событий: не выдумывай их.');
+  // Что уже было, а что ещё будет: без этого прошедший праздник обсуждали как будущий (баг 90).
+  const line = calendarTimeline(state, preset);
+  if (line.length) lines.push('Календарь относительно сегодня:', ...line.map((e) => `— ${timelineLine(e)}`));
   lines.push('');
 
   const used = new Map();
   for (const s of agenda.slots) for (const a of [s.author, s.replier]) if (a) used.set(keyOfAuthor(a), a);
-  lines.push('Кто пишет (только они):', ...[...used.values()].map(memberLine), '');
+  const own = feedItems(state).filter((x) => x.kind === 'reaction');
+  lines.push('Кто пишет (только они):');
+  for (const a of used.values()) {
+    lines.push(memberLine(a));
+    // Свои недавние реплики — чтобы не повторять обороты и начала (баг 94).
+    const last = own.filter((x) => keyOfItem(x) === keyOfAuthor(a)).slice(-RECENT_OWN);
+    if (last.length) lines.push(`  его недавние реплики (обороты и начала не повторяй): ${last.map((x) => `«${clip(x.text, 70)}»`).join(' ')}`);
+  }
+  lines.push('');
 
   const cast = castOf(state);
   const nick = new Map(cast.map((m) => [m.id, m.nick]));
@@ -548,7 +625,9 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     '— Голос — поведением и манерой, а не словом из типажа («завистница»). Реплики разных людей не похожи.',
     '— Манера — словарь, интонация, привычные фразы и отношение к собеседнику. Слова пишутся правильно: без вставок внутрь слов, заикания и искажённой орфографии.',
     '— Присказка автора — не в каждой реплике: не чаще одной реплики из трёх. Манера живёт в интонации и словаре, а не в повторе одной фразы.',
-    '— Только реалии этого мира и заведения. Никаких заклинаний, названий и терминов из чужих произведений (фильмов, книг, игр): не «Люмос» и не «Обливиэйт», а то, что есть в мире выше.',
+    '— Только заклинания и термины этого мира и пресета, ничего из известных книг и фильмов.',
+    '— Время событий — по строкам «Календарь относительно сегодня». Что уже прошло — вспоминают как прошедшее («было», «прошло»); о прошедшем нельзя говорить как о будущем: никаких «готовимся к», «скоро», «ждём» про него.',
+    '— Свои обороты автор не повторяет: ни начало фразы («Клянусь…», «Я бы так не…»), ни любимый оборот из трёх слов не стоят в двух репликах из трёх подряд.',
     '— Героиню игрока и персонажей карточки не называй и не пиши от их имени, кроме слотов, где факт о них назначен.',
     '— Не повторяй темы последних веток: сдвигай историю дальше.',
   );
@@ -585,6 +664,47 @@ export function overusedCatchphrase(text, author, history, said) {
   if (past.length < 2) return '';
   const now = normPhrase(text);
   return phrases.find((p) => now.includes(p) && past.every((x) => normPhrase(x).includes(p))) || '';
+}
+
+/** Слова реплики для сравнения оборотов. */
+const wordsOf = (s) => textKey(s).split(' ').filter(Boolean);
+
+/** Сколько букв должно быть в обороте из трёх слов, чтобы он считался оборотом, а не «я не знаю». */
+const PHRASE_LETTERS = 11;
+
+/**
+ * Оборот автора, что уже был в одной из его трёх последних реплик (лента и этот же
+ * выпуск), — реплику с ним отбрасываем (баг 94). Оборот — то же начало (две первых
+ * слова и больше, если слова длинные) или любые три слова подряд. Короткие «я не знаю»
+ * оборотом не считаются: порог по буквам. Возвращает найденный оборот или пустую строку.
+ */
+export function repeatedPhrase(text, author, history, said) {
+  if (!author) return '';
+  const key = keyOfAuthor(author);
+  const past = [
+    ...(Array.isArray(history) ? history : []).filter((x) => x && x.kind === 'reaction' && keyOfItem(x) === key).map((x) => x.text),
+    ...((said && said.get(key)) || []),
+  ].slice(-RECENT_OWN);
+  if (!past.length) return '';
+  const now = wordsOf(text);
+  const letters = (ws) => ws.join('').length;
+  for (const old of past) {
+    const was = wordsOf(old);
+    // То же начало: «клянусь основателями …».
+    for (const n of [3, 2]) {
+      if (now.length >= n && was.length >= n && now.slice(0, n).join(' ') === was.slice(0, n).join(' ') && letters(now.slice(0, n)) >= (n === 2 ? 14 : PHRASE_LETTERS)) {
+        return now.slice(0, n).join(' ');
+      }
+    }
+    // Три слова подряд в любом месте.
+    const grams = new Set();
+    for (let i = 0; i + 3 <= was.length; i += 1) grams.add(was.slice(i, i + 3).join(' '));
+    for (let i = 0; i + 3 <= now.length; i += 1) {
+      const g = now.slice(i, i + 3);
+      if (grams.has(g.join(' ')) && letters(g) >= PHRASE_LETTERS) return g.join(' ');
+    }
+  }
+  return '';
 }
 
 /**
@@ -791,6 +911,8 @@ export function parseIssue(text, agenda, opts = {}) {
   const stop = Array.isArray(opts.stop) ? opts.stop : [];
   const rejected = [];
   const reassigned = [];
+  const warned = [];
+  const past = (Array.isArray(opts.past) ? opts.past : agenda.past || []).filter((e) => e && e.name);
   const rows = [];
   raw.split('\n').forEach((line, i) => {
     const body = cleanLine(line);
@@ -836,8 +958,17 @@ export function parseIssue(text, agenda, opts = {}) {
     const piece = brokenWords(t, author && author.manner);
     if (piece) return { reason: `в словах вставлен кусок «${piece}» — написание искажено` };
     if (dup(t)) return { reason: 'повтор уже сказанного' };
+    const spell = foreignSpell(t);
+    if (spell) return { reason: `заклинание из чужого произведения «${spell}»` };
     const tic = author ? overusedCatchphrase(t, author, history, said) : '';
     if (tic) return { reason: `присказка «${tic}» в третьей реплике автора подряд` };
+    const again = repeatedPhrase(t, author, history, said);
+    if (again) return { reason: `оборот «${again}» уже был у автора в последних репликах` };
+    // Прошедшее событие календаря в будущем смысле — только замечание: надёжно отбросить нельзя.
+    for (const e of past) {
+      const hit = futureMention(t, e.name);
+      if (hit) warned.push({ raw: row.raw, line: row.line, reason: `«${e.name}» уже прошло, а реплика говорит как о будущем («${hit}»)` });
+    }
     if (author) said.set(keyOfAuthor(author), [...(said.get(keyOfAuthor(author)) || []), t]);
     return { text: t };
   };
@@ -919,7 +1050,7 @@ export function parseIssue(text, agenda, opts = {}) {
       lines.push({ kind: 'reply', n: slot.n, slotKind: slot.kind, author: r.author, text: r.text, ...(slot.replyTo ? { parent: slot.replyTo.id } : {}) });
     }
   }
-  return { lines, rejected, reassigned, rows: rows.length, complete };
+  return { lines, rejected, reassigned, warned, rows: rows.length, complete };
 }
 
 // --- запись -------------------------------------------------------------------------------------

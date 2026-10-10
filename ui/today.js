@@ -131,13 +131,17 @@ export function todayView(state, preset) {
 
   const stalled = isStalled(state, preset);
   const idle = Number(cal.idle) || 0;
+  // «Оставить как было» (баг 92): пока скачок отклонён, «время сдвинулось» — неправда:
+  // календарь стоит там, где стоял, а строка говорила бы о последнем ответе.
   const timeMark = stalled
     ? 'Время в чате давно не двигалось: проверьте, печатается ли дата в ответах.'
-    : cal.source
-      ? (idle === 0
-        ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`
-        : `Время сдвинулось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${TIME_VIA[cal.source] || cal.source}).`)
-      : 'Время в чате ещё не сдвигалось.';
+    : cal.dismissedJump
+      ? ''
+      : cal.source
+        ? (idle === 0
+          ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`
+          : `Время сдвинулось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${TIME_VIA[cal.source] || cal.source}).`)
+        : 'Время в чате ещё не сдвигалось.';
 
   // Имя периода на экране: только когда периодов в году больше одного. У
   // пресета с одним периодом называть нечего — «семестр» и так один, и лишняя
@@ -384,10 +388,12 @@ export function renderToday(host, view, preset) {
     ]));
   }
 
-  box.append(el('div', {
-    class: view.stalled ? 'academy-timemark academy-timemark-stalled' : 'academy-timemark',
-    text: view.timeMark,
-  }));
+  if (view.timeMark) {
+    box.append(el('div', {
+      class: view.stalled ? 'academy-timemark academy-timemark-stalled' : 'academy-timemark',
+      text: view.timeMark,
+    }));
+  }
 
   const X = extraLabels(preset);
   const holidays = holidaysBlock(view.holidays, X);

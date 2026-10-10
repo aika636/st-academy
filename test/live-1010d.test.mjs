@@ -187,15 +187,15 @@ test('84: присказка автора в третьей реплике по�
   assert.equal(overusedCatchphrase('Только никому', author, history.slice(1), new Map()), '', 'в одной из двух — не тик');
 });
 
-test('84: в промптах каста и молвы запрещены чужие заклинания и присказка в каждой реплике', async () => {
+test('84/91: в промптах каста и молвы чужие заклинания запрещены общими словами, без названий и присказка в каждой реплике', async () => {
   const { buildCastPrompt } = await import('../core/feed-cast.mjs');
   const { buildMolvaPrompt, planIssue } = await import('../core/molva.mjs');
   const cast = buildCastPrompt({ preset, heroine: 'Аня' });
-  assert.match(`${cast.system}\n${cast.user}`, /чужих произведений/);
+  assert.match(`${cast.system}\n${cast.user}`, /ничего из известных книг и фильмов/);
   const s = semester();
   const { work, agenda } = planIssue(s, preset, { stop: STOP, every: 3 });
   const p = buildMolvaPrompt(work, preset, agenda, {});
-  assert.match(p.user, /чужих произведений/);
+  assert.match(p.user, /ничего из известных книг и фильмов/);
   assert.match(p.user, /не чаще одной реплики из трёх/);
 });
 
@@ -223,7 +223,7 @@ test('86: «Оставить как было» — тот же день из с�
 test('86: подписи скачка во всех пресетах — «Бот пишет … Принять новую дату?» и «Перескочили …»', () => {
   for (const f of ['cadet-academy', 'cn-highschool', 'dark-academia', 'hero-academy', 'jp-highschool', 'magic-academy', 'ru-school', 'ru-university', 'space-academy', 'us-college', 'us-highschool', 'xianxia-sect']) {
     const ui = load(f).ui;
-    assert.match(ui.jumpLine, /^Бот пишет \{date\}, календарь стоит на \{from\}\. Принять новую дату\?$/, f);
+    assert.match(ui.jumpLine, /^Бот пишет \{date\}, в календаре — \{from\}\. Принять новую дату\?$/, f);
     assert.match(ui.jumpAcceptedMissed, /^Перескочили \{days\} \{plural\}: \S+ засчитано как посещённые — \{count\}\.$/, f);
   }
 });

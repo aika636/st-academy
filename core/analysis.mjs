@@ -30,6 +30,7 @@ import { parseMarker, keepMarkerKinds, markerKeys, partyOf, salvageMarker, MARKE
 import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
+import { addDays } from './time.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
 import { SCENE_KINDS, sceneText, sceneAbout, personWord } from './scene.mjs';
 import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, nickWord, postRef } from './feed.mjs';
@@ -895,9 +896,12 @@ export const ANON_WHO = 'без подписи';
  * а не как записанное. `brief` — для свёрнутой сводки, где раздела не видно:
  * там «в планы:» нужно.
  *
- * @param {{known?: boolean, brief?: boolean}} [opts]
+ * `day` — день сцены этого ответа: событие получает конкретную дату от него, а не
+ * вечное «завтра» (баг 90); `today` — день календаря сейчас: событие позади помечается.
+ *
+ * @param {{known?: boolean, brief?: boolean, day?: string, today?: string}} [opts]
  */
-export function tokenText(token, lexicon, { known = false, brief = false } = {}) {
+export function tokenText(token, lexicon, { known = false, brief = false, day = '', today = '' } = {}) {
   // У пресета `classmates` — настройки курса, не список: берутся только массивы.
   const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
   const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
@@ -937,6 +941,12 @@ export function tokenText(token, lexicon, { known = false, brief = false } = {})
   if (ev.kind === 'event') {
     const span = ev.until > ev.days ? ` (${daysWord(ev.until - ev.days + 1)})` : '';
     const head = known ? 'уже в планах: ' : brief ? 'в планы: ' : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      const from = addDays(day, ev.days);
+      const last = addDays(day, Math.max(ev.until, ev.days));
+      const past = /^\d{4}-\d{2}-\d{2}$/.test(today) && today > last ? ' — уже прошло' : '';
+      return `${head}${ev.name} — ${daysText(ev.days)}, ${dayWord(from)}${span}${past}`;
+    }
     return `${head}${ev.name} — ${daysText(ev.days)}${span}`;
   }
   if (ev.kind === 'rel') {
@@ -991,6 +1001,14 @@ function daysText(n) {
   if (n === 1) return 'завтра';
   if (n === 2) return 'послезавтра';
   return `через ${daysWord(n)}`;
+}
+
+const MONTHS_GEN = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+/** «22 октября» из «2026-10-22». */
+function dayWord(day) {
+  const [, m, d] = String(day).split('-').map(Number);
+  return `${d} ${MONTHS_GEN[m] || ''}`.trim();
 }
 
 /** «1 день», «3 дня», «5 дней». */

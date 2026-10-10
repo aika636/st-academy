@@ -93,6 +93,8 @@ export const DEFAULT_PLOT_PHRASES = {
   // Пост молвы — выдумка статиста, а не событие: происхождение называется прямо (шаг 4 «Молвы»).
   molva: 'слух от {who}: «{text}»; само утверждение не установленный факт',
   rumorFact: 'говорят, что {gist}',
+  // Пост о публичном факте — не слух: «слух» только у слухов и подслушанного (баг 93).
+  molvaFact: 'говорят о {fact}: «{text}» ({who})',
   // Дело — фразой `scene.dealText`: «Мила должна Вере: вернуть тетрадь».
   deal: 'незакрытое дело — {deal}',
   heroine: 'героиня',
@@ -262,6 +264,11 @@ function nameOf(id, state, P, heroine) {
   return shortName(p.name || p.id, { teacher }) || p.id;
 }
 
+/** Пост молвы о публичном факте сцены: не слух, а разговор о случившемся. */
+function isPublicTalk(item) {
+  return isMolva(item) && item.rumor !== true && item.chan !== 'anon' && Boolean(item.factText);
+}
+
 /** Запись выпуска молвы (`core/molva`): её id начинается с `molva-`. */
 function isMolva(item) {
   return item.kind === 'reaction' && /^molva-/.test(String(item.src || ''));
@@ -286,13 +293,16 @@ export function hookCore(state, ref, opts = {}) {
     else if (item.chan === 'anon') core = fill(P.gossip, { text: bare(unsaid(item.text)) });
     // Маска — не человек: в чате с ней говорят как с типажом («футболист-альфа»), но
     // пост молвы подписан ником и типажом в скобках: «слух от @ник (типаж)».
-    else if (isMolva(item)) core = fill(P.molva, { who: item.nick ? `${nickWord(item.nick)}${item.type ? ` (${item.type})` : ''}` : nameOf(item.who, state, P, heroine), text: bare(item.text) });
+    else if (isPublicTalk(item)) {
+      const nick = item.nick ? `${nickWord(item.nick)}${item.type ? ` (${item.type})` : ''}` : nameOf(item.who, state, P, heroine);
+      core = fill(P.molvaFact, { fact: bare(item.factText), text: bare(item.text), who: nick });
+    } else if (isMolva(item)) core = fill(P.molva, { who: item.nick ? `${nickWord(item.nick)}${item.type ? ` (${item.type})` : ''}` : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     else core = fill(P.said, { who: item.nick ? (item.type || P.someone) : nameOf(item.who, state, P, heroine), text: bare(item.text) });
     // Ветка — одной фразой: о чём спорят или что поддерживают, без реплик.
     // Пост молвы — выдумка статиста: «в ветке отвечают» к нему ничего не добавляет (баг 78).
     const thread = isMolva(item) ? '' : threadPhrase(threadTone(items.filter((x) => x.parent === item.id).map((x) => x.text)), P);
     if (thread) core = `${bare(core)}${P.threadGlue}${thread}`;
-    return { ref, kind: 'item', core: oneLine(core, CORE_MAX), rumor: item.rumor === true || isMolva(item) };
+    return { ref, kind: 'item', core: oneLine(core, CORE_MAX), rumor: item.rumor === true || (isMolva(item) && !isPublicTalk(item)) };
   }
   const deal = openDeals(state).find((d) => d.id === ref);
   if (deal) {

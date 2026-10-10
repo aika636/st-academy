@@ -74,6 +74,33 @@ export const CARD_PREFIX = '@card/';
 export const isCardParty = (id) => String(id || '').startsWith(CARD_PREFIX);
 export const cardPartyName = (id) => String(id || '').slice(CARD_PREFIX.length);
 
+/**
+ * Как назвать персонажа карточки в факте (баг 87). Имя карточки часто латиницей
+ * («Vandrel Kharis»), а анкета русская: статисты коверкают («Вандрил»).
+ *
+ * 1. секретарь написал на языке анкеты — оставить его написание (оно уже
+ *    совпало с алиасом, иначе стоп-лист его бы не узнал);
+ * 2. иначе — первое написание того же человека на языке анкеты (`cast`:
+ *    `[{name, aliases}]` из `settings.cardCasts`);
+ * 3. иначе — имя карточки, как было.
+ */
+export function cardDisplayName(written, hitName, cast, lang) {
+  const clean = (v) => String(v || '').replace(/[:=;]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cyr = /^(?:ru|uk|be|bg|sr|kk|mk)/i.test(String(lang || 'ru'));
+  const fits = (v) => (cyr ? /[а-яё]/i.test(v) && !/[a-z]/i.test(v) : !/[а-яё]/i.test(v));
+  const w = clean(written);
+  if (w && fits(w)) return w;
+  const h = clean(hitName);
+  const key = (v) => clean(v).toLowerCase().replace(/ё/g, 'е');
+  for (const person of Array.isArray(cast) ? cast : []) {
+    const all = [person && person.name, ...((person && person.aliases) || [])].filter(Boolean);
+    if (!all.some((n) => key(n) === key(h) || key(n) === key(w))) continue;
+    const own = all.map(clean).find(fits);
+    if (own) return own;
+  }
+  return h || w;
+}
+
 /** Слова, которыми модель зовёт героиню вместо знака. */
 const HEROINE_WORDS = ['@heroine', 'heroine', '@hero', 'героиня', '@героиня'];
 
@@ -577,7 +604,7 @@ function parseParty(raw, ctx, opts = {}) {
   const id = ctx.findPerson(v);
   const hit = strictest([said, id ? ctx.stopHit(ctx.teacherName(id)) : null]);
   if (opts.card && !id && hit && hit.kind === STOP_CHAR) {
-    return { id: `${CARD_PREFIX}${hit.name.replace(/[:=;]/g, ' ').replace(/\s+/g, ' ').trim()}`, card: true };
+    return { id: `${CARD_PREFIX}${ctx.cardName ? ctx.cardName(v, hit.name) : hit.name}`, card: true };
   }
   if (hit && (HARD_STOPS.includes(hit.kind) || !id)) {
     return { error: `стоп-лист (${STOP_WORDS[hit.kind] || hit.kind}): «${v}»` };
@@ -797,6 +824,12 @@ function buildContext(preset) {
     },
     impactWeight: (level) => impactWeight(scaleOwner, level),
     stopHit: (raw) => stopHit(raw, stop),
+    // Написание персонажа карточки для факта: по-русски, а не имя карточки (баг 87).
+    cardName: (written, hitName) => cardDisplayName(
+      written, hitName,
+      p.names && p.names.cast,
+      (p.survey || inner.survey || {}).lang || p.lang || inner.lang,
+    ),
     findGrade: (raw) => {
       const key = norm(raw);
       return graded.has(key) ? graded.get(key) : null;
