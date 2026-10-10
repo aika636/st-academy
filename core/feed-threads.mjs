@@ -155,6 +155,10 @@ function clip(s, max) {
 /** День, когда событие кончается: у своего события — его последний день, у праздника пресета — по числам. */
 function eventEnd(holiday, start) {
   if (holiday.dated && /^\d{4}-\d{2}-\d{2}$/.test(String(holiday.to))) return holiday.to;
+  if (holiday.shift !== undefined) {
+    // Плавающая дата: даты `from`/`to` — запасные, длительность — `days` или один день.
+    return Number.isInteger(holiday.days) ? addDays(start, Math.min(holiday.days - 1, 30)) : start;
+  }
   const from = String(holiday.from || '');
   const to = String(holiday.to || '');
   if (!/^\d{2}-\d{2}$/.test(from) || !/^\d{2}-\d{2}$/.test(to)) return start;

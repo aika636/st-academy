@@ -7,7 +7,7 @@ import { gradeInfo, isPassing } from '../core/exams.mjs';
 import {
   uiLabels, fill, TIME_VIA, stateHealth, formatDate, formatWeek, termTitle, capNumbers, plural,
   extraLabels, whereText, slotText, mounted, el, runAction, setStatus, renderEmpty, call,
-  renderPanel,
+  renderPanel, hintIcon,
 } from './common.js';
 import { holidaysView, ownEventsView, ownEventsBlock, holidaysBlock } from './holidays.js';
 
@@ -326,12 +326,13 @@ export function renderToday(host, view, preset) {
     el('div', { class: 'academy-date', text: view.dateLine }),
     el('div', { class: 'academy-week' }, [
       view.weekLine,
+      hintIcon(preset, view.weekLine),
       // Имя периода стоит рядом с фазой той же «таблеткой»: строка `academy-week`
       // и так переносится по словам, поэтому на телефоне она уедет вниз, а не
       // растянет панель (3.9). Своего класса в `style.css` не заводим — вид у
       // неё тот же, что у фазы.
-      view.termLine ? el('span', { class: 'academy-phase academy-term', text: view.termLine }) : null,
-      el('span', { class: 'academy-phase', text: view.phaseLabel }),
+      view.termLine ? el('span', { class: 'academy-phase academy-term' }, [view.termLine, hintIcon(preset, view.termLine)]) : null,
+      el('span', { class: 'academy-phase' }, [view.phaseLabel, hintIcon(preset, view.phaseLabel)]),
       view.time ? el('span', { class: 'academy-clock', text: view.time }) : null,
     ]),
   ]));
@@ -396,7 +397,7 @@ export function renderToday(host, view, preset) {
   }
 
   const X = extraLabels(preset);
-  const holidays = holidaysBlock(view.holidays, X);
+  const holidays = holidaysBlock(view.holidays, X, preset);
   if (holidays) box.append(holidays);
   box.append(ownEventsBlock(host, view, X));
 

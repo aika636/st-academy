@@ -14,6 +14,11 @@
 // - `from`/`to` — `ММ-ДД` без года, как у каникул: праздник повторяется каждый
 //   год. `to` не задан — праздник одного дня. Конец раньше начала — диапазон
 //   через Новый год (`12-31`…`01-01`).
+// - Плавающая дата (необязательно, `time.holidaySpan`): `lunar: "08-15"` —
+//   день китайского лунного календаря (`core/lunar.mjs`), `from` остаётся
+//   запасной датой для года вне таблицы; `weekday: "sat"` — праздник на этот
+//   день недели той недели (пн–вс), в которую попадает `from`; `days: 7` —
+//   сколько дней идёт праздник от начала (вместо `to`).
 // - `lead` — за сколько дней до начала праздник слышен в фоне (0–14, по
 //   умолчанию 3). Ноль — только в сам день.
 // - `about` — что это такое; для панели и для человека, в промпт не идёт.
@@ -42,7 +47,7 @@
 // копию состояния движка. Слова строки состояния — в `prompt.mjs`
 // (`DEFAULT_LABELS`), слова повода — здесь, в `DEFAULT_HOOK_PHRASES`.
 
-import { addDays } from './time.mjs';
+import { addDays, holidayCoversDay, holidaySpan, isFloating, weekdayShiftOf } from './time.mjs';
 import { isDay, pushPending } from './state.mjs';
 
 /** За сколько дней праздник слышен по умолчанию. */
@@ -90,10 +95,13 @@ export const bare = (v) => str(v).replace(/[\s.,;:!?…]+$/u, '');
  * Праздники пресета в чистом виде: без битых записей, с `to` и `lead`.
  * `id` — данный или по позиции: по нему панель и тосты узнают праздник.
  *
+ * `state` нужен праздникам «в субботу той недели» (`weekday`): дни недели
+ * чата могут быть сдвинуты (`weekdayShift`).
+ *
  * @returns {{id: string, name: string, from: string, to: string, lead: number,
  *   about: string, buzz: string, today: string, hook: string, dated: false}[]}
  */
-export function holidaysOf(preset) {
+export function holidaysOf(preset, state = null) {
   const raw = preset && Array.isArray(preset.holidays) ? preset.holidays : [];
   const out = [];
   raw.slice(0, MAX_HOLIDAYS).forEach((h, i) => {
@@ -103,11 +111,26 @@ export function holidaysOf(preset) {
       id: str(h.id) || `holiday-${i + 1}`,
       from: h.from,
       to: isMD(h.to) ? h.to : h.from,
+      ...floating(h, state),
       lead: leadOf(h),
       off: h.off === true,
       dated: false,
     });
   });
+  return out;
+}
+
+/**
+ * Поля плавающей даты (`lunar`, `weekday`, `days`, см. `time.holidaySpan`) и
+ * сдвиг недели чата — только те, что заданы. `from`/`to` при них — запасная
+ * фиксированная дата для года, которого нет в лунной таблице.
+ */
+function floating(h, state) {
+  if (!isFloating(h)) return {};
+  const out = { shift: weekdayShiftOf(state) };
+  if (isMD(h.lunar)) out.lunar = h.lunar;
+  if (typeof h.weekday === 'string') out.weekday = h.weekday;
+  if (Number.isInteger(h.days) && h.days >= 1) out.days = h.days;
   return out;
 }
 
@@ -118,7 +141,7 @@ export function holidaysOf(preset) {
  * строчными («зимние каникулы»), и рядом с «Зимним балом» это смотрелось
  * опечаткой.
  */
-export function vacationsOf(preset) {
+export function vacationsOf(preset, state = null) {
   const raw = preset && preset.calendar && Array.isArray(preset.calendar.vacations) ? preset.calendar.vacations : [];
   const out = [];
   raw.slice(0, MAX_HOLIDAYS).forEach((v, i) => {
@@ -128,6 +151,7 @@ export function vacationsOf(preset) {
       id: str(v.id) || `vacation-${i + 1}`,
       from: v.from,
       to: v.to,
+      ...floating(v, state),
       lead: leadOf(v),
       off: true,
       dated: false,
@@ -170,7 +194,7 @@ function leadOf(h) {
 
 /** Всё сразу: праздники пресета, свои события чата и каникулы — последними. */
 function allOf(preset, state) {
-  const { holidays, vacations } = mergeVacations(holidaysOf(preset), vacationsOf(preset));
+  const { holidays, vacations } = mergeVacations(holidaysOf(preset, state), vacationsOf(preset, state));
   return [...holidays, ...eventsOf(state), ...vacations];
 }
 
@@ -187,7 +211,7 @@ export function mergeVacations(holidays, vacations) {
   const rest = [];
   const pairs = [];
   for (const v of vacations) {
-    const i = out.findIndex((h) => !h.dated && sameName(h.name, v.name) && (coversMD(h, v.from) || coversMD(v, h.from)));
+    const i = v.shift !== undefined ? -1 : out.findIndex((h) => !h.dated && h.shift === undefined && sameName(h.name, v.name) && (coversMD(h, v.from) || coversMD(v, h.from)));
     if (i < 0) { rest.push(v); continue; }
     const h = out[i];
     pairs.push({ holiday: holidays[i], vacation: v });
@@ -216,13 +240,26 @@ function coversMD(h, md) {
 /** Попадает ли день в праздник (у праздника пресета — с переходом через Новый год). */
 function covers(h, day) {
   if (h.dated) return day >= h.from && day <= h.to;
+  if (h.shift !== undefined) return holidayCoversDay(h, day, shiftState(h));
   return coversMD(h, day.slice(5));
 }
 
 /** Начинается ли праздник в этот день. */
 function startsOn(h, day) {
-  return h.dated ? h.from === day : h.from === day.slice(5);
+  if (h.dated) return h.from === day;
+  if (h.shift !== undefined) {
+    const year = Number(day.slice(0, 4));
+    for (let y = year - 1; y <= year + 1; y += 1) {
+      const span = holidaySpan(h, y, shiftState(h));
+      if (span && span.from === day) return true;
+    }
+    return false;
+  }
+  return h.from === day.slice(5);
 }
+
+/** Состояние-пустышка со сдвигом недели праздника: для `time.holidaySpan`. */
+const shiftState = (h) => ({ calendar: { weekdayShift: h.shift } });
 
 /** Праздники и события, которые идут в этот день. */
 export function holidaysOn(preset, day, state = null) {
@@ -418,7 +455,7 @@ export function knownEvent(state, preset, name, from, to = from) {
   for (const e of eventsOf(state)) {
     if (sameName(e.name, name) && e.to >= from && e.from <= last) return e;
   }
-  const others = [...holidaysOf(preset), ...vacationsOf(preset)];
+  const others = [...holidaysOf(preset, state), ...vacationsOf(preset, state)];
   for (let day = from; day <= last; day = addDays(day, 1)) {
     const hit = others.find((h) => covers(h, day) && sameName(h.name, name));
     if (hit) return hit;
