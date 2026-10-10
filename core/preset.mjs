@@ -425,7 +425,7 @@ export function normalizeFeedBlock(preset) {
   // Типажи статистов, примеры ников и манер речи (`feed.extras`,
   // `feed.nickExamples`, `feed.manners`) — списки строк; мусор не отвергает
   // пресет, лента берёт общие слова.
-  for (const key of ['extras', 'nickExamples', 'manners']) {
+  for (const key of ['extras', 'nickExamples', 'manners', 'worldTopics']) {
     const list = block[key];
     if (list === undefined) continue;
     if (!Array.isArray(list) || !list.every((v) => typeof v === 'string' && v.trim())) {

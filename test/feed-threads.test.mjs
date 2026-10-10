@@ -20,6 +20,7 @@ import {
   cleanNick, nickWord, FEED_MAX, NICK_MAX, REACT_SETS,
 } from '../core/feed.mjs';
 import { applySceneEvents, applyReactions, localMet } from '../core/scene.mjs';
+import { buildCastPrompt } from '../core/feed-cast.mjs';
 import { markerPeople, listCandidates } from '../core/classmates.mjs';
 import { buildEntries } from '../core/lorebook.mjs';
 import { hookCore, threadTone, autoPick, emptyPlot } from '../core/plot.mjs';
@@ -154,7 +155,7 @@ test('секретарь: потолок ответов — до двух под
   assert.ok(loudOne.rejected.some((r) => /под одним постом — до 2/.test(r.reason)));
   assert.equal(repliesOf(many(0).tokens).length, 1, 'тихо — не больше одного');
   const quiet = parseAnalysis('<!-- [ACADEMY grade=chemistry:5] -->\nloud=0\nКратко: пятёрка.', lexicon(s));
-  assert.deepEqual(quiet.tokens, ['grade=chemistry:5'], 'ни реакций, ни ответов — норма');
+  assert.deepEqual(quiet.tokens, ['grade=chemistry:5', 'loud=0'], 'ни реакций, ни ответов — норма; громкость остаётся при факте');
 });
 
 test('секретарь: автор поста не отвечает сам себе — только после чужого ответа', () => {
@@ -197,14 +198,12 @@ test('секретарь: недавние посты ленты в промпт
   assert.deepEqual(posts.map((p) => p.ref), ['f1', 'f2']);
   assert.equal(posts[1].replies, 2);
   const { user } = buildAnalysisPrompt(old, preset, { reply: 'Соколова опять ворчит.', heroine: 'Аня' });
-  assert.match(user, /Недавно в ленте \(id — кто, где: что\):\n- f1 — Мила Орлова, чат: «Аня вообще-то права» \(ответов: 1\)\n- f2 — ~школьный бес, чат:/);
-  assert.match(user, /reply=куда:кто:короткий ответ/);
-  assert.match(user, /смешными никами, которые выдают их интерес или характер/);
-  assert.match(user, /Ник — не человек из сцены/);
-  assert.match(user, /спор, поддержка, подкол/);
-  assert.match(user, /Можно ни одного/);
+  // Шаг 3 «Молвы»: секретарь постов не пишет — ни ленты, ни реплик, ни ников в его промпте.
+  assert.doesNotMatch(user, /Недавно в ленте|reply=куда|react=номер|смешными никами/);
+  assert.match(user, /loud=0\.\.3/);
+  assert.match(user, /private=номера ключей блока 1/);
+  assert.match(user, /Реплик курса, ников, строк react= и reply= в ответе не нужно/);
   assert.doesNotMatch(user, /\b(EVERY|MUST|STRICTLY|CRITICAL|ОБЯЗАТЕЛЬНО)\b/);
-  assert.doesNotMatch(buildAnalysisPrompt(old, preset, { reply: '…', posts: false }).user, /Недавно в ленте/, 'поправке старого ответа посты не нужны');
 
   // Ответ в старую ветку — от другого ответа модели.
   const next = applyAll(old, [
@@ -381,26 +380,27 @@ test('типаж под ником: в ленте ник, рассказчику
   const c = hookCore(res.next, post.id, { heroine: 'Аня', preset });
   assert.match(c.core, /^футболист-альфа пишет в чате: «Ещё бы, попробуй подойди к ней»/);
   assert.doesNotMatch(c.core, /альфа футбольной|@|~/);
-  // Секретарь видит ник с типажом и держит характер.
+  // Секретарь ников больше не видит: посты пишет молва.
   const posts = recentPosts(res.next);
   assert.equal(posts[0].type, 'футболист-альфа');
   const { user } = buildAnalysisPrompt(res.next, preset, { reply: '…', heroine: 'Аня' });
-  assert.match(user, /~альфа футбольной команды \(футболист-альфа\), чат/);
+  assert.doesNotMatch(user, /~альфа футбольной команды/);
 });
 
 test('типажи и примеры ников — из своего сеттинга: в космосе нет чирлидерши', () => {
   const load = (id) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
   const s = semester();
-  const prompt = (p) => buildAnalysisPrompt(s, p, { reply: '…', heroine: 'Аня' }).user;
+  // Списки идут в каст молвы (`buildCastPrompt`), а не секретарю.
+  const prompt = (p) => buildCastPrompt({ preset: p, heroine: 'Аня' }).user;
   const space = prompt(load('space-academy'));
   assert.match(space, /механик-ворчун/);
-  assert.match(space, /~из реакторного отсека \(механик-ворчун\)/);
+  assert.match(space, /из реакторного отсека/);
   assert.doesNotMatch(space, /чирлидер|футбол|никки|школьный бес|королева школы/);
-  assert.match(prompt(load('us-highschool')), /чирлидерша.*~альфа футбольной команды|~альфа футбольной команды[\s\S]*чирлидерша/);
+  assert.match(prompt(load('us-highschool')), /чирлидерша|альфа футбольной команды/);
   // Пресет без своих списков — общие слова, без примет школы.
   const bare = { ...preset, feed: undefined };
   const plain = prompt(bare);
-  assert.match(plain, /завистница, сплетница/);
+  assert.match(plain, /завистница/);
   assert.doesNotMatch(plain, /чирлидер|футбол|школ/);
   // У каждого пресета списки свои и годные.
   for (const id of ['cadet-academy', 'cn-highschool', 'dark-academia', 'hero-academy', 'jp-highschool', 'magic-academy',

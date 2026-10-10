@@ -124,7 +124,8 @@ export function feedView(state, preset, opts = {}) {
       // Пометка одна и не повторяет текст: у факта-слуха «слух: …» уже в
       // самом тексте; реплика чата — «обсуждают» (и про слух тоже: она
       // обсуждение, а не слух); анонимка — «слух».
-      const tag = fact ? (x.rumor ? '' : X.feedFactTag) : anon ? X.feedRumorTag : X.feedTalkTag;
+      // Реплика молвы (опоры на факт нет) пометки не несёт: «обсуждают» без чего — пустое слово.
+      const tag = fact ? (x.rumor ? '' : X.feedFactTag) : anon ? X.feedRumorTag : (x.factText ? X.feedTalkTag : '');
       const thread = feed.items.filter((y) => y.parent === x.id);
       // Ветка свёрнута после двух ответов, пока её не раскрыли.
       const unfolded = open.has(x.id) || thread.length <= REPLIES_SHOWN;
@@ -295,7 +296,9 @@ function reactRow(host, it, X, small = false) {
   const status = el('div', { class: 'academy-status' });
   return el('div', { class: small ? 'academy-feed-reacts academy-feed-reacts-small' : 'academy-feed-reacts', title: X.feedReactHint }, [
     ...it.reacts.map((r) => el('div', {
-      class: r.mine ? 'menu_button academy-feed-react academy-feed-react-mine' : 'menu_button academy-feed-react',
+      // Значок с нулевым счётом приглушён (п. 13): его можно нажать, но он не кричит.
+      class: r.mine ? 'menu_button academy-feed-react academy-feed-react-mine'
+        : r.n ? 'menu_button academy-feed-react' : 'menu_button academy-feed-react academy-feed-react-zero',
       role: 'button',
       'aria-pressed': r.mine ? 'true' : 'false',
       dataset: { emoji: r.emoji },

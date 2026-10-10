@@ -14,7 +14,7 @@
 //     deals: [ { id, src, a, b, what, open, since, closedOn } ],
 //     cast:  [ { id, nick, type, interest, goal, manner, ally, rival } ],
 //     threads: [ { id, topic, members: [id…], dispute, stage, source, since } ],
-//     molva: { issue, since, facts: [factId…], at: {day, time} },
+//     molva: { issue, since, facts: [factId…], at: {day, time}, topics: [текст…], lead: {topic, stage} },
 //   }
 //
 // `cast` — постоянные статисты молвы (до 8), `threads` — сюжетики массовки
@@ -92,7 +92,7 @@ export const CHANNELS = ['chat', 'anon'];
 export const STATUSES = ['new', 'taken', 'played', 'expired'];
 
 /** Длина текста записи. */
-export const FEED_TEXT_MAX = 160;
+export const FEED_TEXT_MAX = 200;
 
 /** Длина ника-маски. */
 export const NICK_MAX = 32;
@@ -120,8 +120,8 @@ const HEROINE = '@heroine';
  * 1 — заметно; 2 — громко: прогул при всех, ссора; 3 — скандал, до потолка.
  */
 export const LOUDNESS = [
-  { level: 0, max: 1, word: 'почти не заметили' },
-  { level: 1, max: 2, word: 'заметили' },
+  { level: 0, max: 1, word: 'тихо' },
+  { level: 1, max: 2, word: 'заметно' },
   { level: 2, max: 3, word: 'шумно' },
   { level: 3, max: Infinity, word: 'скандал' },
 ];
@@ -165,6 +165,19 @@ export const DEFAULT_MANNERS = [
   'шутит там, где другие ругаются',
 ];
 
+/**
+ * Бытовые темы слота «Мир» (`feed.worldTopics`): очередь в столовую, дежурство,
+ * сломанный лифт — то, о чём болтают, когда в сюжете ничего не случилось. Пресет
+ * без своих — общие, без примет заведения.
+ */
+export const DEFAULT_WORLD_TOPICS = [
+  'очередь в столовую и что сегодня дали',
+  'кто занял лучшие места в читальном зале',
+  'дежурство по уборке: чья очередь',
+  'расписание опять поменяли в последний момент',
+  'у кого сломалось что-то в общем помещении',
+];
+
 /** Список строк пресета: без пустых и повторов, с потолком; пусто — умолчание. */
 function presetList(raw, fallback, max, len = 48) {
   const out = [];
@@ -181,6 +194,10 @@ export function feedExtras(preset) {
 
 export function feedNickExamples(preset) {
   return presetList(preset && preset.feed && preset.feed.nickExamples, DEFAULT_NICK_EXAMPLES, 4);
+}
+
+export function feedWorldTopics(preset) {
+  return presetList(preset && preset.feed && preset.feed.worldTopics, DEFAULT_WORLD_TOPICS, 12, 70);
 }
 
 export function feedManners(preset) {
@@ -232,7 +249,7 @@ export function normalizeFeed(raw) {
 export function normalizeItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const id = str(raw.id);
-  const text = oneLine(raw.text, FEED_TEXT_MAX);
+  const text = clipText(raw.text, FEED_TEXT_MAX);
   if (!id || !text) return null;
   const chan = CHANNELS.includes(raw.chan) ? raw.chan : 'chat';
   const kind = raw.kind === 'fact' ? 'fact' : 'reaction';
@@ -268,10 +285,10 @@ export function normalizeItem(raw) {
     // каким ответом секретарь отметил повод сыгранным — чтобы снять отметку
     // вместе с разбором.
     loud: Number.isInteger(raw.loud) && raw.loud >= 0 && raw.loud <= 3 ? raw.loud : null,
-    factText: oneLine(raw.factText, FACT_TEXT_MAX),
+    factText: clipText(raw.factText, FACT_TEXT_MAX),
     // Суть факта одной фразой («Вера Соколова списала контрольную») — то,
     // что пересказывают лорбук и фон после «говорят, что…» (`scene.sceneGist`).
-    gist: kind === 'fact' ? oneLine(raw.gist, FEED_TEXT_MAX) : '',
+    gist: kind === 'fact' ? clipText(raw.gist, FEED_TEXT_MAX) : '',
     playedSrc: raw.status === 'played' ? str(raw.playedSrc) : '',
     // Сцена без свидетелей: в молву она идёт только слухом (`core/molva.mjs`).
     ...(kind === 'fact' && raw.private === true ? { private: true } : {}),
@@ -448,6 +465,8 @@ export function normalizeThread(raw, ids) {
     stage: STAGES.includes(raw.stage) ? raw.stage : STAGES[0],
     source: THREAD_SOURCES.includes(raw.source) ? raw.source : 'cast',
     since: str(raw.since),
+    // День, когда событие кончилось (бал, контрольная): после него сюжетик подводит итог и закрывается.
+    on: /^\d{4}-\d{2}-\d{2}$/.test(str(raw.on)) ? str(raw.on) : '',
   };
 }
 
@@ -469,8 +488,11 @@ export const MOLVA_FACTS_MAX = 60;
 
 /** Счёт выпусков молвы: ни одного, ни одного ответа с тех пор, ни одного факта. */
 export function emptyMolva() {
-  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' } };
+  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' } };
 }
+
+/** Сколько тем последних выпусков помнит счёт: ими не открывают следующий и не повторяют «Мир». */
+export const MOLVA_TOPICS_MAX = 10;
 
 /** Счёт выпусков к форме; битое поле — пустой счёт. */
 export function normalizeMolva(raw) {
@@ -481,6 +503,9 @@ export function normalizeMolva(raw) {
     since: num(src.since),
     facts: (Array.isArray(src.facts) ? src.facts : []).map(str).filter(Boolean).slice(-MOLVA_FACTS_MAX),
     at: { day: str(src.at && src.at.day), time: str(src.at && src.at.time) },
+    // Темы последних выпусков и тема, что открывала прошлый: молва не начинается дважды одним.
+    topics: (Array.isArray(src.topics) ? src.topics : []).map((t) => oneLine(t, 90)).filter(Boolean).slice(-MOLVA_TOPICS_MAX),
+    lead: { topic: oneLine(src.lead && src.lead.topic, 90), stage: str(src.lead && src.lead.stage) },
   };
 }
 
@@ -1049,8 +1074,23 @@ export function rumorFor(state, personId, opts = {}) {
   return null;
 }
 
+/**
+ * Текст записи не длиннее `max` знаков: влезает — как есть; нет — по концу
+ * предложения (если оно не слишком рано) или по слову, с «…». Резать посреди
+ * слова без знака было багом 60.
+ */
+export function clipText(v, max) {
+  const t = oneLine(v, 4000);
+  if (t.length <= max) return t;
+  const room = t.slice(0, max - 1);
+  const stop = Math.max(room.lastIndexOf('. '), room.lastIndexOf('! '), room.lastIndexOf('? '));
+  if (stop >= max * 0.6) return room.slice(0, stop + 1).trim();
+  const at = room.lastIndexOf(' ');
+  return `${(at > max / 2 ? room.slice(0, at) : room).replace(/[\s,;:\-–—]+$/u, '').trim()}…`;
+}
+
 /** Обрезать по слову с многоточием. */
-function clipWords(text, max) {
+export function clipWords(text, max) {
   const t = oneLine(text, 1000);
   if (t.length <= max) return t;
   const cut = t.slice(0, max);

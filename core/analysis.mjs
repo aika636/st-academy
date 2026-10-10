@@ -32,7 +32,7 @@ import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
 import { SCENE_KINDS, sceneText, sceneAbout, personWord } from './scene.mjs';
-import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, feedExtras, feedNickExamples, nickWord, recentPosts, postRef, NICK_MAX } from './feed.mjs';
+import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, nickWord, postRef } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
 export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'event', ...SCENE_KINDS];
@@ -43,8 +43,8 @@ export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
 const SYSTEM = [
   'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку, списки предметов, преподавателей и её курса.',
   'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось — с героиней и людьми вокруг неё. Ничего не додумываешь.',
-  'Отвечаешь двумя блоками: «Что было» — строка служебной метки, «Что сочинено» — как это обсуждают на курсе; затем строка «Кратко:».',
-  'В «Что сочинено» ты уже не секретарь, а голоса курса: события не придумываешь, а характеры — да, ярко.',
+  'Отвечаешь двумя блоками: «Что было» — строка служебной метки, «Слышно» — насколько громко это и было ли это при людях; затем строка «Кратко:».',
+  'Постов, реплик и ников курса ты не пишешь: сплетни сочиняет отдельный вызов.',
 ].join(' ');
 
 /** Потолки разбора курса на один ответ: больше — шум, а не сцена. */
@@ -105,8 +105,6 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     const about = classmateLine(c);
     return `- ${c.id} — ${c.name || c.id}${about ? ` — ${about}` : ''}`;
   });
-  const cap = reactionCap(preset);
-  const nicks = feedNickExamples(preset).map((n) => `${NICK_MARK}${n}`);
   const values = ((preset.grades && preset.grades.values) || []).map((g) => g.value);
 
   const lines = [];
@@ -125,13 +123,6 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   }
   const hooks = (Array.isArray(input.hooks) ? input.hooks : []).filter((h) => h && h.id && h.text).slice(0, 3);
   if (hooks.length) lines.push('Поводы, которые игрок отдал рассказчику (id — что):', ...hooks.map((h) => `- ${h.id} — ${clip(h.text, 200)}`));
-  // Недавние посты ленты — коротко: секретарь может продолжить старую ветку.
-  // Старый ответ (поправка) их не видит: лента ушла вперёд него.
-  const posts = input.posts === false ? [] : recentPosts(state);
-  const people = [...(state.teachers || []), ...(Array.isArray(state.classmates) ? state.classmates : [])];
-  if (posts.length) {
-    lines.push('Недавно в ленте (id — кто, где: что):', ...posts.map((p) => `- ${p.ref} — ${postAuthor(p, people)}: «${clip(p.text, 90)}»${p.replies ? ` (ответов: ${p.replies})` : ''}`));
-  }
   const known = knownEventLines(state, preset);
   lines.push(`Уже в планах (не повторяй): ${known.length ? known.join('; ') : 'ничего'}.`);
   lines.push('');
@@ -156,28 +147,20 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     `- clash — стычка, ссора или перепалка двоих: clash=кто:с кем:повод в двух-трёх словах. ${heroine} пишется @heroine.`,
     '- rumor — кто-то в сцене пустил или пересказал слух: rumor=о ком:что говорят. Только если слух прозвучал во фрагменте; о ком — id или @heroine. «Что» продолжает фразу «говорят, что <он/она> …»: rumor=sokolova:списала контрольную.',
     `- new — в сцене появился человек по имени, которого нет ни среди преподавателей, ни в курсе: new=имя, как в тексте. ${heroine}, рассказчика и тех, кто уже в списках, не пиши.`,
-    '- deal — между людьми открылось дело: обещание, долг, общий проект, вещь, которую надо вернуть: deal=кто:кому:что. Дело закрыли (вернули, выполнили) — deal-=кто:кому:что.',
+    '- deal — между людьми открылось дело: обещание, долг, общий проект, вещь, которую надо вернуть: deal=кто:кому:что. «Кто» — тот, кто должен или кому назначены отработка, наказание, штраф; «кому» — перед кем он должен. Отработку назначили героине — кто=@heroine, кому=тот, кто назначил. Дело закрыли (вернули, выполнили) — deal-=кто:кому:что.',
     ...(hooks.length ? ['- played — повод из списка «Поводы» во фрагменте действительно прозвучал: played=id. Не прозвучал — не пиши.'] : []),
     '- Время и дату не пиши (кроме дней до события в event).',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
     '- Если ничего из этого не случилось — пустая метка <!-- [ACADEMY] -->.',
     '',
-    'Блок 2. Что сочинено — как это обсуждают на курсе. Этот блок ничего в ведомости не меняет. Строками:',
-    'Что сочинено:',
+    'Блок 2. Слышно — насколько громко это дойдёт до курса и было ли при людях. Этот блок ничего в ведомости не меняет. Постов, реплик и ников курса здесь нет: сплетни пишет отдельный вызов. Строками:',
+    'Слышно:',
     'loud=0..3',
-    'react=номер факта:кто:chat|anon:короткая реплика',
-    `reply=куда:кто:короткий ответ`,
+    'private=номера ключей блока 1',
     'Правила блока 2:',
     '- loud — насколько громко то, что было: 0 — тихо (обычная оценка, разговор), курс почти не замечает; 1 — заметно; 2 — громко (прогул при всех, ссора); 3 — скандал.',
-    `- Реакций столько, сколько стоит событие: при loud=0 — ни одной или одна от того, кому это важно; при 2 — одна-три; при 3 — до ${cap}. Пустой блок «Что сочинено» — нормально.`,
-    '- Номер факта — порядковый номер ключа в метке блока 1, считая с 1. Реакция без факта не нужна.',
-    `- Кто — id из курса или преподаватель: с основных аккаунтов пишут только люди из списков выше. Все остальные пишут под смешными никами, которые выдают их интерес или характер. Ник начинается с ${NICK_MARK}, до ${NICK_MAX} знаков, без двоеточия; после ника в скобках — типаж: ${nicks.join(', ')}. Ник — не человек из сцены и не новое имя: в блок 1 его не пиши. Не ${heroine}.`,
-    `- Ники — статисты: плоские, зато яркие типажи с одним интересом и своей манерой речи. Бери самые узнаваемые архетипы этого мира: ${feedExtras(preset).join(', ')} — или похожие, но из этого мира, а не из чужого. Разные реакции — разные типажи.${posts.length ? ' Ник из «Недавно в ленте» — тот же статист: держи его характер.' : ''}`,
-    '- Статист говорит о себе: ревнует, завидует, злорадствует, надеется, строит планы, сравнивает с тем, каким человек был раньше. Факт сцены для него только повод. Голос живого чата: сленг, восклицания, обиды, преувеличения, грубость, если она в характере. Сухой пересказ («говорят, он сдал зачёт») не нужен.',
-    '- Примеры тона, не копируй: завистница — «я его полгода окучивала, а он на эту выскочку засмотрелся?! да я его настоящим видела!»; ботан — «видели, как он билеты щёлкал? позвать его к нам в клуб, как думаете? нам одного не хватает»; старый знакомый — «наконец этот придурок стал нормальным, смотреть, как умный строит из себя идиота, было больно».',
-    `- chat — чат курса: люди из списков и ники с фейковых аккаунтов обсуждают то, что было. anon — анонимка: автора не видно — пишут под ником или без подписи (someone, «${someoneWord(preset)}»); это слух, он может преувеличивать или перевирать. В чате курса каждый пишет со своего аккаунта — человек из списков или ник; без подписи — только в анонимке.`,
-    `- reply — ответ в ветке под постом: короткая реплика — спор, поддержка, подкол. Куда — номер строки react в этом блоке, считая с 1${posts.length ? ', или id поста из списка «Недавно в ленте»' : ''}. Кто — как у react, но не автор поста: отвечает другой типаж. Автор возвращается в свою ветку только после чужого ответа — огрызнуться или поспорить. Под одним постом — до ${REPLY_LIMITS.perPost} ответов, всего — до ${REPLY_LIMITS.total} и не больше, чем реакций стоит событие. Можно ни одного.`,
-    '- Реакция — то, как люди обсуждают факт, а не новое событие. Не выдумывай событий, которых не было в сцене, — только реакции на них. Одна реплика — одно-два коротких предложения.',
+    '- private — только если было наедине, без свидетелей: разговор вдвоём за закрытой дверью, шёпот, тайная встреча. Номера — порядковые номера ключей метки блока 1, считая с 1, через запятую: private=2,3. Что случилось при людях, не отмечай; нет таких — строку не пиши. «Наедине» не значит «навсегда в тайне»: подслушать могут, но это решит не секретарь.',
+    '- Реплик курса, ников, строк react= и reply= в ответе не нужно.',
     '',
     'Последней строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини и людьми вокруг (пары, оценки, преподаватели, прогулы, курс) — или «к учёбе не относится».',
   );
@@ -218,14 +201,6 @@ function classmateLine(c) {
   if (str(c.desire)) parts.push(`хочет ${str(c.desire)}`);
   if (str(c.problem)) parts.push(str(c.problem));
   return parts.join('; ').slice(0, 140);
-}
-
-/** Автор поста для секретаря: «Вера Соколова, чат», «~школьный бес, анонимка». */
-function postAuthor(p, people) {
-  const where = p.chan === 'anon' ? 'анонимка' : 'чат';
-  if (p.nick) return `${NICK_MARK}${p.nick}${p.type ? ` (${p.type})` : ''}, ${where}`;
-  if (p.chan === 'anon' || !p.who || p.who === SOMEONE) return `без подписи, ${where}`;
-  return `${personWord(p.who, people)}, ${where}`;
 }
 
 /**
@@ -286,11 +261,18 @@ function todaysExamLines(state, preset) {
  * (`REPLY_LIMITS`, `replyCap`). Автор реакции и ответа — человек из списков или
  * ник-маска `~школьный бес`: ник в состав, кандидаты и встречи не идёт.
  *
+ * Посты ленты секретарь больше не пишет (шаг 3 «Молвы»): его блок 2 — громкость
+ * `loud=` и пометка `private=` у фактов, что случились наедине. Строки `react=`
+ * и `reply=` разбираются по-прежнему (старые ответы, ручные правки), но с
+ * `opts.posts === false` — как в живом разборе — пропускаются.
+ *
  * @param {string} raw ответ модели
  * @param {Object} lexicon то же, что `parseMarker`: пресет со списками состояния и `names`
+ * @param {{posts?: boolean}} [opts] `posts: false` — реплик не принимать
  * @returns {{found: boolean, partial: boolean, tokens: string[], summary: string, rejected: Array<{raw: string, reason: string}>}}
  */
-export function parseAnalysis(raw, lexicon) {
+export function parseAnalysis(raw, lexicon, opts = {}) {
+  const postsOn = !opts || opts.posts !== false;
   let text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
   let found = new RegExp(MARKER_RE.source, 'i').test(text);
   // Метка без закрытия (ответ оборвался на бюджете токенов) — не «метки нет»:
@@ -362,7 +344,7 @@ export function parseAnalysis(raw, lexicon) {
   // Номер поста для `reply=` — место строки `react=` в блоке, как его видит
   // модель: отвергнутая реакция номер занимает, но ветку не держит.
   const slots = [];
-  for (const value of reactionValues(text)) {
+  for (const value of postsOn ? reactionValues(text) : []) {
     const r = readReaction(value, tokens, byNumber, lexicon);
     const raw = `react=${value}`;
     slots.push(null);
@@ -392,7 +374,7 @@ export function parseAnalysis(raw, lexicon) {
   // только после чужого ответа — иначе он отвечает сам себе.
   const voices = new Map();
   const replyMax = replyCap(loud === null ? 1 : loud);
-  for (const value of reactionValues(text, REPLY_WORDS)) {
+  for (const value of postsOn ? reactionValues(text, REPLY_WORDS) : []) {
     const raw = `reply=${value}`;
     const a = readReply(value, slots, lexicon);
     if (a.error) {
@@ -423,7 +405,22 @@ export function parseAnalysis(raw, lexicon) {
     voices.set(a.parent, [...heard, me]);
     replies.push(replyToken(a));
   }
-  if (reactions.length || replies.length) tokens.push(...reactions, ...replies, `loud=${loud === null ? 1 : loud}`);
+  // Наедине: номера ключей блока 1 → отпечатки их токенов (не съезжают, когда список правят).
+  const privates = [];
+  for (const value of reactionValues(text, PRIVATE_WORDS)) {
+    for (const ref of value.split(/[\s,;]+/).map((v) => v.replace(/[#№[\]()]/g, '').trim()).filter(Boolean)) {
+      const n = /^\d{1,2}$/.test(ref) ? Number(ref) : 0;
+      const fact = n >= 1 && n <= byNumber.length ? byNumber[n - 1] : null;
+      const t = fact ? `private=${factRef(fact)}` : '';
+      if (!t) rejected.push({ raw: `private=${ref}`, reason: `нет факта номер ${ref} — нечему быть наедине` });
+      else if (!privates.includes(t)) privates.push(t);
+    }
+  }
+  const posted = reactions.length > 0 || replies.length > 0;
+  if (posted) tokens.push(...reactions, ...replies);
+  tokens.push(...privates);
+  // Громкость нужна, когда есть что озвучивать: факт или реплика. Голая `loud=` без них — шум.
+  if (posted || (loud !== null && tokens.some(isFactToken))) tokens.push(`loud=${loud === null ? 1 : loud}`);
 
   // «Кратко: …» — что секретарь вычитал словами; показывается на плашке, в
   // состояние не идёт.
@@ -435,7 +432,10 @@ export function parseAnalysis(raw, lexicon) {
 // --- реакции: блок «что сочинено» -------------------------------------------------
 
 /** Ключи блока «что сочинено» — в номер факта не считаются. */
-const COMPOSED_KEYS = ['react', 'реакция', 'reply', 'ответ', 'loud', 'громкость'];
+const COMPOSED_KEYS = ['react', 'реакция', 'reply', 'ответ', 'loud', 'громкость', 'private', 'наедине'];
+
+/** «Наедине» — словами модели. */
+const PRIVATE_WORDS = ['private', 'наедине'];
 
 /** Ключи реакции и ответа в ветке — словами модели. */
 const REACT_WORDS = ['react', 'реакция'];
@@ -724,6 +724,16 @@ export function isLoudToken(token) {
   return /^loud=/.test(String(token || ''));
 }
 
+/** «Наедине»: `private=<отпечаток факта>` — сцена без свидетелей, в молву идёт только слухом. */
+export function isPrivateToken(token) {
+  return /^private=/.test(String(token || ''));
+}
+
+/** Отпечатки фактов, помеченных наедине: `factRef(токен факта)`. */
+export function privateRefs(tokens) {
+  return new Set((Array.isArray(tokens) ? tokens : []).filter(isPrivateToken).map((t) => t.slice(8)).filter(Boolean));
+}
+
 /** «Повод сыгран»: `played=p3`. */
 export function isPlayedToken(token) {
   return /^played=/.test(String(token || ''));
@@ -739,7 +749,7 @@ export function playedOf(tokens) {
  * сочинено» и отметки «повод сыгран» (она правит только ленту).
  */
 export function isFactToken(token) {
-  return Boolean(token) && !isReactToken(token) && !isReplyToken(token) && !isLoudToken(token) && !isPlayedToken(token);
+  return Boolean(token) && !isReactToken(token) && !isReplyToken(token) && !isLoudToken(token) && !isPlayedToken(token) && !isPrivateToken(token);
 }
 
 /**
@@ -769,7 +779,7 @@ export function loudOf(tokens) {
 
 /**
  * Без реакций-сирот: реакция, чьего факта больше нет, уходит; громкость без
- * единой реакции — тоже. Решение 3 владелицы: вычеркнула факт — его реакции
+ * факта и реакции — тоже. Решение 3 владелицы: вычеркнула факт — его реакции
  * уходят вместе с ним.
  */
 export function pruneReactions(tokens) {
@@ -787,7 +797,10 @@ export function pruneReactions(tokens) {
     const a = replyOf(t);
     return Boolean(a && (a.feed || posts.has(a.parent.slice(2))));
   });
-  return kept.some((t) => isReactToken(t) || isReplyToken(t)) ? kept : kept.filter((t) => !isLoudToken(t));
+  // «Наедине» держится за свой факт: факт ушёл — пометка тоже.
+  const left = kept.filter((t) => !isPrivateToken(t) || refs.has(t.slice(8)));
+  // Громкость нужна, пока есть что озвучивать: факт или реплика.
+  return left.some((t) => isReactToken(t) || isReplyToken(t) || isFactToken(t)) ? left : left.filter((t) => !isLoudToken(t));
 }
 
 /** Вычеркнуть строку с плашки: факт уносит свои реакции, реакция — свою ветку. */
@@ -900,6 +913,7 @@ export function tokenText(token, lexicon, { known = false, brief = false } = {})
     const row = LOUDNESS.find((l) => l.level === loudOf([token]));
     return row ? row.word : String(token);
   }
+  if (isPrivateToken(token)) return 'наедине, без свидетелей';
   if (isPlayedToken(token)) {
     const hook = arr(lexicon.hooks).find((h) => h && h.id === token.slice(7));
     return hook ? `повод сыгран: ${hook.text}` : 'повод сыгран';

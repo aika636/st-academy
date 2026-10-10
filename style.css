@@ -2803,6 +2803,26 @@
   opacity: 1;
 }
 
+/* Значок без счёта (п. 13): приглушён и без рамки, на телефоне не сильнее текста поста. */
+.academy-panel .academy-feed-react.academy-feed-react-zero {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 0.85em;
+  opacity: 0.45;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.academy-panel .academy-feed-react.academy-feed-react-zero:hover {
+  opacity: 0.9;
+}
+
+/* Дата записи прижата к правому краю, а не склеена с пометкой («обсуждают понедельник, 21 сентября»). */
+.academy-feed-head .academy-feed-day {
+  margin-left: auto;
+}
+
 /* Плашка «Что говорят»: кружок — первым в строке и не растягивается. */
 .academy-mes-tokens li > span.academy-ava {
   flex: 0 0 auto;

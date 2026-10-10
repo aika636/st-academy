@@ -293,6 +293,8 @@ function placeEvent(next, ev, preset, opts) {
       truth: null,
       about,
       heroine: about.includes(HEROINE),
+      // Сцена без свидетелей (`analysis` `private=`): в молву идёт только слухом.
+      private: Boolean(opts.privateRefs && opts.privateRefs.has(hash(token))),
     });
     return id ? { kind: 'feed', id } : null;
   }
