@@ -153,6 +153,33 @@ export function currentPeriod(state, preset) {
 }
 
 /**
+ * Сколько занятий осталось сегодня и когда кончится последнее.
+ *
+ * Чистый разбор состояния, ничего не меняет: по нему панель решает, показывать ли
+ * кнопку «До конца занятий», а `engine.skipToDayEnd` — докуда двигать часы. Кнопка
+ * имеет смысл только там, где есть часы (`precision: 'datetime'`): в календаре
+ * без часов «конец занятий» не отличить от «следующей пары», и он листается
+ * обычным «+1 пара».
+ *
+ * Занятие, которое идёт, считается оставшимся: его конец ещё впереди.
+ *
+ * @returns {{available: boolean, remaining: number, endTime: ?string}}
+ */
+export function dayEndInfo(state, preset) {
+  const none = { available: false, remaining: 0, endTime: null };
+  const cal = state && state.calendar;
+  if (!cal || cal.precision !== 'datetime') return none;
+  const now = minutesOf(cal.time);
+  if (now === null) return none;
+  const plan = dayPlan(state, preset, cal.day).filter((p) => p.end !== null);
+  if (!plan.length) return none;
+  const last = plan[plan.length - 1];
+  if (now >= minutesOf(last.end)) return none;
+  const left = plan.filter((p) => minutesOf(p.end) > now);
+  return { available: true, remaining: left.length, endTime: last.end };
+}
+
+/**
  * Ближайшая следующая пара — сегодняшняя оставшаяся или в один из следующих
  * дней. Горизонт поиска — около четырёх месяцев (через каникулы): если за них пары не
  * нашлось, значит семестр кончился или расписание пустое, и честнее вернуть

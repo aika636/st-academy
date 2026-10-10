@@ -36,8 +36,7 @@
       4,
       5
     ],
-    "periodsPerDay": 4,
-    "maxPeriodsPerDay": 5
+    "periodsPerDay": 4
   },
   "bells": [
     {
@@ -55,10 +54,6 @@
     {
       "start": "14:00",
       "end": "15:15"
-    },
-    {
-      "start": "15:30",
-      "end": "16:45"
     }
   ],
   "calendar": {
@@ -699,6 +694,7 @@
     "noNext": "Следующего занятия в расписании пока нет.",
     "dayTitle": "День целиком",
     "shiftPeriod": "+1 занятие",
+    "skipToEnd": "До конца занятий",
     "scoreLine": "{scoreName}: {value}",
     "debtsLine": "{debtPlural}: {count}",
     "subjectsLine": "предметов: {count}",

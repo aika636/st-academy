@@ -1,7 +1,7 @@
 // ui/today.js — вкладка «Сегодня»: день, пара, исход проверки, промотка
 // времени и ручная установка часов.
 
-import { currentPeriod, dayPlan, nextPeriod } from '../core/schedule.mjs';
+import { currentPeriod, dayEndInfo, dayPlan, nextPeriod } from '../core/schedule.mjs';
 import { dayOfWeek, isStalled, phaseOf, termAt, weekdayShiftOf, weekIndex } from '../core/time.mjs';
 import { gradeInfo, isPassing } from '../core/exams.mjs';
 import {
@@ -185,6 +185,8 @@ export function todayView(state, preset) {
     phaseLabel: U.phases[phase] || phase,
     precision: cal.precision,
     time: hasClock ? cal.time : null,
+    // Кнопка «До конца занятий»: только в учебный день, пока занятия ещё впереди.
+    canSkipToEnd: dayEndInfo(state, preset).available,
     silent,
     silentReason,
     now,
@@ -507,9 +509,13 @@ function manualTimeBlock(host, view, U) {
   count.checked = Boolean(mounted.repairCount);
   count.addEventListener('change', () => { mounted.repairCount = Boolean(count.checked); });
 
-  const send = (patch, btn) => runAction(
+  // `action` — какой метод хозяина звать: ручной ремонт или «До конца занятий»
+  // (тот сам засчитывает оставшееся посещённым, галочка ему не нужна).
+  const send = (patch, btn, action = 'manualTime') => runAction(
     btn, status,
-    () => call(host, 'manualTime', { ...patch, count: Boolean(count.checked) }),
+    () => (action === 'manualTime'
+      ? call(host, action, { ...patch, count: Boolean(count.checked) })
+      : call(host, action)),
     'Календарь поправлен.',
   ).then((res) => {
     // Куда ушли часы и что стало с ведомостью, надо сказать до перерисовки:
@@ -554,6 +560,12 @@ function manualTimeBlock(host, view, U) {
           text: U.shiftPeriod,
           onclick: (e) => send({ shift: { periods: 1 } }, e.currentTarget),
         }),
+        view.canSkipToEnd ? el('div', {
+          class: 'menu_button academy-btn',
+          text: U.skipToEnd,
+          title: 'Промотать время; оставшиеся занятия считаются посещёнными',
+          onclick: (e) => send({}, e.currentTarget, 'skipToDayEnd'),
+        }) : null,
         el('div', {
           class: 'menu_button academy-btn',
           text: '+1 день',

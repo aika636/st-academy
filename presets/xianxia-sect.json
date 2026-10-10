@@ -36,7 +36,7 @@
       5,
       6
     ],
-    "periodsPerDay": 5
+    "periodsPerDay": 4
   },
   "bells": [
     {
@@ -54,10 +54,6 @@
     {
       "start": "14:00",
       "end": "15:30"
-    },
-    {
-      "start": "16:00",
-      "end": "17:30"
     }
   ],
   "calendar": {
@@ -645,6 +641,7 @@
     "noNext": "Следующего наставления в расписании пока нет.",
     "dayTitle": "День целиком",
     "shiftPeriod": "+1 наставление",
+    "skipToEnd": "До конца наставлений",
     "scoreLine": "{scoreName}: {value} — среднее по дисциплинам",
     "debtsLine": "{debtPlural}: {count}",
     "subjectsLine": "дисциплин: {count}",

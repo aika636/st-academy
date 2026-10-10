@@ -48,7 +48,7 @@ import { addClassmate, updateClassmate, removeClassmate } from './core/classmate
 import { castOf as feedCastOf, setCast as setFeedCast, updateMember as updateFeedMember, carryCast, worldRealities, calendarNames, rumorAuthors } from './core/feed-cast.mjs';
 import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName, carryRoster } from './core/classmates.mjs';
 import { buildSchedule } from './core/schedule.mjs';
-import { manualTime, resolveHeldJump } from './core/engine.mjs';
+import { manualTime, resolveHeldJump, skipToDayEnd } from './core/engine.mjs';
 import { alignToGrid } from './core/time.mjs';
 import { addEvent, removeEvent, armHolidayHooks, alreadyPlanned } from './core/holidays.mjs';
 import {
@@ -3542,6 +3542,33 @@ const host = {
         },
         counted: res.counted,
         wouldCount: res.wouldCount,
+        reputation: now === was ? null : { from: was, to: now },
+      };
+    },
+
+    /**
+     * «До конца занятий»: промотать сегодняшний день до конца последнего занятия.
+     * Оставшиеся занятия засчитываются посещёнными (`engine.skipToDayEnd`), уже
+     * стоящие отметки не трогаются. Хвост тот же, что у ручного ремонта.
+     */
+    async skipToDayEnd() {
+      const was = (live.state && live.state.reputation && live.state.reputation.value) || 0;
+      const res = skipToDayEnd(live.state, live.preset);
+      if (!res.applied) return { ok: false, error: res.reason };
+      const before = live.state;
+      const moved = cloneState(res.state);
+      armHolidayHooks(moved, live.preset);
+      await commit(armPending(moved));
+      setInjects({});
+      noticeChanges(before, live.state, { source: 'manual' });
+      refreshPanel();
+      const now = (res.state.reputation && res.state.reputation.value) || 0;
+      const cal = live.state.calendar || {};
+      return {
+        ok: true,
+        to: { day: cal.day, time: cal.time || null, ordinal: null },
+        counted: res.counted,
+        wouldCount: 0,
         reputation: now === was ? null : { from: was, to: now },
       };
     },

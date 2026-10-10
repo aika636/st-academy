@@ -36,8 +36,7 @@
       4,
       5
     ],
-    "periodsPerDay": 4,
-    "maxPeriodsPerDay": 5
+    "periodsPerDay": 4
   },
   "bells": [
     {
@@ -55,10 +54,6 @@
     {
       "start": "13:45",
       "end": "15:20"
-    },
-    {
-      "start": "15:30",
-      "end": "17:05"
     }
   ],
   "calendar": {
@@ -656,6 +651,7 @@
     "noNext": "Следующей вахты в расписании пока нет.",
     "dayTitle": "День целиком",
     "shiftPeriod": "+1 вахта",
+    "skipToEnd": "До конца смены",
     "scoreLine": "{scoreName}: {value}",
     "debtsLine": "{debtPlural}: {count}",
     "subjectsLine": "курсов: {count}",
