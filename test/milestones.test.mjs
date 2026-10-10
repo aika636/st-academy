@@ -25,8 +25,9 @@ import {
 import { BUILTIN_PRESETS } from '../core/preset.mjs';
 import { achievementsView } from '../ui.js';
 import { significantEvents, buildEntries, CHRONICLE_MILESTONES } from '../core/lorebook.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const load = (file) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${file}`, import.meta.url)), 'utf8'));
+const load = (file) => parsePreset(readFileSync(fileURLToPath(new URL(`../presets/${file}`, import.meta.url)), 'utf8'));
 const RU = load('ru-university.json');
 const PRESETS = ['ru-university.json', 'jp-highschool.json', 'magic-academy.json'].map(load);
 

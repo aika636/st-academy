@@ -26,8 +26,9 @@ import {
   DEFAULT_PHRASES, fill,
 } from '../core/exams.mjs';
 import { sitExam } from '../core/engine.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const load = (name) => JSON.parse(readFileSync(new URL(`../presets/${name}.json`, import.meta.url), 'utf8'));
+const load = (name) => parsePreset(readFileSync(new URL(`../presets/${name}.json`, import.meta.url), 'utf8'));
 const RU = load('ru-university');
 const JP = load('jp-highschool');
 const MAGIC = load('magic-academy');

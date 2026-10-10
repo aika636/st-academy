@@ -34,6 +34,7 @@
 // `preset.limits`, промпт — шаблон из `preset.prompts.plan` (ниже лежит
 // перекрываемый образец по умолчанию).
 
+import { presetGender } from './gender.mjs';
 import { teacherDetails } from './state.mjs';
 
 /**
@@ -91,7 +92,13 @@ const maxTraits = (preset) => intOr(limitsOf(preset).maxTraits, DEFAULTS.maxTrai
  * @returns {{system: string, prompt: string}}
  */
 export function buildPlanPrompt(survey, preset) {
-  const tpl = { ...DEFAULT_PROMPT, ...((preset && preset.prompts && preset.prompts.plan) || {}) };
+  const male = presetGender(preset) === 'm';
+  const tpl = {
+    ...DEFAULT_PROMPT,
+    // Запасной промпт говорит о герое в женском роде; свой промпт пресета разрешён по роду сам.
+    ...(male ? { user: DEFAULT_PROMPT.user.replace('тайна, которой героиня не знает', 'тайна, которой герой не знает') } : {}),
+    ...((preset && preset.prompts && preset.prompts.plan) || {}),
+  };
   const s = survey || {};
   const vars = {
     era: str(s.era), country: str(s.country), institution: str(s.institution),

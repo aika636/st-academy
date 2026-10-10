@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 import { normalizePreset } from '../core/preset.mjs';
+import { resolveGendered, checkGendered, isGenderedPair, femaleForms } from '../core/gender.mjs';
 import { KINDS } from '../core/milestones.mjs';
 import { holidaysOf, vacationsOf, mergeVacations } from '../core/holidays.mjs';
 import { DEFAULT_UI, PRESET_UI_WORDS } from '../ui.js';
@@ -23,10 +24,14 @@ if (!file) {
 }
 
 const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
-const ru = read(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)));
+const ruSrc = read(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)));
+// Полнота словарей сверяется на женском разрешении: пара — это одна строка.
+const ru = resolveGendered(ruSrc, 'f');
+let src;
 let raw;
 try {
-  raw = read(resolve(file));
+  src = read(resolve(file));
+  raw = resolveGendered(src, 'f');
 } catch (err) {
   console.error(`не читается как JSON: ${err.message}`);
   process.exit(1);
@@ -34,6 +39,23 @@ try {
 
 const problems = [];
 const need = (cond, msg) => { if (!cond) problems.push(msg); };
+
+// Пары рода (`core/gender`): обе половины непустые, плейсхолдеры те же, в мужской
+// половине нет женских форм.
+problems.push(...checkGendered(src));
+const maleNotes = [];
+const maleWalk = (v, path) => {
+  if (Array.isArray(v)) { v.forEach((x, i) => maleWalk(x, `${path}[${i}]`)); return; }
+  if (!v || typeof v !== 'object') return;
+  if (isGenderedPair(v)) {
+    const f = femaleForms(v.male);
+    // Эвристика грубая («приняла комиссия» — не про героя), поэтому только к сведению.
+    if (f.length) maleNotes.push(`${path}.male: похоже на женские формы (${[...new Set(f)].join(', ')})`);
+    return;
+  }
+  for (const [k, x] of Object.entries(v)) maleWalk(x, path ? `${path}.${k}` : k);
+};
+maleWalk(src, '');
 const isStr = (v) => typeof v === 'string' && v.trim().length > 0;
 
 // Верхние ключи и словари — не меньше, чем у образца.
@@ -114,7 +136,7 @@ for (const { holiday, vacation } of mergeVacations(holidays, vacationsOf(raw)).p
 }
 
 // Настоящая нормализация с пробным прогоном ядра.
-const res = normalizePreset(raw, { builtins: { 'ru-university': ru } });
+const res = normalizePreset(src, { builtins: { 'ru-university': ruSrc } });
 if (!res.ok) problems.push(`нормализация: ${res.message}`);
 
 if (problems.length) {
@@ -125,3 +147,4 @@ if (problems.length) {
 console.log(`✔ ${file}: пресет «${raw.displayName}» в порядке, праздников ${holidays.length}`);
 if (res.warnings.length) console.log(`  предупреждения: ${res.warnings.join('; ')}`);
 for (const n of notes) console.log(`  к сведению: ${n}`);
+for (const n of maleNotes) console.log(`  к сведению: ${n}`);

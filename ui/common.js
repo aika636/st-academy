@@ -10,6 +10,7 @@
 import { validateState } from '../core/state.mjs';
 import { dayOfWeek, parseDay } from '../core/time.mjs';
 import { plural } from '../core/plural.mjs';
+import { presetGender } from '../core/gender.mjs';
 
 /** Потолок сводных чисел на экране (3.3). Пресет вправе задать свой. */
 export const DEFAULT_MAX_NUMBERS = 6;
@@ -372,8 +373,18 @@ export const DEFAULT_UI = {
  */
 export function uiLabels(preset) {
   const own = (preset && preset.ui) || {};
-  return { ...DEFAULT_UI, ...own, phases: { ...DEFAULT_UI.phases, ...(own.phases || {}) } };
+  return { ...DEFAULT_UI, ...(presetGender(preset) === 'm' ? MALE_UI : {}), ...own, phases: { ...DEFAULT_UI.phases, ...(own.phases || {}) } };
 }
+
+/**
+ * Умолчания `DEFAULT_UI`, где речь о герое-мужчине (`core/gender`). Встроенные
+ * пресеты пишут свои слова парами и этого не видят; умолчание нужно пресету
+ * человека, не дописавшему ключ.
+ */
+export const MALE_UI = {
+  surveyGuessNote: 'Модель прочитает карточку и первое сообщение и предположит, где учится герой. '
+    + 'Предположение попадёт в поля выше — посмотрите и поправьте. В игру само не уйдёт ничего.',
+};
 
 /** Подстановка `{ключ}` — та же, что в `prompt.mjs` и `core/lorebook.mjs`. */
 export function fill(template, vars) {
@@ -582,6 +593,11 @@ export const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
  * места и в школе, и в вузе, а магической академии — перекрыть.
  */
 export const EXTRA_UI = {
+  // --- род героя (`core/gender`) -------------------------------------------------
+  surveyGender: 'Обращение',
+  surveyGenderHint: 'Определяет местоимения и окончания в текстах',
+  surveyGenderF: 'Она',
+  surveyGenderM: 'Он',
   // --- достижения (9.4.2) -----------------------------------------------------
   // В коде они по-прежнему «вехи» (`core/milestones.mjs`), на экране —
   // «достижения»: владелица зовёт их так, и отдельная вкладка с этим словом
@@ -889,10 +905,19 @@ export const PRESET_UI_WORDS = [
   'tabFeed', 'feedChat', 'classmatesTitle', 'classmatesNone', 'lorebookNote', 'mesRelSection',
 ];
 
+/** Слова `EXTRA_UI` для героя-мужчины (`core/gender`). */
+export const MALE_EXTRA_UI = {
+  eventHookPlaceholder: 'Мираж при всех зовёт героя танцевать',
+  secretHint: 'то, чего герой не знает',
+  cmHeroine: 'герой',
+  cmTieHeroine: 'с героем',
+  cmRelation: 'К герою',
+};
+
 /** Слова блока для этого пресета: `preset.ui` перекрывает любой ключ `EXTRA_UI`. */
 export function extraLabels(preset) {
   const own = (preset && preset.ui) || {};
-  const out = { ...EXTRA_UI };
+  const out = { ...EXTRA_UI, ...(presetGender(preset) === 'm' ? MALE_EXTRA_UI : {}) };
   // «Кто-то с курса» — одно слово на пресет для ленты, плашки и промпта.
   const someone = preset && preset.vocab && typeof preset.vocab.someone === 'string' ? preset.vocab.someone.trim() : '';
   if (someone) out.feedSomeone = someone;

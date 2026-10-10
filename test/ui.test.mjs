@@ -5,6 +5,7 @@
 // Импорт самого `ui.js` в Node — тоже часть проверки: он обязан грузиться без
 // `document`, иначе тест бы упал на разборе модуля.
 
+import { parsePreset } from './preset-file.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -26,7 +27,7 @@ import {
   surveyOf, tabsFor, todayView, uiLabels, validateSubjectRows,
 } from '../ui.js';
 
-const preset = JSON.parse(readFileSync(new URL('../presets/ru-university.json', import.meta.url), 'utf8'));
+const preset = parsePreset(readFileSync(new URL('../presets/ru-university.json', import.meta.url), 'utf8'));
 
 const TERM = '2024-09-02'; // понедельник
 
@@ -776,7 +777,7 @@ test('слова отладки — технические и в пресеты 
 // дописыванием имени файла.
 
 const PRESET_FILES = ['ru-university.json', 'jp-highschool.json', 'magic-academy.json'];
-const PRESETS = PRESET_FILES.map((f) => JSON.parse(
+const PRESETS = PRESET_FILES.map((f) => parsePreset(
   readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'),
 ));
 

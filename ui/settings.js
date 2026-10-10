@@ -160,7 +160,7 @@ export function surveyOf(state, settings, chatId = '') {
   const raw = (settings && settings.ui && settings.ui.surveyDraft) || null;
   const mine = raw && typeof raw.chatId === 'string' && raw.chatId === String(chatId || '');
   const draft = {};
-  if (mine) for (const key of Object.keys(emptySurvey())) if (typeof raw[key] === 'string') draft[key] = raw[key];
+  if (mine) for (const key of [...Object.keys(emptySurvey()), 'gender']) if (typeof raw[key] === 'string') draft[key] = raw[key];
   return { ...emptySurvey(), ...draft, ...((state && state.survey) || {}) };
 }
 
@@ -393,6 +393,27 @@ export function renderSettings(host) {
     inputs[f.key] = input;
     return el('label', { class: 'academy-field' }, [el('span', { text: f.label }), input]);
   }));
+
+  // Обращение (род героя, `core/gender`): «Она» / «Он». Не выбрано — род по
+  // имени героя, иначе женский; показывается то, что реально действует.
+  const surveyNow = surveyOf(state, settings, safe(() => (host.getChatId ? String(host.getChatId() || '') : ''), ''));
+  const genderNow = ['f', 'm'].includes(surveyNow.gender) ? surveyNow.gender : safe(() => host.getHeroGender(), 'f');
+  const genderX = extraLabels(preset);
+  const genderSelect = el('select', { class: 'text_pole academy-input' }, [
+    el('option', { value: 'f', text: genderX.surveyGenderF }),
+    el('option', { value: 'm', text: genderX.surveyGenderM }),
+  ]);
+  genderSelect.value = genderNow === 'm' ? 'm' : 'f';
+  genderSelect.addEventListener('change', async () => {
+    await saveDraft(host, collect(inputs));
+    await call(host, 'setGender', genderSelect.value);
+  });
+  inputs.gender = genderSelect;
+  surveyBox.append(el('label', { class: 'academy-field' }, [
+    el('span', { text: genderX.surveyGender }),
+    genderSelect,
+    el('span', { class: 'academy-note', text: genderX.surveyGenderHint }),
+  ]));
 
   // Автозаполнение анкеты (3.6): кнопка НЕОБЯЗАТЕЛЬНАЯ и ничего не сохраняет.
   // Результат кладётся прямо в поля выше — человек смотрит и правит, — и уходит

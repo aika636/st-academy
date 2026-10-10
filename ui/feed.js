@@ -33,6 +33,7 @@ import { normalizePlot } from '../core/plot.mjs';
 import { authorAvatar } from '../core/masks.mjs';
 import { HEROINE } from '../core/parse-marker.mjs';
 import { dealText, shortName } from '../core/scene.mjs';
+import { heroGender, heroWords } from '../core/gender.mjs';
 import {
   extraLabels, fill, formatDate, el, runAction, setStatus, call, renderPanel, mounted, safe, avatarNode,
 } from './common.js';
@@ -54,7 +55,7 @@ export function repliesWord(n) {
 
 /** Человек словом для ленты. */
 function nameOf(id, state, X, heroine) {
-  if (id === HEROINE) return heroine || 'героиня';
+  if (id === HEROINE) return heroine || heroWords(heroGender(state, heroine)).hero;
   if (!id || id === 'someone') return X.feedSomeone;
   const teachers = (state && state.teachers) || [];
   const people = [...teachers, ...((state && state.classmates) || [])];
@@ -168,7 +169,7 @@ export function feedView(state, preset, opts = {}) {
   const deals = chan !== 'chat' ? [] : openDeals(state).map((d) => ({
     id: d.id,
     // «Мила должна Вере: вернуть тетрадь» (`scene.dealText`).
-    text: dealText({ ...d, closed: false }, people, opts.heroine),
+    text: dealText({ ...d, closed: false }, people, opts.heroine, heroGender(state, opts.heroine)),
     canTake: hooksOn && !queued.has(d.id),
   }));
 

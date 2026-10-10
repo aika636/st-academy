@@ -311,7 +311,7 @@ test('ник: стоп-лист (героиня, персонаж карточк
   assert.deepEqual(hard.map((p) => [p.id, p.field]), [
     ['cast1', 'nick'], ['cast2', 'nick'], ['cast3', 'nick'], ['cast5', 'nick'],
   ]);
-  assert.match(hard[0].text, /героин/);
+  assert.match(hard[0].text, /персонажа игрока/);
   assert.match(hard[1].text, /совпадает с «Джаспер Мираж»/);
   assert.match(hard[2].text, /сокурсник/);
   assert.match(hard[3].text, /уже есть/);

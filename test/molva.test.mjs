@@ -399,7 +399,7 @@ test('речь о героине вне слота главных — вон (к
     'КОНЕЦ',
   ].join('\n'));
   assert.deepEqual(r.lines.map((l) => l.n), [2]);
-  assert.match(r.rejected[0].reason, /героине/);
+  assert.match(r.rejected[0].reason, /персонаж/);
 });
 
 test('длина и повторы: длинное режется по предложению или вон, пустое и повтор вон', () => {

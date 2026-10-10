@@ -11,6 +11,7 @@ import { debts, subjectScore } from '../core/gradebook.mjs';
 import { examMode, retakesLeft } from '../core/exams.mjs';
 import { relationLabel } from '../core/relations.mjs';
 import { todayView, gradebookView } from '../ui.js';
+import { parsePreset } from './preset-file.mjs';
 
 // Учебная неделя целиком — долг, записанный в `etap-live.md`: «прожит один
 // переход, а не неделя; хвосты, сессия и её исходы живьём не наступали».
@@ -33,7 +34,7 @@ import { todayView, gradebookView } from '../ui.js';
 // его нет» модульным тестом не ловится, а стоит ровно столько же, сколько
 // ошибка в самом хвосте: человек верит экрану.
 
-const preset = JSON.parse(readFileSync(
+const preset = parsePreset(readFileSync(
   fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8',
 ));
 

@@ -102,7 +102,7 @@ export function cardDisplayName(written, hitName, cast, lang) {
 }
 
 /** Слова, которыми модель зовёт героиню вместо знака. */
-const HEROINE_WORDS = ['@heroine', 'heroine', '@hero', 'героиня', '@героиня'];
+const HEROINE_WORDS = ['@heroine', 'heroine', '@hero', 'героиня', '@героиня', 'герой', '@герой'];
 
 /** Потолки свободного текста курса: подпись, а не пересказ. */
 export const SOCIAL_TEXT_MAX = { reason: 60, rumor: 100, deal: 60, name: 60 };

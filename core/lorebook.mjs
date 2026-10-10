@@ -33,6 +33,7 @@
 // «может только предложить запись, а не сочинить её само», поэтому они уходят не
 // в `create`, а в отдельный `suggest`, и без решения человека в лорбук не попадают.
 
+import { presetGender } from './gender.mjs';
 import { labelFor, findSubject, findTeacher, teacherOfSubject } from './state.mjs';
 import { milestones, milestoneName } from './milestones.mjs';
 import { relationMemory, relationLabel, isClassmate } from './relations.mjs';
@@ -102,6 +103,13 @@ export const DEFAULT_TEMPLATES = {
   classmateRumor: 'Говорят (может быть неправдой), что {rumor}.',
   classmateTalk: '{crowdIn} говорят, что {talk}.',
   classmateTalkPlain: '{crowdIn} обсуждают: {talk}.',
+};
+
+/** Запасные шаблоны, где речь о герое-мужчине (`core/gender`): остальные от рода не зависят. */
+const MALE_TEMPLATES = {
+  teacherSecret: 'Тайна (герой не знает; проявлять только намёками, прямо не раскрывать): {secret}.',
+  classmateHeroine: 'герой',
+  classmateRelation: 'К герою: {relation}.',
 };
 
 /**
@@ -786,7 +794,8 @@ function bare(value) {
 /** Шаблон из `preset.phrases.lorebook`, иначе запасной — без доменных слов. */
 function templateOf(preset, name) {
   const ph = (preset && preset.phrases && preset.phrases.lorebook) || {};
-  return ph[name] || DEFAULT_TEMPLATES[name] || '';
+  const own = presetGender(preset) === 'm' ? MALE_TEMPLATES[name] : '';
+  return ph[name] || own || DEFAULT_TEMPLATES[name] || '';
 }
 
 /** Вся лексика пресета сразу: подстановки, которых нет в шаблоне, просто не сработают. */

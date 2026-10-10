@@ -41,10 +41,17 @@
 // 4. **Отказ — со списком причин, а не первой попавшейся.** Человек чинит файл
 //    руками, и пять правок по одной за пять загрузок — издевательство.
 //
-// 5. **Модуль чистый**: ни `fetch`, ни `extension_settings`. Встроенные пресеты
+// 5. **Род героя.** Строка пресета, зависящая от рода героя, может быть парой
+//    `{ "female": "…", "male": "…" }` (`core/gender`). Нормализация сверяет
+//    пары (обе половины непустые, плейсхолдеры те же) и проверяет форму и
+//    пробный прогон на обоих разрешениях пресета; сам пресет остаётся с парами —
+//    выбирает половину `index.js` при чтении, по роду из анкеты.
+//
+// 6. **Модуль чистый**: ни `fetch`, ни `extension_settings`. Встроенные пресеты
 //    ему приносят (`builtins`), хранение — забота `storage.js`, походы — `index.js`.
 
 import { createState } from './state.mjs';
+import { resolveGendered, checkGendered, isGenderedPair } from './gender.mjs';
 import { buildSchedule } from './schedule.mjs';
 import { applyResponse } from './engine.mjs';
 import { SIZE_BOUNDS, DEFAULT_SIZE, SEEDS_MAX, CLASSMATE_TEXT_MAX } from './classmates.mjs';
@@ -247,7 +254,8 @@ export function sanitizeTree(input, limits = TREE_LIMITS) {
 
 function mergeDeep(base, own, depth) {
   if (own === undefined) return base;
-  if (depth <= 0 || !isPlain(base) || !isPlain(own)) return own;
+  // Пара рода заменяется целиком: сливать «женскую половину» с чужой мужской нельзя.
+  if (depth <= 0 || !isPlain(base) || !isPlain(own) || isGenderedPair(own) || isGenderedPair(base)) return own;
   const out = { ...base };
   for (const [k, v] of Object.entries(own)) out[k] = mergeDeep(base[k], v, depth - 1);
   return out;
@@ -717,17 +725,23 @@ export function normalizePreset(raw, opts = {}) {
   preset.limits = { ...(base.limits || {}), ...clamped.limits };
   warnings.push(...clamped.warnings);
 
-  const errors = [
-    ...checkVocab(preset.vocab),
-    ...checkWeek(preset.week),
-    ...checkBells(preset.bells, preset.week),
-    ...checkCalendar(preset.calendar),
-    ...checkHolidays(preset.holidays),
-    ...checkGrades(preset.grades),
-    ...checkExams(preset.exams),
-    ...checkScale(preset.relations, 'relations'),
-    ...checkScale(preset.reputation, 'reputation'),
-  ];
+  // Формы секций смотрятся на обоих разрешениях пары: пара вместо строки там,
+  // где ядру нужна строка, не должна падать молча на мужском герое.
+  const errors = [...checkGendered(preset)];
+  for (const gender of ['f', 'm']) {
+    const view = resolveGendered(preset, gender);
+    for (const e of [
+      ...checkVocab(view.vocab),
+      ...checkWeek(view.week),
+      ...checkBells(view.bells, view.week),
+      ...checkCalendar(view.calendar),
+      ...checkHolidays(view.holidays),
+      ...checkGrades(view.grades),
+      ...checkExams(view.exams),
+      ...checkScale(view.relations, 'relations'),
+      ...checkScale(view.reputation, 'reputation'),
+    ]) if (!errors.includes(e)) errors.push(e);
+  }
   if (preset.attendance !== undefined && !isPlain(preset.attendance)) errors.push('attendance: нужен объект');
   const course = normalizeClassmatesBlock(preset);
   errors.push(...course.errors);
@@ -737,7 +751,10 @@ export function normalizePreset(raw, opts = {}) {
   warnings.push(...feed.warnings);
   if (errors.length) return fail(errors, warnings);
 
-  const probed = probePreset(preset, opts.probe || []);
+  const probed = [];
+  for (const gender of ['f', 'm']) {
+    for (const e of probePreset(resolveGendered(preset, gender), opts.probe || [])) if (!probed.includes(e)) probed.push(e);
+  }
   if (probed.length) return fail(probed, warnings);
 
   return { ok: true, preset, warnings };
@@ -758,7 +775,7 @@ const skipsWord = (n) => (Math.abs(n) % 10 === 1 && Math.abs(n) % 100 !== 11 ? '
  * «пары в день: 4» читается одинаково у пары, урока и занятия.
  */
 export function presetSummary(preset) {
-  const p = preset || {};
+  const p = resolveGendered(preset || {}, 'f');
   const v = p.vocab || {};
   const parts = [];
   const terms = p.calendar && Array.isArray(p.calendar.terms) ? p.calendar.terms.length : 1;

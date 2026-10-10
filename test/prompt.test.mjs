@@ -1,3 +1,4 @@
+import { parsePreset } from './preset-file.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import {
   statusLine, markerInstruction, injectBlock, buildPrompt, countNumbers, DEFAULT_LABELS,
 } from '../prompt.mjs';
 
-const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const preset = parsePreset(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
 
 const SUBJECTS = [
   { id: 'chemistry', name: 'аналитическая химия', teacherId: 'petrova' },
@@ -203,7 +204,7 @@ test('инструкция называет слова силы для rel= и �
 
 test('свой текст метки у пресета тоже знает слова силы', () => {
   for (const f of ['ru-university.json', 'jp-highschool.json', 'magic-academy.json']) {
-    const p = JSON.parse(readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'));
+    const p = parsePreset(readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'));
     const text = markerInstruction(scene(), p);
     assert.ok(text.includes('minor+') && text.includes('major-'), `${p.id}: ${text}`);
     assert.ok(text.length <= 400, `${p.id}: инструкция раздулась: ${text.length} знаков`);

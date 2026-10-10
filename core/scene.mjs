@@ -26,6 +26,9 @@ import * as course from './classmates.mjs';
 import { HEROINE, isCardParty, cardPartyName } from './parse-marker.mjs';
 import { normName, stopHit } from './stop-names.mjs';
 import { gradeInfo } from './exams.mjs';
+import { genderOfName, firstWord, heroGender, heroWords } from './gender.mjs';
+
+export { genderOfName };
 import {
   ensureFeed, addFeedItem, removeFeedItem, markSeen, restoreSeen,
   openDeal, closeDeal, revertDeal, putReactions, unmarkPlayed, hash, postByRef,
@@ -43,8 +46,8 @@ export function peopleOf(state) {
 }
 
 /** Человек словом: имя, «героиня» (или её имя), а незнакомый id — как есть. */
-export function personWord(id, people, heroine = '') {
-  if (id === HEROINE) return heroine || 'героиня';
+export function personWord(id, people, heroine = '', gender = 'f') {
+  if (id === HEROINE) return heroine || heroWords(gender).hero;
   if (isCardParty(id)) return cardPartyName(id);
   const p = (people || []).find((x) => x && x.id === id);
   return (p && (p.name || p.id)) || String(id || 'кто-то');
@@ -62,14 +65,14 @@ export const GONE_PERSON = { nom: 'тот, кого уже нет в списк�
  * Соколова — списала контрольную». Имя в слухе — в именительном: склонять
  * фамилию надёжно нельзя, а «слух о Вера Соколова» хуже, чем без падежа.
  */
-export function sceneText(ev, people, heroine = '') {
-  const who = (id) => personWord(id, people, heroine);
+export function sceneText(ev, people, heroine = '', gender = 'f') {
+  const who = (id) => personWord(id, people, heroine, gender);
   if (!ev) return '';
   if (ev.kind === 'met') return `в сцене: ${who(ev.personId)}`;
   if (ev.kind === 'clash') return `стычка: ${who(ev.a)} и ${who(ev.b)}${ev.reason ? ` — ${ev.reason}` : ''}`;
   if (ev.kind === 'rumor') return `слух: ${who(ev.about)} — ${ev.text}`;
   if (ev.kind === 'new') return `новое лицо: ${ev.name}`;
-  if (ev.kind === 'deal') return dealText(ev, people, heroine);
+  if (ev.kind === 'deal') return dealText(ev, people, heroine, gender);
   return '';
 }
 
@@ -114,8 +117,8 @@ const REASON_LEAD = /^(?:из-за|из|за|по|в|во|на|о|об|обо|п
  * без второго двоеточия: подпись поста — не строка протокола (третий прогон
  * 08.10).
  */
-export function sceneAbout(ev, people, heroine = '') {
-  const who = (id) => personWord(id, people, heroine);
+export function sceneAbout(ev, people, heroine = '', gender = 'f') {
+  const who = (id) => personWord(id, people, heroine, gender);
   if (!ev) return '';
   if (ev.kind === 'clash') {
     const reason = String(ev.reason || '').trim();
@@ -124,12 +127,12 @@ export function sceneAbout(ev, people, heroine = '') {
   }
   if (ev.kind === 'met') {
     const name = who(ev.personId);
-    const g = ev.personId === HEROINE ? 'f' : genderOfName(name);
+    const g = ev.personId === HEROINE ? gender : genderOfName(name);
     return g === 'f' ? `${name} была в сцене` : g === 'm' ? `${name} был в сцене` : `в сцене — ${name}`;
   }
   if (ev.kind === 'rumor') return `${who(ev.about)} — ${ev.text} (слух)`;
-  if (ev.kind === 'deal') return dealText(ev, people, heroine);
-  return sceneText(ev, people, heroine);
+  if (ev.kind === 'deal') return dealText(ev, people, heroine, gender);
+  return sceneText(ev, people, heroine, gender);
 }
 
 /**
@@ -139,8 +142,8 @@ export function sceneAbout(ev, people, heroine = '') {
  * продолжением этой фразы (`analysis.buildAnalysisPrompt`). Пусто — у факта
  * нет сути для пересказа.
  */
-export function sceneGist(ev, people, heroine = '') {
-  const who = (id) => personWord(id, people, heroine);
+export function sceneGist(ev, people, heroine = '', gender = 'f') {
+  const who = (id) => personWord(id, people, heroine, gender);
   if (!ev) return '';
   if (ev.kind === 'rumor') return `${who(ev.about)} ${ev.text}`;
   if (ev.kind === 'clash') return `${who(ev.a)} и ${who(ev.b)} поссорились${ev.reason ? ` (${ev.reason})` : ''}`;
@@ -161,20 +164,8 @@ export function sceneGist(ev, people, heroine = '') {
  */
 const PENALTY_WORDS = /отработк|отрабат|наказани|наказан|взыскани|штраф|нарядов?(?![а-яё])|работ[аыуе](?![а-яё])|явк[аиу](?![а-яё])|явитьс|явиться|уборк|убор(?:ка|ки|ку)(?![а-яё])|дежурств|дежурит/i;
 
-/** Мужские имена на -а/-я: «Никита должен», а не «должна». */
-const MALE_A = new Set(['никита', 'илья', 'миша', 'гоша', 'леша', 'паша', 'дима', 'ваня', 'петя', 'коля', 'вася',
-  'сережа', 'митя', 'костя', 'толя', 'юра', 'федя', 'гриша', 'кузьма', 'фома', 'савва', 'лука', 'данила',
-  'гаврила', 'тема', 'вова', 'сеня', 'боря', 'лева', 'гена', 'жора', 'степа', 'валера', 'рома', 'кеша', 'яша', 'алеша']);
-
-/** Общие имена: пол по имени не сказать. */
-const BOTH_A = new Set(['саша', 'женя', 'слава', 'валя', 'шура', 'тоша', 'сима']);
-
 /** Беглая гласная: «Лев» → «Льву». */
 const DATIVE_SPECIAL = { лев: 'Льву', павел: 'Павлу', петр: 'Петру' };
-
-function firstWord(name) {
-  return String(name || '').trim().split(/\s+/)[0] || '';
-}
 
 /**
  * Первое слово имени в дательном падеже: «Вера» → «Вере», «Глеб» → «Глебу»,
@@ -203,37 +194,27 @@ export function dativeName(name) {
   return null;
 }
 
-/** Пол по первому слову имени: 'f', 'm' или `null` — не знаем. */
-export function genderOfName(name) {
-  const low = firstWord(name).toLowerCase().replace(/ё/g, 'е');
-  if (!/^[а-я-]+$/.test(low)) return null;
-  if (BOTH_A.has(low)) return null;
-  if (/[ая]$/.test(low)) return MALE_A.has(low) ? 'm' : 'f';
-  if (/(?:[бвгджзклмнпрстфхцчшщ]|[еаиоу]й)$/.test(low)) return 'm';
-  return null;
-}
-
 /**
  * Дело словами: «Мила должна Вере: вернуть тетрадь»; закрытое — «закрыто:
  * Мила и Вера — вернуть тетрадь». Удалённая сторона — «тот, кого уже нет в
  * списке»; кому должны, не склоняется — «Мила и Мэй: вернуть тетрадь».
  */
-export function dealText(ev, people, heroine = '') {
+export function dealText(ev, people, heroine = '', gender = 'f') {
   if (!ev) return '';
   // Наказание и отработку несёт тот, на кого их наложили: «Магистр должен
   // Ренее: две секции отработки» — перепутанное направление (живой прогон
   // 10.10). Разборщик записывает «кто назначил → кому», а читать надо наоборот.
   if (!ev.closed && ev.b === HEROINE && ev.a !== HEROINE && PENALTY_WORDS.test(String(ev.what || ''))) {
-    return dealText({ ...ev, a: ev.b, b: ev.a }, people, heroine);
+    return dealText({ ...ev, a: ev.b, b: ev.a }, people, heroine, gender);
   }
   const known = (id) => id === HEROINE || isCardParty(id) || (people || []).some((x) => x && x.id === id);
-  const nom = (id) => (known(id) ? personWord(id, people, heroine) : GONE_PERSON.nom);
+  const nom = (id) => (known(id) ? personWord(id, people, heroine, gender) : GONE_PERSON.nom);
   const a = nom(ev.a);
   const b = nom(ev.b);
   if (ev.closed) return `закрыто: ${a} и ${b} — ${ev.what}`;
-  const dat = known(ev.b) ? (ev.b === HEROINE && !heroine ? 'героине' : dativeName(b)) : GONE_PERSON.dat;
-  // Род героини — по её имени; не определился (латиница, «Ренее», «Саша») — женский.
-  const g = known(ev.a) ? (ev.a === HEROINE ? (genderOfName(a) || 'f') : genderOfName(a)) : 'm';
+  const dat = known(ev.b) ? (ev.b === HEROINE && !heroine ? heroWords(gender).heroDat : dativeName(b)) : GONE_PERSON.dat;
+  // Род героя — из анкеты (`heroGender`), остальных — по имени.
+  const g = known(ev.a) ? (ev.a === HEROINE ? gender : genderOfName(a)) : 'm';
   if (!dat) return `${a} и ${b}: ${ev.what}`;
   const verb = g === 'f' ? 'должна' : g === 'm' ? 'должен' : 'обещает';
   // «Тот, кого уже нет в списке, должен…» — придаточное закрывается запятой.
@@ -302,8 +283,8 @@ function placeEvent(next, ev, preset, opts) {
       kind: 'fact',
       who: ev.kind === 'clash' && !isCardParty(ev.a) ? ev.a : '',
       chan: 'chat',
-      text: sceneText(ev, peopleOf(next), opts.heroine),
-      gist: sceneGist(ev, peopleOf(next), opts.heroine),
+      text: sceneText(ev, peopleOf(next), opts.heroine, heroGender(next, opts.heroine)),
+      gist: sceneGist(ev, peopleOf(next), opts.heroine, heroGender(next, opts.heroine)),
       rumor: ev.kind === 'rumor',
       truth: null,
       about,
@@ -358,8 +339,8 @@ function byGender(g, f, m, n) {
  */
 export function notableFact(ev, state, preset, opts = {}) {
   if (!ev || !NOTABLE_KINDS.includes(ev.kind)) return null;
-  const H = String(opts.heroine || '').trim() || 'героиня';
-  const g = genderOfName(H);
+  const H = String(opts.heroine || '').trim() || heroWords(heroGender(state)).hero;
+  const g = heroGender(state, opts.heroine);
   const loud = Number.isInteger(opts.loud) ? opts.loud : null;
   const subject = (((state && state.subjects) || []).find((s) => s && s.id === ev.subjectId) || {}).name || ev.subjectId || '';
   const subj = subject ? ` «${subject}»` : '';

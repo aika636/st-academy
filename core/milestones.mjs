@@ -34,6 +34,7 @@
 // значимое событие = веха. Какие именно из них уходят в хронику, решает
 // `lorebook.mjs` (`CHRONICLE_MILESTONES`) — там же объяснено, почему не все.
 
+import { presetGender } from './gender.mjs';
 import { findSubject, findTeacher } from './state.mjs';
 import { addDays, diffDays, mondayOf } from './time.mjs';
 import { dayPlan } from './schedule.mjs';
@@ -85,6 +86,10 @@ export const DEFAULT_NAMES = {
   ghost: 'Призрак аудитории',
   critFail: 'Провал века: {subject}',
 };
+
+/** Запасные названия для героя-мужчины (`core/gender`): только те, где важен род. */
+export const MALE_NAMES = { favorite: 'Любимец: {teacher}', nemesis: '{teacher} его не выносит' };
+export const MALE_TITLES = { favorite: 'Любимец преподавателя' };
 
 /**
  * Название вехи без подробностей — для каталога и для счёта «во всех
@@ -196,7 +201,7 @@ export function diffMilestones(before, after) {
 export function milestoneName(m, state, preset) {
   if (!m) return '';
   const own = (preset && preset.phrases && preset.phrases.milestones) || {};
-  const template = own[m.kind] || DEFAULT_NAMES[m.kind] || m.kind;
+  const template = own[m.kind] || (presetGender(preset) === 'm' && MALE_NAMES[m.kind]) || DEFAULT_NAMES[m.kind] || m.kind;
   const vocab = (preset && preset.vocab) || {};
   const subject = m.subjectId ? findSubject(state, m.subjectId) : null;
   const teacher = m.teacherId ? findTeacher(state, m.teacherId) : null;
@@ -213,7 +218,7 @@ export function milestoneName(m, state, preset) {
 /** Название вехи без подробностей (каталог, счёт «во всех историях»). */
 export function milestoneTitle(kind, preset) {
   const own = (preset && preset.phrases && preset.phrases.milestoneTitles) || {};
-  return fill(own[kind] || DEFAULT_TITLES[kind] || kind, (preset && preset.vocab) || {}).trim();
+  return fill(own[kind] || (presetGender(preset) === 'm' && MALE_TITLES[kind]) || DEFAULT_TITLES[kind] || kind, (preset && preset.vocab) || {}).trim();
 }
 
 /** Подсказка «как получить». */

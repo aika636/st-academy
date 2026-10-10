@@ -12,8 +12,9 @@ import { relationOf } from '../core/relations.mjs';
 import { reputationLabel } from '../core/reputation.mjs';
 import { examMode, scheduleExams } from '../core/exams.mjs';
 import { applyResponse, manualTime, resolveHeldJump, sitExam, MODES } from '../core/engine.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const preset = parsePreset(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
 const strictPreset = { ...preset, attendance: { ...preset.attendance, skipPolicy: 'absent' } };
 
 // Этот файл проверяет сшивку, а не модули ядра: они уже проверены поимённо.

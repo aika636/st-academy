@@ -20,8 +20,9 @@ import {
   teacherDetails,
 } from '../core/state.mjs';
 import { overallScore } from '../core/gradebook.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const PRESET = JSON.parse(
+const PRESET = parsePreset(
   fs.readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'),
 );
 

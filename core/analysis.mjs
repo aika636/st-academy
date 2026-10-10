@@ -33,6 +33,7 @@ import { holidaysAhead, holidaysOn } from './holidays.mjs';
 import { addDays } from './time.mjs';
 import { EVENT_HORIZON } from './parse-marker.mjs';
 import { SCENE_KINDS, sceneText, sceneAbout, personWord } from './scene.mjs';
+import { heroGender, heroWords } from './gender.mjs';
 import { reactionCap, loudCap, LOUDNESS, hash, cleanNick, cleanType, nickWord, postRef } from './feed.mjs';
 
 /** Что секретарь вправе записать. Время — нет (решение 2). */
@@ -41,12 +42,16 @@ export const ANALYSIS_KINDS = ['grade', 'completion', 'rel', 'attendance', 'even
 /** Сколько текста ответа и реплики уезжает в запрос. Длинное режется с конца. */
 export const ANALYSIS_LIMITS = { reply: 6000, user: 1500, reason: 60 };
 
-const SYSTEM = [
-  'Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про студентку, списки предметов, преподавателей и её курса.',
-  'Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось — с героиней и людьми вокруг неё. Ничего не додумываешь.',
+/** Системная часть промпта секретаря: слова про героя — по роду (`core/gender`). */
+const systemOf = (gender) => {
+  const w = heroWords(gender);
+  return [
+  `Ты — секретарь учебной части. Тебе дают фрагмент ролевой истории про ${gender === 'm' ? 'студента' : 'студентку'}, списки предметов, преподавателей и ${w.her} курса.`,
+  `Ты записываешь в ведомость только то, что в этом фрагменте действительно случилось — с ${w.heroIns} и людьми вокруг ${gender === 'm' ? 'него' : 'неё'}. Ничего не додумываешь.`,
   'Отвечаешь двумя блоками: «Что было» — строка служебной метки, «Слышно» — насколько громко это и было ли это при людях; затем строка «Кратко:».',
   'Постов, реплик и ников курса ты не пишешь: сплетни сочиняет отдельный вызов.',
-].join(' ');
+  ].join(' ');
+};
 
 /** Потолки разбора курса на один ответ: больше — шум, а не сцена. */
 export const SOCIAL_LIMITS = { met: 8, clash: 4, rumor: 3, new: 3, deal: 4 };
@@ -94,7 +99,11 @@ export function someoneWord(preset) {
  * @returns {{system: string, user: string}}
  */
 export function buildAnalysisPrompt(state, preset, input = {}) {
-  const heroine = str(input.heroine) || 'героиня';
+  const gender = heroGender(state, input.heroine);
+  const w = heroWords(gender);
+  // Прошедшее время героя: «сдала» / «сдал».
+  const g = (f, m) => (gender === 'm' ? m : f);
+  const heroine = str(input.heroine) || w.hero;
   const subjects = (state.subjects || []).map((s) => {
     const t = teacherOfSubject(state, s.id);
     return `- ${s.id} — ${s.name || s.id}${t ? ` — ${t.name || t.id} (${t.id})` : ''}`;
@@ -112,7 +121,7 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
   if (input.statusLine) lines.push(`Где мы в календаре: ${input.statusLine}`);
   lines.push('Предметы (id — название — преподаватель):', ...subjects);
   lines.push('Преподаватели (id — имя):', ...teachers);
-  lines.push('Курс героини (id — имя — о человеке):', ...(course.length ? course : ['- пока никого']));
+  lines.push(`Курс ${w.heroGen} (id — имя — о человеке):`, ...(course.length ? course : ['- пока никого']));
   if (values.length) lines.push(`Оценки пишутся одним из значений: ${values.join(', ')}.`);
   const debts = (state.subjects || []).filter((subject) => subject.debt);
   lines.push(`Текущие хвосты: ${debts.length ? debts.map((subject) => subject.id).join(', ') : 'нет'}.`);
@@ -134,21 +143,21 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     'Блок 1. Что было — одной строкой служебной метки:',
     '<!-- [ACADEMY grade=предмет:оценка rel=человек:minor+:повод skip=предмет late=предмет event=+3:название met=однокурсник clash=кто:с кем:повод rumor=о ком:что говорят new=Имя Фамилия deal=кто:кому:что] -->',
     'Правила блока 1:',
-    `- grade — только если ${heroine} получила оценку, сдала или не сдала зачёт или экзамен. Оценки другим людям не пишутся.`,
+    `- grade — только если ${heroine} ${g('получила оценку, сдала или не сдала', 'получил оценку, сдал или не сдал')} зачёт или экзамен. Оценки другим людям не пишутся.`,
     '- Прочитай весь фрагмент: учебный итог может быть фоном, воспоминанием о прошедших днях или репликой собеседника, даже если главная сцена бытовая или романтическая.',
     '- Явный итог «все экзамены/зачёты сданы» записывай completion=all:оценка; «все хвосты закрыты» — completion=debts:оценка; сдан конкретный предмет — completion=id:оценка. Обычная оценка за ответ у доски остаётся grade. Не дублируй completion обычными grade по тем же предметам.',
-    '- «Ты все зачёты на отлично сдала», «все хвосты были сданы на высший балл», «сдала все хвосты до единого; в зачётке отметки отлично» — состоявшийся учебный итог, а не отсутствие событий. Для «отлично»/«высший балл» возьми высшую оценку из шкалы. Без точной оценки используй проходное «зачёт», если оно есть в шкале; не выдумывай числовой балл.',
-    '- completion=all допустим только при явно сказанном «все» об экзаменах/зачётах героини. Желание, будущий план, отрицание («ещё не сдала все») или достижения другого персонажа не означают завершение. Не угадывай предмет по неназванному преподавателю; не добавляй оценки остальным предметам за один удачный ответ.',
+    `- «Ты все зачёты на отлично ${g('сдала', 'сдал')}», «все хвосты были сданы на высший балл», «${g('сдала', 'сдал')} все хвосты до единого; в зачётке отметки отлично» — состоявшийся учебный итог, а не отсутствие событий. Для «отлично»/«высший балл» возьми высшую оценку из шкалы. Без точной оценки используй проходное «зачёт», если оно есть в шкале; не выдумывай числовой балл.`,
+    `- completion=all допустим только при явно сказанном «все» об экзаменах/зачётах ${w.heroGen}. Желание, будущий план, отрицание («ещё не ${g('сдала', 'сдал')} все») или достижения другого персонажа не означают завершение. Не угадывай предмет по неназванному преподавателю; не добавляй оценки остальным предметам за один удачный ответ.`,
     `- rel — если отношение преподавателя или однокурсника к ${heroine} заметно изменилось: minor+ или minor- (немного), major+ или major- (сильно); после второго двоеточия — повод в двух-трёх словах.`,
-    `- skip — ${heroine} прогуляла пару; late — опоздала на пару.`,
-    '- Не усиливай сказанное: пиши то, что произошло в тексте, а не его возможные последствия. Героиня извинилась — это не «помирились», кто-то нахмурился — не «поссорились». Нет слов о примирении, ссоре, обещании — нет и факта.',
-    '- skip/late только при прямом факте пропуска/опоздания героини. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.',
+    `- skip — ${heroine} ${g('прогуляла', 'прогулял')} пару; late — ${g('опоздала', 'опоздал')} на пару.`,
+    `- Не усиливай сказанное: пиши то, что произошло в тексте, а не его возможные последствия. ${w.hero[0].toUpperCase()}${w.hero.slice(1)} ${g('извинилась', 'извинился')} — это не «помирились», кто-то нахмурился — не «поссорились». Нет слов о примирении, ссоре, обещании — нет и факта.`,
+    `- skip/late только при прямом факте пропуска/опоздания ${w.heroGen}. Переход даты, «прошло четыре дня», выходной, конец зачётной недели, отсутствие описания занятий или домашняя сцена не доказывают прогул. Не выводи прогулы из календаря.`,
     `- event — праздник, вечеринка, бал, концерт, поход, свидание или другое событие, о котором во фрагменте сказано, что оно будет: event=+дни:название, где дни — через сколько дней от момента сцены (0 — сегодня, 1 — завтра). Несколько дней подряд — event=+5..+6:название. Событий несколько — несколько ключей event. Дальше ${EVENT_HORIZON} дней, без понятного срока, прошедшее и уже записанное в планах — не пиши.`,
     '- met — кто из курса был в сцене: id из списка курса, несколько — через запятую.',
     `- clash — стычка, ссора или перепалка двоих: clash=кто:с кем:повод в двух-трёх словах. ${heroine} пишется @heroine.`,
     '- rumor — кто-то в сцене пустил или пересказал слух: rumor=о ком:что говорят. Только если слух прозвучал во фрагменте; о ком — id или @heroine. «Что» продолжает фразу «говорят, что <он/она> …»: rumor=sokolova:списала контрольную.',
     `- new — в сцене появился человек по имени, которого нет ни среди преподавателей, ни в курсе: new=имя, как в тексте. ${heroine}, рассказчика и тех, кто уже в списках, не пиши.`,
-    '- deal — между людьми открылось дело: обещание, долг, общий проект, вещь, которую надо вернуть: deal=кто:кому:что. «Кто» — тот, кто должен или кому назначены отработка, наказание, штраф; «кому» — перед кем он должен. Отработку назначили героине — кто=@heroine, кому=тот, кто назначил. Дело закрыли (вернули, выполнили) — deal-=кто:кому:что.',
+    `- deal — между людьми открылось дело: обещание, долг, общий проект, вещь, которую надо вернуть: deal=кто:кому:что. «Кто» — тот, кто должен или кому назначены отработка, наказание, штраф; «кому» — перед кем он должен. Отработку назначили ${w.heroDat} — кто=@heroine, кому=тот, кто назначил. Дело закрыли (вернули, выполнили) — deal-=кто:кому:что.`,
     ...(hooks.length ? ['- played — повод из списка «Поводы» во фрагменте действительно прозвучал: played=id. Не прозвучал — не пиши.'] : []),
     '- Время и дату не пиши (кроме дней до события в event).',
     '- Пиши id из списков выше. Каждый ключ — отдельно, ключи можно повторять.',
@@ -163,9 +172,9 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     '- private — только если было наедине, без свидетелей: разговор вдвоём за закрытой дверью, шёпот, тайная встреча. Номера — порядковые номера ключей метки блока 1, считая с 1, через запятую: private=2,3. Что случилось при людях, не отмечай; нет таких — строку не пиши. «Наедине» не значит «навсегда в тайне»: подслушать могут, но это решит не секретарь.',
     '- Реплик курса, ников, строк react= и reply= в ответе не нужно.',
     '',
-    'Последней строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой героини и людьми вокруг (пары, оценки, преподаватели, прогулы, курс) — или «к учёбе не относится».',
+    `Последней строкой напиши «Кратко:» и одно предложение: что в этом фрагменте было с учёбой ${w.heroGen} и людьми вокруг (пары, оценки, преподаватели, прогулы, курс) — или «к учёбе не относится».`,
   );
-  return { system: SYSTEM, user: lines.join('\n') };
+  return { system: systemOf(gender), user: lines.join('\n') };
 }
 
 /** Теги, которые живут в тексте сцены: разметка самого ответа, не служебные блоки. */
@@ -905,18 +914,19 @@ export function tokenText(token, lexicon, { known = false, brief = false, day = 
   // У пресета `classmates` — настройки курса, не список: берутся только массивы.
   const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
   const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
+  const gender = heroGender(lexicon, heroine);
   if (isReactToken(token)) {
     const r = reactionOf(token);
     if (!r) return String(token);
     // Анонимка без автора — и на плашке: кто пустил слух, курс не знает.
     // Маска видна и там: она и есть подпись анонимки.
     if (r.chan === 'anon') return r.nick ? `${nickWord(r.nick)}: «${r.text}»` : `${ANON_WHO}: «${r.text}»`;
-    return `${authorWord(r, people, heroine, lexicon)}: «${r.text}»`;
+    return `${authorWord(r, people, heroine, lexicon, gender)}: «${r.text}»`;
   }
   if (isReplyToken(token)) {
     const a = replyOf(token);
     if (!a) return String(token);
-    const who = a.chan === 'anon' && !a.nick ? ANON_WHO : authorWord(a, people, heroine, lexicon);
+    const who = a.chan === 'anon' && !a.nick ? ANON_WHO : authorWord(a, people, heroine, lexicon, gender);
     return `${who}: «${a.text}»`;
   }
   if (isLoudToken(token)) {
@@ -930,7 +940,7 @@ export function tokenText(token, lexicon, { known = false, brief = false, day = 
   }
   const ev = tokenEvent(token, lexicon);
   if (!ev) return String(token);
-  if (SCENE_KINDS.includes(ev.kind)) return sceneText(ev, people, heroine);
+  if (SCENE_KINDS.includes(ev.kind)) return sceneText(ev, people, heroine, gender);
   const subject = (id) => {
     const s = (lexicon.subjects || []).find((x) => x.id === id);
     return (s && s.name) || id;
@@ -967,11 +977,12 @@ export function tokenText(token, lexicon, { known = false, brief = false, day = 
 export function talkParts(token, lexicon) {
   const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
   const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
+  const gender = heroGender(lexicon, heroine);
   const r = isReactToken(token) ? reactionOf(token) : isReplyToken(token) ? replyOf(token) : null;
   if (!r) return null;
   if (r.nick) return { who: nickWord(r.nick), say: r.text, style: 'mask' };
   if (r.chan === 'anon') return { who: ANON_WHO, say: r.text, style: 'anon' };
-  const who = authorWord(r, people, heroine, lexicon);
+  const who = authorWord(r, people, heroine, lexicon, gender);
   return { who, say: r.text, style: r.who === SOMEONE || !r.who ? 'anon' : 'person' };
 }
 
@@ -984,15 +995,16 @@ export function tokenAbout(token, lexicon) {
   if (ev && SCENE_KINDS.includes(ev.kind)) {
     const people = [...arr(lexicon.teachers), ...arr(lexicon.classmates)];
     const heroine = lexicon.names && typeof lexicon.names.user === 'string' ? lexicon.names.user.trim() : '';
-    return sceneAbout(ev, people, heroine);
+  const gender = heroGender(lexicon, heroine);
+    return sceneAbout(ev, people, heroine, gender);
   }
   return tokenText(token, lexicon, { brief: true });
 }
 
 /** Автор реплики словами: маска — «@школьный бес», человек — имя, иначе «кто-то с курса». */
-function authorWord(r, people, heroine, lexicon) {
+function authorWord(r, people, heroine, lexicon, gender = 'f') {
   if (r.nick) return nickWord(r.nick);
-  return r.who === SOMEONE || !r.who ? someoneWord(lexicon) : personWord(r.who, people, heroine);
+  return r.who === SOMEONE || !r.who ? someoneWord(lexicon) : personWord(r.who, people, heroine, gender);
 }
 
 /** «сегодня», «завтра», «через 3 дня» — от дня сцены. */

@@ -1,3 +1,4 @@
+import { parsePreset } from './preset-file.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ import {
   KEEP_EDITED, KEEP_UNCHANGED, KEEP_FOREIGN, SKIP_CAP, DEFAULTS,
 } from '../core/lorebook.mjs';
 
-const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const preset = parsePreset(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
 
 /** Семестр из двух предметов: минимум, на котором видно все четыре категории. */
 function semester(opts = {}) {

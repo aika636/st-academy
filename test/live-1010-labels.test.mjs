@@ -15,8 +15,9 @@ import { rowText, summaryText } from '../mes-panel.js';
 import { showResult } from '../commands.js';
 import { gradebookView, todayView, uiLabels, DEFAULT_UI } from '../ui.js';
 import { renderGradebook } from '../ui/gradebook.js';
+import { parsePreset } from './preset-file.mjs';
 
-const load = (id) => JSON.parse(readFileSync(new URL(`../presets/${id}.json`, import.meta.url), 'utf8'));
+const load = (id) => parsePreset(readFileSync(new URL(`../presets/${id}.json`, import.meta.url), 'utf8'));
 const IDS = readdirSync(new URL('../presets/', import.meta.url)).filter((f) => f.endsWith('.json')).map((f) => f.replace('.json', ''));
 const uni = load('ru-university');
 const school = load('ru-school');

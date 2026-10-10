@@ -32,6 +32,7 @@
 // контрольных, пересдачи, автомат, веса и фразы — всё приходит из пресета.
 // Хогвартс меняет пресет, а не этот файл.
 
+import { presetGender } from './gender.mjs';
 import {
   cloneState, pushJournal, pushPending, findSubject, teacherOfSubject, clamp, isDay,
 } from './state.mjs';
@@ -125,7 +126,21 @@ export const DEFAULT_SCENE_GUARD = 'Если сцена сейчас интим�
 const examsOf = (preset) => (preset && preset.exams) || {};
 const gradesOf = (preset) => (preset && preset.grades) || {};
 const vocabOf = (preset) => (preset && preset.vocab) || {};
-const phrasesOf = (preset) => ({ ...DEFAULT_PHRASES, ...((preset && preset.phrases && preset.phrases.exams) || {}) });
+/**
+ * Запасные фразы для героя-мужчины (`core/gender`): только те, где речь о
+ * нём. Остальные от рода не зависят.
+ */
+export const MALE_PHRASES = {
+  failed: 'Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.',
+  announceLater: 'Свершилось: {subject} — сдача позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итог объявят {date}; до того оценку в сцене не знает никто, включая героя. Отыграй саму сдачу как уже случившееся.',
+  announced: 'Итоги объявлены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как герой узнаёт итог.',
+};
+
+const phrasesOf = (preset) => ({
+  ...DEFAULT_PHRASES,
+  ...(presetGender(preset) === 'm' ? MALE_PHRASES : {}),
+  ...((preset && preset.phrases && preset.phrases.exams) || {}),
+});
 
 /**
  * Кто решает исход контрольного — своё у каждого чата (`state.examBy`):

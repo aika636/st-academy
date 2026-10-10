@@ -16,8 +16,9 @@ import { applyRelationDeltas, relationOf, relationLabel } from '../core/relation
 import { changeReputation, reputationLabel } from '../core/reputation.mjs';
 import { scheduleExams, examMode, rollOutcome, applyOutcome, permissionLine, examTermIndex } from '../core/exams.mjs';
 import { resolveHeldJump } from '../core/engine.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const preset = parsePreset(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
 
 // Это не тест одного модуля, а прогон всей цепочки — того, что во втором этапе
 // сделает `index.js`: ответ модели → парсеры → календарь → расписание →

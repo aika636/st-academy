@@ -29,8 +29,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parsePreset } from './preset-file.mjs';
 
-const load = (id) => JSON.parse(
+const load = (id) => parsePreset(
   readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'),
 );
 const preset = load('ru-university');

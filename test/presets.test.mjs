@@ -26,11 +26,12 @@ import { relationLabel } from '../core/relations.mjs';
 import { examMode } from '../core/exams.mjs';
 import { applyResponse } from '../core/engine.mjs';
 import { statusLine, countNumbers } from '../prompt.mjs';
+import { parsePreset } from './preset-file.mjs';
 
 /** Пресеты под экзаменом. Четвёртый добавляется одной строкой. */
 const FILES = ['ru-university.json', 'jp-highschool.json', 'magic-academy.json'];
 
-const load = (file) => JSON.parse(
+const load = (file) => parsePreset(
   readFileSync(fileURLToPath(new URL(`../presets/${file}`, import.meta.url)), 'utf8'),
 );
 const PRESETS = FILES.map(load);

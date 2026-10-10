@@ -21,6 +21,7 @@ import {
   dropTokenAt, reactionsOf, reactionOf, isFactToken, isReactToken, isPlayedToken, playedOf, loudOf, privateRefs,
   unparsedNames, repliesOf, replyOf, isReplyToken, tokenAbout, talkParts,
 } from './core/analysis.mjs';
+import { heroGender, resolvePreset, GENDERS } from './core/gender.mjs';
 import { applySceneEvents, applyNotableFacts, applyLoudScene, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
   reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, postByRef,
@@ -100,7 +101,34 @@ const ctx = () => SillyTavern.getContext();
 
 /** Живое состояние вкладки: пресет, семестр и история ходов. */
 const live = {
-  preset: null,
+  /**
+   * Пресет как в файле — с парами рода `{female, male}` (`core/gender`).
+   * Читают его только загрузка и `live.preset` ниже.
+   */
+  rawPreset: null,
+  /** Кэш разрешённого пресета: пересчитывается, когда сменился пресет или род героя. */
+  resolved: null,
+  /**
+   * Пресет, разрешённый под род героя этого чата: обычные строки вместо пар.
+   * Весь остальной код видит только его и про пары не знает. Присваивание
+   * кладёт сырой пресет.
+   */
+  get preset() {
+    const raw = this.rawPreset;
+    if (!raw) return null;
+    let name = '';
+    try { name = String((ctx() || {}).name1 || ''); } catch { /* имя — только для догадки о роде */ }
+    const gender = heroGender(this.state, name);
+    const hit = this.resolved;
+    if (hit && hit.raw === raw && hit.gender === gender) return hit.value;
+    const value = resolvePreset(raw, gender);
+    this.resolved = { raw, gender, value };
+    return value;
+  },
+  set preset(next) {
+    this.rawPreset = next;
+    this.resolved = null;
+  },
   state: null,
   report: null,
   /**
@@ -1693,7 +1721,7 @@ function turnRows(before, after, exam) {
   // контрольное сдавали, видно сразу — без оценки.
   if (exam && exam.announceOn) {
     const subject = ((after.subjects || []).find((s) => s.id === exam.subjectId) || {}).name || exam.subjectId;
-    rows.push(`${subject}: сдавала, итог объявят ${formatDate(exam.announceOn) || exam.announceOn}`);
+    rows.push(`${subject}: ${heroGender(after, safeHeroName()) === 'm' ? 'сдавал' : 'сдавала'}, итог объявят ${formatDate(exam.announceOn) || exam.announceOn}`);
   }
   return [...new Set(rows)];
 }
@@ -1759,6 +1787,11 @@ function lexiconOf(state, c) {
     // Поводы «Взять в сюжет»: секретарь отмечает сыгранные `played=id`.
     hooks: knownHooks(live.plot),
   };
+}
+
+/** Имя героя из таверны — только для догадки о роде. */
+function safeHeroName() {
+  try { return String((ctx() || {}).name1 || ''); } catch { return ''; }
 }
 
 /** Стоп-лист сцены для кандидатов в курс: героиня, карточка, заведение. */
@@ -2906,6 +2939,8 @@ const host = {
   panelDiagnosis: () => panelDiagnosis(),
   getReport: () => live.report,
   getPreset: () => live.preset,
+  /** Род героя, который действует сейчас (анкета, иначе имя, иначе женский). */
+  getHeroGender: () => heroGender(live.state, safeHeroName()),
   /** Из чего выбирать пресет и что выбрано сейчас. Имена — из самих пресетов. */
   getPresets: () => ({
     active: String((live.preset && live.preset.id) || ''),
@@ -3113,7 +3148,9 @@ const host = {
       // чата, в новый чат не ложится. Отказ — даже при неудаче запроса: текст
       // ошибки про чужой чат человеку тоже ни к чему.
       const op = captureOperation();
-      const res = await api.generatePlan(survey, live.preset, storage.apiSettings(c), c);
+      // План пишется в роде, который человек выбрал в анкете, ещё до старта семестра.
+      const planPreset = live.rawPreset ? resolvePreset(live.rawPreset, heroGender({ survey }, c && c.name1)) : live.preset;
+      const res = await api.generatePlan(survey, planPreset, storage.apiSettings(c), c);
       if (!isCurrent(op)) return chatChanged('генерировался план');
       if (!res.ok) return { ok: false, error: res.message || res.error || 'запрос не удался', raw: res.raw };
       const put = await host.actions.setSubjects(res.plan);
@@ -3174,6 +3211,22 @@ const host = {
       await syncLorebook();
       refreshPanel();
       return { ok: true };
+    },
+
+    /**
+     * Род героя в идущем семестре (`survey.gender`, `core/gender`): тексты
+     * пресета и промпты после этого читаются в выбранном роде. Без семестра
+     * род живёт только в черновике анкеты.
+     */
+    async setGender(gender) {
+      if (!GENDERS.includes(gender)) return { ok: false, error: `неизвестный род «${gender}»` };
+      if (!live.state) return { ok: true, gender };
+      if (live.state.survey && live.state.survey.gender === gender) return { ok: true, gender };
+      const next = cloneState(live.state);
+      next.survey = { ...(next.survey || {}), gender };
+      await commit(next);
+      refreshPanel();
+      return { ok: true, gender };
     },
 
     /**

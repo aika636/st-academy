@@ -1,3 +1,4 @@
+import { parsePreset } from './preset-file.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,7 +8,7 @@ import {
   buildPlanPrompt, parsePlanResponse, validatePlan, slugify, extractJson, balancedBlock,
 } from '../core/plan-gen.mjs';
 
-const preset = JSON.parse(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
+const preset = parsePreset(readFileSync(fileURLToPath(new URL('../presets/ru-university.json', import.meta.url)), 'utf8'));
 
 const survey = {
   era: 'современность',
@@ -207,7 +208,7 @@ test('slugify даёт короткий латинский id без пробе�
 // --- учителя с душой --------------------------------------------------------
 
 const PRESET_FILES = ['ru-university', 'magic-academy', 'jp-highschool'];
-const readPreset = (id) => JSON.parse(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
+const readPreset = (id) => parsePreset(readFileSync(fileURLToPath(new URL(`../presets/${id}.json`, import.meta.url)), 'utf8'));
 
 test('во всех встроенных пресетах генерация зовёт не больше четырёх, таблица держит прежний потолок', () => {
   for (const id of PRESET_FILES) {

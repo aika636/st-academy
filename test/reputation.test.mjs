@@ -8,8 +8,9 @@ import {
 } from '../core/reputation.mjs';
 import { mark } from '../core/attendance.mjs';
 import { setDebt } from '../core/gradebook.mjs';
+import { parsePreset } from './preset-file.mjs';
 
-const preset = JSON.parse(readFileSync(new URL('../presets/ru-university.json', import.meta.url), 'utf8'));
+const preset = parsePreset(readFileSync(new URL('../presets/ru-university.json', import.meta.url), 'utf8'));
 
 const base = () => createState(preset, {
   startDay: '2024-09-02',

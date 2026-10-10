@@ -24,8 +24,9 @@ import { classmateEntry, buildEntries, buildLorebook, CLASSMATE_ENTRY_MAX, class
 import { normalizePreset, BUILTIN_PRESETS } from '../core/preset.mjs';
 import { readState, buildExport, readExport } from '../storage.js';
 import { classmatesView, peopleView, DEFAULT_UI, uiLabels } from '../ui.js';
+import { parsePreset } from './preset-file.mjs';
 
-const load = (f) => JSON.parse(readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'));
+const load = (f) => parsePreset(readFileSync(new URL(`../presets/${f}`, import.meta.url), 'utf8'));
 const preset = load('ru-university.json');
 
 const TEACHERS = [{ id: 'petrova', name: 'Петрова Анна Сергеевна' }];

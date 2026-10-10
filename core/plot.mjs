@@ -49,6 +49,7 @@ import { HEROINE } from './parse-marker.mjs';
 import { feedItems, setStatus, openDeals, normalizeFeed, nickWord } from './feed.mjs';
 import { diffDays } from './time.mjs';
 import { dealText, shortName } from './scene.mjs';
+import { heroGender, heroWords, presetGender } from './gender.mjs';
 
 /** Через сколько ответов отданный, но не сыгранный повод истекает. */
 export const PLOT_EXPIRE = 6;
@@ -201,6 +202,7 @@ function phrasesOf(preset) {
   const someone = preset && preset.vocab && typeof preset.vocab.someone === 'string' && preset.vocab.someone.trim();
   return {
     ...DEFAULT_PLOT_PHRASES,
+    heroine: heroWords(presetGender(preset)).hero,
     ...(someone ? { someone } : {}),
     ...(own && typeof own === 'object' ? own : {}),
   };
@@ -307,7 +309,7 @@ export function hookCore(state, ref, opts = {}) {
   const deal = openDeals(state).find((d) => d.id === ref);
   if (deal) {
     const core = fill(P.deal, {
-      deal: dealText({ ...deal, closed: false }, peopleOf(state), heroine),
+      deal: dealText({ ...deal, closed: false }, peopleOf(state), heroine, heroGender(state, heroine)),
       // Старые слова пресета (`{a}`, `{b}`, `{what}`) — по-прежнему подставляются.
       a: nameOf(deal.a, state, P, heroine), b: nameOf(deal.b, state, P, heroine), what: deal.what,
     });

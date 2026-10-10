@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parsePreset } from './preset-file.mjs';
 
 // Слой между планом ядра и живым World Info. Ядро проверяется своим тестом
 // (`test/lorebook.test.mjs`), здесь — ровно то, что умеет только слой: чтение
@@ -17,7 +18,7 @@ const {
 } = mod;
 
 const { createState } = await import('../core/state.mjs');
-const preset = JSON.parse(
+const preset = parsePreset(
   await (await import('node:fs/promises')).readFile(new URL('../presets/ru-university.json', import.meta.url), 'utf8'),
 );
 

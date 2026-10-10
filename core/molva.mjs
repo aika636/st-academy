@@ -30,6 +30,7 @@
 //
 // Вызов модели — в `api.js` (`generateMolva`) и `index.js`: ядро о сети не знает.
 
+import { heroWords, presetGender } from './gender.mjs';
 import {
   FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
   feedItems, hash, feedWorldTopics, THREADS_MAX, MOLVA_LEADS_MAX, CALENDAR_GAP, clipText,
@@ -522,14 +523,14 @@ export function planIssue(state, preset, opts = {}) {
 
 // --- промпт ----------------------------------------------------------------------------------
 
-const SYSTEM = 'Ты ведёшь молву — общий школьный чат массовки в ролевой игре: слухи, мелкие конфликты, споры о балах, зачётах и быте.'
-  + ' Это не пересказ ролевой сцены: у статистов свои дела, героиню они знают понаслышке.'
+const systemOf = (preset) => 'Ты ведёшь молву — общий школьный чат массовки в ролевой игре: слухи, мелкие конфликты, споры о балах, зачётах и быте.'
+  + ` Это не пересказ ролевой сцены: у статистов свои дела, ${heroWords(presetGender(preset)).heroAcc} они знают понаслышке.`
   + ' Отвечай только строками формата, без пояснений, вступлений и markdown.';
 
 const when = (days) => (days === 0 ? 'идёт сейчас' : days === 1 ? 'завтра' : `через ${days} дн.`);
 
 /** Одна строка слота для промпта. */
-function slotLine(s) {
+function slotLine(s, w) {
   const who = `Пост П${s.n} пишет: ${s.author.name}.`;
   // Ответ называет свой пост и разногласие прямо: отвечать надо на содержание поста (баг 66).
   const reply = s.replier ? ` Ответ О${s.n} пишет: ${s.replier.name} — по сути поста П${s.n}, не мимо него.` : '';
@@ -541,7 +542,7 @@ function slotLine(s) {
   if (s.kind === 'main') return `${s.n}. На людях случилось, видели все: «${s.facts[0].text}». ${who}${reply}${split} Обсуждают случившееся, не добавляя подробностей.`;
   if (s.kind === 'rumor') return `${s.n}. Слух. ${s.author.name} краем уха услышал(а) чужой разговор наедине: «${s.facts[0].text}». ${who}${reply} Пересказ неточный: перевирает, не уверен(а), сам(а) додумывает. Это слух, а не новость; сам разговор в чате не видели.${split}`;
   if (s.kind === 'calendar') return `${s.n}. Календарь: «${s.topic}» — ${when(s.event.days)}. ${who}${reply}${split} Говорят о подготовке, ожиданиях, ссорах вокруг события.`;
-  return `${s.n}. Мир: ${s.topic}. ${who}${reply}${split} Бытовое, без героини и сцен из ролевой.`;
+  return `${s.n}. Мир: ${s.topic}. ${who}${reply}${split} Бытовое, без ${w.heroGen} и сцен из ролевой.`;
 }
 
 /** Статист для списка: ник и всё, что нужно голосу. */
@@ -563,6 +564,7 @@ function memberLine(a) {
  */
 export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
   const lines = [];
+  const w0 = heroWords(presetGender(preset));
   const real = worldRealities(state, preset);
   if (real.length) lines.push('Мир:', ...real.map((r) => `— ${r}`), '');
   const day = state && state.calendar && state.calendar.day;
@@ -607,7 +609,7 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     lines.push('');
   }
 
-  lines.push('Повестка выпуска (автор, отвечающий и разногласие назначены — не меняй их):', ...agenda.slots.map(slotLine), '');
+  lines.push('Повестка выпуска (автор, отвечающий и разногласие назначены — не меняй их):', ...agenda.slots.map((s) => slotLine(s, heroWords(presetGender(preset)))), '');
   lines.push(
     'Формат, по строке на реплику:',
     'П<номер слота> | автор | текст поста',
@@ -628,10 +630,10 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     '— Только заклинания и термины этого мира и пресета, ничего из известных книг и фильмов.',
     '— Время событий — по строкам «Календарь относительно сегодня». Что уже прошло — вспоминают как прошедшее («было», «прошло»); о прошедшем нельзя говорить как о будущем: никаких «готовимся к», «скоро», «ждём» про него.',
     '— Свои обороты автор не повторяет: ни начало фразы («Клянусь…», «Я бы так не…»), ни любимый оборот из трёх слов не стоят в двух репликах из трёх подряд.',
-    '— Героиню игрока и персонажей карточки не называй и не пиши от их имени, кроме слотов, где факт о них назначен.',
+    `— ${w0.heroAcc[0].toUpperCase()}${w0.heroAcc.slice(1)} игрока и персонажей карточки не называй и не пиши от их имени, кроме слотов, где факт о них назначен.`,
     '— Не повторяй темы последних веток: сдвигай историю дальше.',
   );
-  return { system: SYSTEM, user: lines.join('\n') };
+  return { system: systemOf(preset), user: lines.join('\n') };
 }
 
 // --- разбор и проверки -----------------------------------------------------------------------
@@ -954,7 +956,7 @@ export function parseIssue(text, agenda, opts = {}) {
     if ((t.match(/\p{L}/gu) || []).length < MIN_LETTERS) return { reason: 'пустая реплика' };
     if (row.kind === 'reply' && t.length < REPLY_MIN) return { reason: `ответ короче ${REPLY_MIN} знаков — не ответ по существу` };
     if (isCutOff(t)) return { reason: 'реплика оборвана на полуслове' };
-    if (!slot.heroine && mentionsStop(t, stop)) return { reason: 'речь о героине или персонаже карточки вне слота главных' };
+    if (!slot.heroine && mentionsStop(t, stop)) return { reason: 'речь о персонаже игрока или карточки вне слота главных' };
     const piece = brokenWords(t, author && author.manner);
     if (piece) return { reason: `в словах вставлен кусок «${piece}» — написание искажено` };
     if (dup(t)) return { reason: 'повтор уже сказанного' };
