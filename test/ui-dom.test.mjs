@@ -41,7 +41,9 @@ function makeNode(tag) {
   return {
     tagName: String(tag).toUpperCase(),
     children: [],
-    style: {},
+    // removeProperty нужен отложенной подгонке панели (`ui/panel.js`
+    // `watchViewport` → `fitPanel`): её таймер может сработать между тестами.
+    style: { removeProperty(p) { delete this[p]; }, setProperty(p, v) { this[p] = v; } },
     dataset: {},
     attrs: {},
     listeners: {},
