@@ -171,16 +171,13 @@ test('квота: о главных не больше трети окна — п
   assert.ok(buildAgenda(fresh, preset, opts()).slots.some((x) => x.kind === 'main'));
 });
 
-test('повестка при N=1 маленькая, сюжетик продвигается не каждый выпуск', () => {
+test('повестка при N=1 маленькая, а сюжетик продвигается в каждом выпуске (баг 73)', () => {
   const s = semester({ threads: 2 });
   fact(s, 'f1');
   const first = buildAgenda(s, preset, opts({ every: 1, issue: 1 }));
   assert.ok(first.slots.length <= 2 && first.slots.length >= 1);
   const crowd = (issue) => buildAgenda(s, preset, opts({ every: 1, issue })).slots.find((x) => x.kind === 'crowd');
-  assert.equal(crowd(1).advance, false, 'первый заход к сюжетику: без шага вперёд');
-  assert.equal(crowd(2).advance, false, 'второй сюжетик — тоже первый заход');
-  assert.equal(crowd(3).advance, true, 'второй заход к первому сюжетику: шаг вперёд');
-  assert.equal(crowd(4).advance, true);
+  for (const issue of [1, 2, 3, 4]) assert.equal(crowd(issue).advance, true, `выпуск ${issue}`);
 });
 
 test('календарь: событие в пределах 14 дней даёт слот, дальше горизонта — нет', () => {
@@ -370,7 +367,7 @@ test('два поста подряд одного автора — второй 
   assert.equal(g.lines.length, 0);
 });
 
-test('автор: не из каста, не назначенный, героиня и персонаж карточки — вон', () => {
+test('автор: не из каста, героиня и персонаж карточки — вон; другой член каста вместо назначенного — принимается', () => {
   const r = parse([
     'П1 | Новый Незнакомец | Говорят, помолвка уже назначена, только никому!',
     'П1 | вечно второй | Кто-то должен был это сказать вслух.',
@@ -382,10 +379,14 @@ test('автор: не из каста, не назначенный, герои�
   assert.deepEqual(r.lines.map((l) => l.n), [1]);
   assert.deepEqual(r.rejected.map((x) => x.reason.replace(/«.*?»/, '«»')), [
     'автор «» не из каста и не из «Людей»',
-    'пишет не тот, кого назначила повестка',
+    'второй пост в слоте',
     'автор «» не из каста и не из «Людей»',
     'автор «» не из каста и не из «Людей»',
   ]);
+  assert.equal(r.lines[0].author.name, 'вечно второй', 'написал не назначенный, но свой — пост принят, автор переназначен');
+  assert.equal(r.reassigned.length, 1);
+  assert.deepEqual([r.reassigned[0].from, r.reassigned[0].to], ['всё-видел', 'вечно второй']);
+  assert.ok(r.rejected.every((x) => Number.isInteger(x.line)), 'у каждой причины есть номер строки');
 });
 
 test('речь о героине вне слота главных — вон (квота держится кодом, не просьбой)', () => {
@@ -549,7 +550,7 @@ test('выпуск откатывается вместе с ответом и в
 test('состояние старого семестра без счёта выпусков читается как пустой счёт', () => {
   const s = semester();
   delete s.feed.molva;
-  assert.deepEqual(normalizeFeed(s.feed).molva, { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' } });
+  assert.deepEqual(normalizeFeed(s.feed).molva, { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' }, leads: [], cal: [] });
   assert.equal(THREADS_MAX, 3);
   assert.equal(ensureFeed({}).molva.issue, 0);
 });

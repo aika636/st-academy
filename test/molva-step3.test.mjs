@@ -15,7 +15,7 @@ import { addFeedItem, clipText, normalizeFeed, feedWorldTopics, FEED_TEXT_MAX } 
 import { setCast, rumorAuthors } from '../core/feed-cast.mjs';
 import { startThread, openThreads, settleThreads, threadOver } from '../core/feed-threads.mjs';
 import { buildAgenda, planIssue, buildMolvaPrompt, parseIssue, applyIssue, replayMolva, newFacts, REPLY_MIN } from '../core/molva.mjs';
-import { hookCore } from '../core/plot.mjs';
+import { hookCore, hookWording } from '../core/plot.mjs';
 import { stopList } from '../core/stop-names.mjs';
 import { createState } from '../core/state.mjs';
 import { buildSchedule } from '../core/schedule.mjs';
@@ -111,9 +111,16 @@ test('взять в сюжет по посту молвы: происхожде�
   const s = semester();
   addFeedItem(s, { id: 'molva-1#1', src: 'molva-1', at: { day: DAY }, kind: 'reaction', nick: 'всёвидел', type: 'сплетник', text: 'Говорят, декан закроет буфет' });
   const c = hookCore(s, 'molva-1#1', { heroine: 'Аня', preset });
-  assert.match(c.core, /повод из молвы, неподтверждённый слух от сплетник/);
+  assert.match(c.core, /^слух от @всёвидел \(сплетник\): «Говорят, декан закроет буфет»/);
   assert.match(c.core, /не установленный факт/);
   assert.equal(c.rumor, true);
+  // Баг 78: ни «в ветке отвечают», ни второго «слух» в рамке.
+  addFeedItem(s, { id: 'molva-1^1', src: 'molva-1', at: { day: DAY }, kind: 'reaction', nick: 'вечно второй', parent: 'molva-1#1', text: 'А кто сказал, что он вообще закроет?' });
+  const again = hookCore(s, 'molva-1#1', { heroine: 'Аня', preset });
+  assert.doesNotMatch(again.core, /в ветке/);
+  const wording = hookWording(again, { preset });
+  assert.equal((wording.match(/слух/giu) || []).length, 1, wording);
+  assert.doesNotMatch(wording, /Это слух/);
 });
 
 // --- п. 60 ------------------------------------------------------------------------------

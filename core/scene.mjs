@@ -25,6 +25,7 @@ import { cloneState } from './state.mjs';
 import * as course from './classmates.mjs';
 import { HEROINE } from './parse-marker.mjs';
 import { normName, stopHit } from './stop-names.mjs';
+import { gradeInfo } from './exams.mjs';
 import {
   ensureFeed, addFeedItem, removeFeedItem, markSeen, restoreSeen,
   openDeal, closeDeal, revertDeal, putReactions, unmarkPlayed, hash, postByRef,
@@ -323,6 +324,101 @@ function placeEvent(next, ev, preset, opts) {
     return { kind: 'deal', ...r };
   }
   return null;
+}
+
+// --- заметные факты о героине (баг 77) -----------------------------------------------------
+//
+// Прогул, опоздание, провал или триумф на контрольной, громкая оценка — курс это
+// видит, а молва о таком молчала: в факты шли только стычка и слух. Такой факт
+// публичный (прогул наедине не бывает) и ложится в ленту с пометкой `minor`: тема
+// слота «Главные» с низким приоритетом (после стычек и слухов, в квоте трети), но не
+// пункт ленты, не повод рассказчику и не фон сцены — героиня и так про себя знает.
+
+/** Что в разборе считается заметным (ключ — вид события разборщика). */
+export const NOTABLE_KINDS = ['attendance', 'grade'];
+
+/** Подпись по роду имени: «прогуляла» / «прогулял» / безличная форма. */
+function byGender(g, f, m, n) {
+  return g === 'f' ? f : g === 'm' ? m : n;
+}
+
+/**
+ * Заметный факт из события разбора: `{text, gist, loud}` либо `null`, если событие
+ * ничем не примечательно (обычная оценка при тихом разборе).
+ *
+ * @param {Object} ev событие разборщика (`attendance` или `grade`)
+ * @param {Object} state
+ * @param {Object} preset
+ * @param {{heroine?: string, loud?: ?number}} [opts] имя героини и громкость разбора
+ */
+export function notableFact(ev, state, preset, opts = {}) {
+  if (!ev || !NOTABLE_KINDS.includes(ev.kind)) return null;
+  const H = String(opts.heroine || '').trim() || 'героиня';
+  const g = genderOfName(H);
+  const loud = Number.isInteger(opts.loud) ? opts.loud : null;
+  const subject = (((state && state.subjects) || []).find((s) => s && s.id === ev.subjectId) || {}).name || ev.subjectId || '';
+  const subj = subject ? ` «${subject}»` : '';
+  let gist = '';
+  let level = loud === null ? 1 : loud;
+  if (ev.kind === 'attendance') {
+    if (ev.status === 'late') gist = byGender(g, `${H} опоздала на${subj}`, `${H} опоздал на${subj}`, `у ${H} опоздание —${subj}`);
+    else {
+      gist = byGender(g, `${H} прогуляла${subj}`, `${H} прогулял${subj}`, `у ${H} прогул —${subj}`);
+      level = Math.max(level, 2);
+    }
+  } else {
+    const info = gradeInfo(preset, ev.value);
+    // Триумф — лучший балл шкалы пресета; у шкалы «зачёт/незачёт» баллов нет, и триумфа тоже.
+    const points = (((preset && preset.grades && preset.grades.values) || []).map((v) => v && v.points)).filter((p) => typeof p === 'number');
+    const fail = Boolean(info) && info.pass === false;
+    const triumph = Boolean(info) && !fail && typeof info.points === 'number' && points.length > 0 && info.points >= Math.max(...points);
+    const mark = String(ev.value);
+    if (fail) gist = byGender(g, `${H} провалила${subj} (${mark})`, `${H} провалил${subj} (${mark})`, `у ${H} провал —${subj} (${mark})`);
+    else if (triumph) gist = byGender(g, `${H} блеснула на${subj} (${mark})`, `${H} блеснул на${subj} (${mark})`, `у ${H} триумф —${subj} (${mark})`);
+    else if (loud !== null && loud >= 2) gist = byGender(g, `${H} получила ${mark} по${subj}`, `${H} получил ${mark} по${subj}`, `у ${H} оценка ${mark} по${subj}`);
+    if (fail || triumph) level = Math.max(level, 2);
+  }
+  return gist ? { text: gist, gist, loud: Math.max(0, Math.min(3, level)) } : null;
+}
+
+/**
+ * Заметные факты пачки событий ответа — в ленту: публичные (не «наедине»), про
+ * героиню, прочитанные, с пометкой `minor`. Идемпотентно: id от отпечатка ответа и
+ * токена. Состояние не правится — возвращается копия (или оно же, если нечего класть).
+ *
+ * @param {Object} state
+ * @param {Array<{ev: Object, token: string}>} items события разбора
+ * @param {Object} preset
+ * @param {{src?: string, day?: string, time?: string, heroine?: string, loud?: ?number}} [opts]
+ */
+export function applyNotableFacts(state, items, preset, opts = {}) {
+  const list = (items || [])
+    .filter((x) => x && x.ev && NOTABLE_KINDS.includes(x.ev.kind) && x.token)
+    .map((x) => ({ token: x.token, fact: notableFact(x.ev, state, preset, opts) }))
+    .filter((x) => x.fact);
+  if (!list.length) return state;
+  const next = cloneState(state);
+  const at = { day: opts.day || (next.calendar && next.calendar.day) || '', time: opts.time || '' };
+  for (const { token, fact } of list) {
+    addFeedItem(next, {
+      id: factId(opts.src || '', token),
+      src: opts.src || '',
+      at,
+      factRef: token,
+      kind: 'fact',
+      chan: 'chat',
+      text: fact.text,
+      gist: fact.gist,
+      rumor: false,
+      truth: null,
+      about: [HEROINE],
+      heroine: true,
+      loud: fact.loud,
+      read: true,
+      minor: true,
+    });
+  }
+  return next;
 }
 
 /** Снять факт курса по квитанции. Возвращает копию. */
