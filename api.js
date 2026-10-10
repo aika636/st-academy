@@ -120,6 +120,24 @@ export function isRetryableStatus(status) {
   return typeof status === 'number' && (status === 429 || status >= 500);
 }
 
+/**
+ * Шлюзовая ошибка: прокси ответил за модель сам. Живой прогон 10.10 (literouter):
+ * HTTP 200 с телом `{"error":{"message":"Bad Gateway"}}` — на статус смотреть
+ * мало, тело тоже. Таверна в таком случае бросает исключение с тем же текстом.
+ */
+export function isGatewayText(text) {
+  return /bad gateway|gateway time-?out|upstream (?:connect|request|timed)|50[234]/i.test(String(text == null ? '' : text));
+}
+
+/** Тело 200 без ответа модели, зато с ошибкой шлюза. */
+function isGatewayBody(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data) || data.choices) return false;
+  return Boolean(data.error) && isGatewayText(errorDetail(data));
+}
+
+/** Фраза отказа при шлюзовой ошибке; секретарь подменяет её своей (`index.js`). */
+export const GATEWAY_MESSAGE = 'Шлюз модели не ответил. Попробуйте ещё раз чуть позже.';
+
 /** Бюджет запроса числом: чужое значение уважается, мусор — нет. */
 function budgetOf(value, fallback) {
   const n = Number(value);
@@ -259,12 +277,15 @@ function withDeadline(promise, ms, signal) {
  * чужую генерацию в этот момент не трогаем), последним промпт возвращается к
  * копии. Нет `makeFirst`/`makeLast` (старая сборка) — запрос идёт как есть.
  */
+const WEB_SEARCH_KEYS = ['enable_web_search', 'use_web_search', 'web_search'];
+
 export async function withoutForeignInjections(ctx, probe, run) {
   const bus = ctx && ctx.eventSource;
   if (!bus || typeof bus.makeFirst !== 'function' || typeof bus.makeLast !== 'function'
     || typeof bus.removeListener !== 'function') return run();
   const types = (ctx && (ctx.eventTypes || ctx.event_types)) || {};
   const chatEvent = types.CHAT_COMPLETION_PROMPT_READY || 'chat_completion_prompt_ready';
+  const settingsEvent = types.CHAT_COMPLETION_SETTINGS_READY || 'chat_completion_settings_ready';
   const textEvent = types.GENERATE_AFTER_COMBINE_PROMPTS || 'generate_after_combine_prompts';
   const needle = String(probe == null ? '' : probe).trim().slice(0, 60);
   if (!needle) return run();
@@ -277,6 +298,13 @@ export async function withoutForeignInjections(ctx, probe, run) {
     if (data.chat.some((m) => m && has(m.content))) {
       chatSnap = { data, chat: data.chat, copy: data.chat.map((m) => ({ ...m })) };
     }
+  };
+  // Настройки запроса готовы: из пресета генерации приезжает поиск в сети —
+  // служебному разбору он не нужен (дольше, дороже, и шлюзы на нём падают).
+  const settingsFirst = (data) => {
+    if (!data || data.dryRun || !Array.isArray(data.messages)) return;
+    if (!data.messages.some((m) => m && has(m.content))) return;
+    for (const key of WEB_SEARCH_KEYS) if (key in data) delete data[key];
   };
   const chatLast = (data) => {
     if (!chatSnap || data !== chatSnap.data) return;
@@ -292,6 +320,7 @@ export async function withoutForeignInjections(ctx, probe, run) {
     data.prompt = textSnap.prompt;
   };
 
+  bus.makeFirst(settingsEvent, settingsFirst);
   bus.makeFirst(chatEvent, chatFirst);
   bus.makeLast(chatEvent, chatLast);
   bus.makeFirst(textEvent, textFirst);
@@ -299,7 +328,7 @@ export async function withoutForeignInjections(ctx, probe, run) {
   try {
     return await run();
   } finally {
-    for (const [e, f] of [[chatEvent, chatFirst], [chatEvent, chatLast], [textEvent, textFirst], [textEvent, textLast]]) {
+    for (const [e, f] of [[settingsEvent, settingsFirst], [chatEvent, chatFirst], [chatEvent, chatLast], [textEvent, textFirst], [textEvent, textLast]]) {
       try { bus.removeListener(e, f); } catch { /* сосед сломал шину — не наша беда */ }
     }
   }
@@ -318,6 +347,25 @@ export async function withoutForeignInjections(ctx, probe, run) {
  * try, а не проверка результата.
  */
 export async function tavernComplete(ctx, req = {}) {
+  let res = await tavernCompleteOnce(ctx, req);
+  // Шлюз прокси моргает сам по себе — те же паузы, что у `request`.
+  for (const pause of req.retry === false ? [] : RETRY.pauses) {
+    if (res.ok || res.code !== 'gateway') break;
+    await sleepImpl(pause, req.signal);
+    if (req.signal && req.signal.aborted) return classifyError({ error: abortError() });
+    res = await tavernCompleteOnce(ctx, req);
+  }
+  return res;
+}
+
+/** Таверна, исключение или тело с ошибкой → отказ; шлюзовой — кодом `gateway`. */
+function tavernFailure(error, fallback) {
+  const detail = (error && error.message) || '';
+  if (isGatewayText(detail)) return classifyError({ gateway: true, status: 200, body: detail });
+  return { ok: false, code: 'tavern', status: null, detail, message: fallback(detail || 'без подробностей') };
+}
+
+async function tavernCompleteOnce(ctx, req = {}) {
   const { system = '', user = '', profileId = '' } = req;
   const maxTokens = budgetOf(req.maxTokens, TOKEN_BUDGETS.default);
   const c = tavern(ctx);
@@ -344,6 +392,7 @@ export async function tavernComplete(ctx, req = {}) {
       const out = await withDeadline(service.sendRequest(profile.id, messages, maxTokens, {
         stream: false, extractData: true, includePreset: true, includeInstruct: true,
       }), req.timeout || TIMEOUTS.complete, req.signal);
+      if (isGatewayBody(out)) return classifyError({ gateway: true, status: 200, body: out });
       const text = parseCompletion(out);
       if (!text.trim()) return { ok: false, code: 'empty', status: null, detail: '', message: 'Модель вернула пустой ответ.' };
       return {
@@ -352,13 +401,7 @@ export async function tavernComplete(ctx, req = {}) {
       };
     } catch (error) {
       if (error && error.name === 'AbortError') return classifyError({ error });
-      return {
-        ok: false,
-        code: 'tavern',
-        status: null,
-        detail: (error && error.message) || '',
-        message: `Профиль «${profile.name || profile.id}» не дал ответа: ${(error && error.message) || 'без подробностей'}.`,
-      };
+      return tavernFailure(error, (why) => `Профиль «${profile.name || profile.id}» не дал ответа: ${why}.`);
     }
   }
 
@@ -389,18 +432,13 @@ export async function tavernComplete(ctx, req = {}) {
     const out = await withoutForeignInjections(c, args.prompt, () => withDeadline(
       ask(), req.timeout || TIMEOUTS.complete, req.signal,
     ));
+    if (isGatewayBody(out)) return classifyError({ gateway: true, status: 200, body: out });
     const text = parseCompletion(out);
     if (!text.trim()) return { ok: false, code: 'empty', status: null, detail: '', message: 'Модель вернула пустой ответ.' };
     return { ok: true, text, via: 'tavern', budget: maxTokens, truncated: isTruncated(out, text) };
   } catch (error) {
     if (error && error.name === 'AbortError') return classifyError({ error });
-    return {
-      ok: false,
-      code: 'tavern',
-      status: null,
-      detail: (error && error.message) || '',
-      message: `Подключение таверны не дало ответа: ${(error && error.message) || 'без подробностей'}.`,
-    };
+    return tavernFailure(error, (why) => `Подключение таверны не дало ответа: ${why}.`);
   }
 }
 
@@ -569,6 +607,9 @@ export function classifyError(info = {}) {
     return err.timeout
       ? make('timeout', `Модель не ответила за отведённое время${where}.`)
       : make('aborted', 'Запрос отменён.');
+  }
+  if (info.gateway === true || status === 502 || status === 504 || (status !== null && isGatewayText(detail))) {
+    return make('gateway', GATEWAY_MESSAGE);
   }
   if (status === null) {
     // fetch бросает TypeError и на недоступный адрес, и на запрет CORS: браузер
@@ -754,13 +795,13 @@ async function request(url, init, opts) {
   let res = await requestOnce(url, init, opts);
   let tries = 1;
   for (const pause of pauses) {
-    if (res.ok || !isRetryableStatus(res.status)) break;
+    if (res.ok || !(isRetryableStatus(res.status) || res.code === 'gateway')) break;
     await sleepImpl(pause, opts.signal);
     if (opts.signal && opts.signal.aborted) return classifyError({ error: abortError(), url, model: opts.model });
     res = await requestOnce(url, init, opts);
     tries += 1;
   }
-  if (!res.ok && tries > 1) {
+  if (!res.ok && tries > 1 && res.code !== 'gateway') {
     // Человек должен знать, что «подождите и повторите» уже сделано за него —
     // иначе он нажмёт кнопку сразу и получит тот же 429.
     const again = tries - 1 === 1 ? 'уже повторило запрос' : `уже повторило запрос ${tries - 1} раза`;
@@ -789,6 +830,7 @@ async function requestOnce(url, init, { timeout, signal, model }) {
     let data;
     try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
     if (!res.ok) return classifyError({ status: res.status, body: data, url, model });
+    if (isGatewayBody(data)) return classifyError({ status: res.status, body: data, url, model, gateway: true });
     return { ok: true, status: res.status, data, raw };
   } catch (error) {
     if (timedOut && error && error.name === 'AbortError') error.timeout = true;

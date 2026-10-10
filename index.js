@@ -2056,6 +2056,7 @@ async function analyzeMessage(mesId) {
       maxTokens: api.TOKEN_BUDGETS.analysis,
     });
     if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
+    if (res.code === 'gateway') return fail('Шлюз модели не ответил. Нажмите «Разобрать» ещё раз.');
     if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
     // Недавние посты ленты — те же, что видел секретарь (`buildAnalysisPrompt`):
     // по ним проверяется `reply=f2:…`. У поправки старого ответа их нет.
