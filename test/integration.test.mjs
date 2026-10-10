@@ -1001,7 +1001,7 @@ test('настоящее японское состояние под русски
   assert.equal(asked.ok, false, 'чужой пресет — повод спросить');
   assert.equal(asked.needsConfirm, true, 'но именно спросить, а не отказать');
   assert.notEqual(asked.code, 'invalid', 'жёсткого отказа тут быть не должно');
-  assert.ok(asked.reasons.some((r) => r.includes('jp-highschool') && r.includes('ru-university')),
+  assert.ok(asked.reasons.some((r) => r.includes('Японская старшая школа') && r.includes('Российский вуз')),
     'предупреждение называет оба пресета');
 
   const done = await seam.host.actions.importState(file, { confirm: true });
@@ -1246,7 +1246,7 @@ test('расхождение состояния и пресета названо
   const view = settingsView(seam.host.getState(), seam.host.getSettings(), seam.host.getPreset(), {
     presets: seam.host.getPresets(),
   });
-  assert.ok(view.presets.drift.includes('ru-university') && view.presets.drift.includes('magic-academy'),
+  assert.ok(view.presets.drift.includes('Российский вуз') && view.presets.drift.includes('Магическая академия'),
     'молча это не расходится ни в одной проверке, а средний балл на экране перестаёт считаться');
 });
 

@@ -43,7 +43,7 @@ export const TIME_MODES = [
 
 /** Кто решает исход контрольного в этом чате (`exams.examRule`). */
 export const EXAM_RULE_VIEW = [
-  { id: 'story', label: 'Сюжет', hint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — хвост' },
+  { id: 'story', label: 'Сюжет', hint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — остаётся долгом' },
   { id: 'dice', label: 'Кубик', hint: 'бросок против сложности, если сцена исход не назвала' },
 ];
 
@@ -97,7 +97,7 @@ export function validateSubjectRows(rows, preset) {
     const name = str(raw && raw.name);
     if (!name) { bad('teacher', i, 'name', U.errTeacherName); return; }
     const id = (str(raw && raw.id) || slugify(name, { maxLength: maxId })).slice(0, maxId);
-    if (teacherIds.has(id)) { bad('teacher', i, 'id', fill(U.errTeacherDup, { id })); return; }
+    if (teacherIds.has(id)) { bad('teacher', i, 'id', fill(U.errTeacherDup, { name })); return; }
     teacherIds.add(id);
     const traits = String((raw && raw.traits) || '').split(',').map((t) => t.trim()).filter(Boolean);
     if (!traits.length) notes.push(fill(U.noteNoTraits, { name }));
@@ -114,15 +114,15 @@ export function validateSubjectRows(rows, preset) {
     if (!name) { bad('subject', i, 'name', U.errSubjectName); return; }
     const id = (str(raw && raw.id) || slugify(name, { maxLength: maxId })).slice(0, maxId);
     if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) {
-      bad('subject', i, 'id', fill(U.errSubjectId, { id }));
+      bad('subject', i, 'id', fill(U.errSubjectId, { name }));
       return;
     }
-    if (subjectIds.has(id)) { bad('subject', i, 'id', fill(U.errSubjectDup, { id })); return; }
+    if (subjectIds.has(id)) { bad('subject', i, 'id', fill(U.errSubjectDup, { name })); return; }
     subjectIds.add(id);
 
     let teacherId = str(raw && raw.teacherId);
     if (teacherId && !teacherIds.has(teacherId)) {
-      bad('subject', i, 'teacherId', fill(U.errSubjectTeacher, { name, teacherId }));
+      bad('subject', i, 'teacherId', fill(U.errSubjectTeacher, { name }));
       teacherId = '';
     }
     if (!teacherId) notes.push(fill(U.noteNoTeacher, { name }));
@@ -344,6 +344,11 @@ function presetsView(raw, state, preset, U) {
   const stateId = String((state && state.presetId) || '');
   const activeItem = list.find((p) => String(p.id) === activeId);
   const activeName = activeItem ? String(activeItem.name || activeId) : activeId;
+  // Человеку — название пресета, а не его внутренний id.
+  const nameOf = (id) => {
+    const hit = list.find((p) => String(p.id) === id);
+    return hit ? String(hit.name || id) : id;
+  };
   return {
     active: activeId,
     activeUser: Boolean(activeItem && activeItem.user === true),
@@ -357,7 +362,7 @@ function presetsView(raw, state, preset, U) {
     })),
     started: Boolean(state && state.started),
     drift: stateId && activeId && stateId !== activeId
-      ? fill(U.presetDrift, { stateId, activeId })
+      ? fill(U.presetDrift, { stateId: nameOf(stateId), activeId: nameOf(activeId) })
       : '',
     // Чат заведён пресетом, которого нет в списке вовсе (удалён). Судится
     // только по настоящему списку хоста: запасной список из одного активного

@@ -165,7 +165,8 @@ test('в сессии тон меняется: несданное и остат�
   s.teachers[0].relation = -3;
 
   const line = statusLine(s, preset);
-  assert.ok(line.includes(`${cap(preset.vocab.examPeriod)}: не сдано 4, дней осталось`), line);
+  assert.ok(line.includes(`${cap(preset.vocab.examPeriod)}: не сдано 4, до конца — `), line);
+  assert.match(line, /до конца — [0-9]+ (день|дня|дней)/, line);
   assert.equal(line.includes('Сейчас:'), false, 'в сессию расписания нет');
   assert.equal(line.includes('Сегодня:'), false);
   // В кадре — преподаватель ближайшего контрольного, а не сегодняшней пары.
@@ -322,4 +323,27 @@ test('репутация — с названием шкалы, не обрывк
   const s = scene();
   s.reputation.value = preset.reputation.warnAt;
   assert.match(statusLine(s, preset), /Репутация: под угрозой отчисления\.$/);
+});
+
+test('склонение дней до конца сессии: 1 день, 2 дня, 5 дней, 11 дней, 21 день', async () => {
+  const { plural } = await import('../core/plural.mjs');
+  const word = (n) => `${n} ${plural(n, 'день', 'дня', 'дней')}`;
+  assert.equal(word(1), '1 день');
+  assert.equal(word(2), '2 дня');
+  assert.equal(word(5), '5 дней');
+  assert.equal(word(11), '11 дней');
+  assert.equal(word(21), '21 день');
+});
+
+test('пустое слово фазы не оставляет висячую запятую ни в семестре, ни вне его', () => {
+  const p = JSON.parse(JSON.stringify(preset));
+  p.labels = p.labels || {};
+  p.labels.phases = { study: '', weekend: '', vacation: '', break: '', exams: '' };
+  for (const day of ['2024-09-17', '2024-09-21', '2025-07-15', '2025-01-20']) {
+    const s = scene();
+    s.calendar.day = day;
+    const line = statusLine(s, p);
+    assert.ok(!/,\s*(?:[.;|\n\]]|$)/.test(line), `${day}: висячая запятая в «${line}»`);
+    assert.ok(!/,\s*,/.test(line), `${day}: двойная запятая в «${line}»`);
+  }
 });

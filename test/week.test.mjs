@@ -219,7 +219,7 @@ test('учебная неделя целиком: пары, оценки, хво
   const session = todayView(s, preset);
   assert.equal(session.phase, 'exams');
   assert.equal(session.silent, true);
-  assert.equal(session.silentReason, 'Сессия — лекций нет, идут контрольные.');
+  assert.equal(session.silentReason, 'Сессия — занятий нет, идут контрольные.');
 
   const board = gradebookView(s, preset);
   assert.equal(board.examsActive, true);

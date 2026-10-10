@@ -28,6 +28,7 @@
 //    `preset.vocab`. Хогвартс меняет пресет, а не этот файл.
 
 import { labelFor } from './core/state.mjs';
+import { plural } from './core/plural.mjs';
 import { weekIndex, phaseOf, weekdayIn, termAt } from './core/time.mjs';
 import { dayPlan, currentPeriod } from './core/schedule.mjs';
 import { debts, overallScore } from './core/gradebook.mjs';
@@ -69,7 +70,7 @@ export const DEFAULT_LABELS = {
 
   debts: '{debtPlural}: {list}',
   score: '{scoreName}: {value}',
-  exams: '{examPeriod}: не сдано {count}, дней осталось {days}',
+  exams: '{examPeriod}: не сдано {count}, до конца — {days} {daysWord}',
   examsNoDays: '{examPeriod}: не сдано {count}',
   relation: '{teacher}: {label}',
   /** Репутация — с названием шкалы: голое «На грани исключения.» читалось обрывком. */
@@ -253,6 +254,7 @@ function segmentsOf(state, preset, L) {
         examPeriod: vocab.examPeriod || '',
         count: String(count),
         days: String(days),
+        daysWord: plural(days, 'день', 'дня', 'дней'),
       }),
     });
   }
@@ -294,7 +296,8 @@ function daySegment(state, preset, L) {
   const span = numberOr(declared.studyWeeks, 0) + numberOr(declared.examWeeks, 0);
   const inTerm = week >= 1 && (!span || at.inside);
 
-  if (!inTerm) return fill(L.dayOutside, { weekday, phase: word });
+  // Пустое слово фазы («учебный день», «сессия» у части пресетов) — не повод для висячей запятой.
+  if (!inTerm) return word ? fill(L.dayOutside, { weekday, phase: word }) : weekday;
   if (!word) return fill(L.day, { weekday, week: String(week) });
   return fill(L.dayPhase, { weekday, week: String(week), phase: word });
 }

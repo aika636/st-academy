@@ -832,7 +832,6 @@ function summaryLine(summary, U) {
   if (!summary) return U.summaryNothing;
   const tail = summary.started ? '' : ` (${U.summaryNotStarted})`;
   return fill(U.summaryLine, {
-    presetId: summary.presetId || '—',
     day: summary.day || '—',
     subjects: summary.subjects,
     grades: summary.grades,

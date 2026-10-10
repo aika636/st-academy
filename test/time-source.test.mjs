@@ -330,7 +330,7 @@ test('движок: в режиме «своя метка» тег соседа 
 test('отладка показывает, что сработал тег соседа, и чей именно', () => {
   const r = applyResponse(semester(), '<!--tel:time:10:15 02.09.2024-->', preset);
   const view = debugView({ mesId: 3, debug: r.debug, notes: r.notes, injects: r.injects }, r.state, preset, { debug: true });
-  assert.match(view.source, /тег соседнего расширения/);
+  assert.match(view.source, /время из другого расширения/);
   assert.ok(view.applied.some((line) => line.includes('(tel:time)')), JSON.stringify(view.applied));
 
   // У прозы шаг разбора человеку ничего не скажет — его в строке нет.

@@ -666,7 +666,9 @@ export function buildExport(state, preset, opts = {}) {
     // Пресет назван и словом: `presetId` человеку ни о чём не говорит, а имя —
     // говорит, и именно по нему он поймёт, куда это состояние вообще везти.
     presetId: String((clean && clean.presetId) || (preset && preset.id) || ''),
-    presetName: String((preset && (preset.displayName || preset.name)) || ''),
+    // Имя — только если это пресет самого состояния: при расхождении (чат собран одним, активен другой) имя активного вводило бы в заблуждение.
+    presetName: (preset && String(preset.id || '') === String((clean && clean.presetId) || (preset && preset.id) || ''))
+      ? String(preset.displayName || preset.name || '') : '',
     // Справочная копия: решает всегда `state.schemaVersion`, см. решение 1.
     schemaVersion: clean && clean.schemaVersion,
     state: clean,
@@ -813,7 +815,7 @@ export function readExport(source, preset) {
     // будет называться иначе, а сессия — идти по другим правилам. Проверку
     // состояние уже прошло (иначе был бы `invalid`), значит это не отказ, а
     // предупреждение, которое человек обязан увидеть до записи.
-    warnings.push(presetMismatchNote(presetId, activeId, preset));
+    warnings.push(presetMismatchNote(presetId, activeId, preset, String(envelope.presetName || '')));
   }
 
   return {
@@ -823,6 +825,7 @@ export function readExport(source, preset) {
     from: report.from,
     envelope,
     presetId,
+    presetName: String(envelope.presetName || ''),
     presetMatches,
     warnings,
   };
@@ -843,8 +846,10 @@ export function readExport(source, preset) {
  * @param {Object} [preset]  активный пресет — за словами. Без него сработает
  *                           умолчание словаря, то есть слова русского вуза.
  */
-export function presetMismatchNote(presetId, activeId, preset = null) {
-  return fill(uiLabels(preset).presetMismatch, { from: presetId, to: activeId });
+export function presetMismatchNote(presetId, activeId, preset = null, fromName = '') {
+  // Человеку — названия пресетов, а не их внутренние id; id остаётся запасным.
+  const toName = String((preset && (preset.displayName || preset.name)) || '') || activeId;
+  return fill(uiLabels(preset).presetMismatch, { from: fromName || presetId, to: toName });
 }
 
 /**
@@ -901,7 +906,7 @@ export async function importState(ctx, source, preset, opts = {}) {
       ? fill(U.importOccupiedStarted, { subjects: s.subjects, day: s.day })
       : U.importOccupiedEmpty);
   }
-  if (!parsed.presetMatches) reasons.push(presetMismatchNote(parsed.presetId, String((preset && preset.id) || ''), preset));
+  if (!parsed.presetMatches) reasons.push(presetMismatchNote(parsed.presetId, String((preset && preset.id) || ''), preset, parsed.presetName));
 
   if (reasons.length && opts.confirm !== true) {
     return {
