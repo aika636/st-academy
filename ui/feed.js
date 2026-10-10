@@ -36,6 +36,7 @@ import { dealText, shortName } from '../core/scene.mjs';
 import {
   extraLabels, fill, formatDate, el, runAction, setStatus, call, renderPanel, mounted, safe, avatarNode,
 } from './common.js';
+import { molvaRefresh } from './cast.js';
 
 /** Сколько записей канала показывать: лента длинная, телефон — нет. */
 export const FEED_SHOWN = 40;
@@ -221,6 +222,9 @@ export function renderFeed(host, view, preset) {
   }
 
   if (view.queue.length) box.append(queueBlock(host, view, X));
+
+  // «Обновить молву» есть всегда, и при пустой ленте тоже: автомат мог быть выключен.
+  box.append(molvaRefresh(host, preset));
 
   box.append(el('div', { class: 'academy-feed-chans', role: 'tablist' }, view.channels.map((c) => el('div', {
     class: c.on ? 'menu_button academy-btn academy-feed-chan academy-feed-chan-on' : 'menu_button academy-btn academy-feed-chan',

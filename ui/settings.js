@@ -18,7 +18,7 @@ import {
   renderApiBlock, renderAnalysisBlock, renderModeBlock, renderPresetBlock, renderLorebookBlock,
   renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDrawBlock, renderDebugBlock, renderCardCastBlock,
 } from './settings-blocks.js';
-import { renderCastBlock } from './cast.js';
+import { renderCastParts } from './cast.js';
 
 /** Шесть полей анкеты (3.6). Порядок — как в таблице плана. */
 export const SURVEY_FIELDS = [
@@ -464,9 +464,8 @@ export function renderSettings(host) {
   box.append(renderSoundBlock(host, preset, settings));
 
   // --- поток курса: поводы в сюжет (шаг 4) --------------------------------
-  box.append(renderFeedBlock(host, preset, settings));
-  const mobBlock = renderCastBlock(host, preset);
-  if (mobBlock) box.append(mobBlock);
+  // Один блок «Молва» (баг 30): поводы, частота выпусков и каст со статистами.
+  box.append(renderFeedBlock(host, preset, settings, renderCastParts(host, preset)));
 
   // --- портреты: «Нарисовать» через провайдеров таверны (аватарки, шаг 4) ---
   const drawBlock = renderDrawBlock(host, preset, settings);

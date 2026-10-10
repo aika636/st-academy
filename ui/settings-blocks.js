@@ -9,6 +9,7 @@ import {
   call, safe, renderPanel, renderSettingsBlock,
 } from './common.js';
 import { DEBUG_TEXT } from './debug.js';
+import { molvaRefresh } from './cast.js';
 
 /** Уникальные id и имена: блок настроек живёт на странице в двух копиях. */
 let uid = 0;
@@ -993,10 +994,28 @@ export function renderSoundBlock(host, preset, settings) {
  * без рубильника молчит тоже. Фон — своя галочка: поводы ему не указ.
  * Заголовок — слово вкладки пресета («Поток», «Молва»): одно слово на ленту.
  */
-export function renderFeedBlock(host, preset, settings) {
+export function renderFeedBlock(host, preset, settings, extra = null) {
   const X = extraLabels(preset);
   const U = uiLabels(preset);
   const feed = (settings && settings.feed) || {};
+  // Когда обновлять молву: раз в N ответов (от 1) или только по кнопке.
+  const every = el('input', {
+    type: 'number', min: '1', max: '99', step: '1', class: 'text_pole academy-input academy-molva-every',
+    value: String(Number.isInteger(feed.molvaEvery) && feed.molvaEvery >= 1 ? feed.molvaEvery : 3),
+    disabled: feed.molvaManual === true,
+  });
+  const manual = el('input', { type: 'checkbox', checked: feed.molvaManual === true });
+  every.addEventListener('change', () => {
+    // Пусто или не число — привычные 3; меньше единицы — единица (каждый ответ).
+    const raw = Math.trunc(Number(every.value));
+    const n = String(every.value).trim() === '' || !Number.isFinite(raw) ? 3 : Math.max(1, Math.min(99, raw));
+    every.value = String(n);
+    safe(() => host.setSettings({ feed: { molvaEvery: n } }, { quiet: true }), null);
+  });
+  manual.addEventListener('change', () => {
+    every.disabled = manual.checked;
+    safe(() => host.setSettings({ feed: { molvaManual: manual.checked } }, { quiet: true }), null);
+  });
   const hooks = el('input', { type: 'checkbox', checked: feed.hooks !== false });
   const auto = el('input', { type: 'checkbox', checked: feed.auto === true, disabled: feed.hooks === false });
   const background = el('input', { type: 'checkbox', checked: feed.background !== false });
@@ -1008,6 +1027,12 @@ export function renderFeedBlock(host, preset, settings) {
     el('label', { class: 'academy-check' }, [background, el('span', { text: X.feedBackgroundToggle })]),
     el('label', { class: 'academy-check' }, [auto, el('span', { text: X.feedAutoToggle })]),
     el('p', { class: 'academy-note', text: X.feedSettingsNote }),
+    el('div', { class: 'academy-mob-title academy-mob-heading', text: X.molvaWhen }),
+    el('label', { class: 'academy-field academy-field-inline' }, [el('span', { text: X.molvaEvery }), every, el('span', { text: X.molvaEveryUnit })]),
+    el('label', { class: 'academy-check' }, [manual, el('span', { text: X.molvaManual })]),
+    el('p', { class: 'academy-note academy-molva-price', text: X.molvaPrice }),
+    molvaRefresh(host, preset),
+    ...(Array.isArray(extra) ? extra : []),
   ]);
 }
 

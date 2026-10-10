@@ -266,6 +266,22 @@ export function worldRealities(state, preset) {
   return out;
 }
 
+/**
+ * Праздники и события календаря пресета (и свои события чата) — полный список
+ * названий. Каст и сюжетики ссылаются только на них: модель без списка
+ * выдумывала «Ночь фонарей» там, где её нет (баг 57).
+ *
+ * @returns {string[]}
+ */
+export function calendarNames(state, preset) {
+  const out = [];
+  for (const h of [...holidaysOf(preset), ...eventsOf(state)]) {
+    const name = h && str(h.name);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out.slice(0, 20);
+}
+
 // --- промпты --------------------------------------------------------------------------
 
 const SYSTEM = 'Ты придумываешь постоянных второстепенных учеников для школьного чата — молвы — в ролевой игре.'
@@ -278,6 +294,11 @@ function worldBlock(input) {
   const lines = [];
   const real = (Array.isArray(i.realities) ? i.realities : []).filter(Boolean);
   if (real.length) lines.push('Реалии этого заведения (опирайся на них, а не на общие школьные штампы):', ...real.map((r) => `— ${r}`));
+  if (Array.isArray(i.calendar)) {
+    lines.push(i.calendar.length
+      ? `Праздники и события этого мира — только эти: ${i.calendar.join('; ')}. Ссылайся лишь на них; других праздников, балов и турниров не выдумывай.`
+      : 'В календаре этого мира нет ни праздников, ни событий: не упоминай никаких и не выдумывай.');
+  }
   const types = i.types && i.types.length ? i.types : feedExtras(i.preset);
   const manners = i.manners && i.manners.length ? i.manners : feedManners(i.preset);
   lines.push(`Типажи этого мира (бери оттуда или близкие по духу): ${types.join('; ')}.`);
@@ -329,7 +350,7 @@ export function buildCastPrompt(input) {
     '— союзник и соперник: ники других статистов из этого же списка, не себя; у каждого один союзник и один соперник.',
     '',
     `У всех ${count} разные типажи, интересы и манеры речи: ни одного повтора и ни одного близнеца.`,
-    'Не придумывай событий, не называй имён героини и сокурсников, не добавляй людей сверх списка.',
+    'Не придумывай событий и праздников вне календаря, не называй имён героини и сокурсников, не добавляй людей сверх списка.',
     `Выведи ровно ${count} строк, затем строку «${END_MARK}».`,
   ].join('\n');
   return { system: SYSTEM, user };
@@ -470,7 +491,7 @@ export async function assembleCast(input, ask) {
       code: first.truncated ? 'truncated' : 'parse',
       error: first.truncated
         ? 'Каст пришёл наполовину: модель оборвалась. Попробуйте ещё раз или выберите модель посвободнее.'
-        : 'Ответ модели не разобрался в список статистов.',
+        : 'Не удалось собрать статистов из ответа модели.',
       raw: first.text,
       calls,
     };

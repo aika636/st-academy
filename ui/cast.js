@@ -7,7 +7,7 @@
 // чем показать (`renderCastBlock`) — ниже.
 
 import { normalizeFeed, nickWord, THREADS_MAX } from '../core/feed.mjs';
-import { extraLabels, fill, el, runAction, setStatus, section, call, safe, renderPanel } from './common.js';
+import { extraLabels, fill, el, runAction, setStatus, section, call, safe, renderPanel, renderSettingsBlock } from './common.js';
 
 /** Поля, что правятся руками, в порядке показа: ключ статиста, ключ подписи. */
 export const CAST_FIELDS = [
@@ -55,8 +55,52 @@ export function castView(state, preset) {
 /** Замечания последней сборки: панель перерисовывается, а они должны дожить до показа. */
 let castWarn = '';
 
-/** Блок «Статисты и сюжетики» для вкладки «Настройки». Нет семестра — блока нет. */
+/** Что сказала последняя кнопка «Обновить молву»: перерисовка панели её не стирает. */
+let molvaNote = { kind: '', text: '' };
+
+/**
+ * Кнопка «Обновить молву» со строкой итога под ней. Есть всегда — и на вкладке
+ * ленты, и в настройках: автомат у кого-то выключен, а у кого-то редкий.
+ * Итог живёт в модуле, потому что после выпуска панель перерисовывается.
+ */
+export function molvaRefresh(host, preset) {
+  const X = extraLabels(preset);
+  const status = el('div', { class: 'academy-status' });
+  if (molvaNote.text) setStatus(status, molvaNote.kind, molvaNote.text);
+  const button = el('div', {
+    class: 'menu_button academy-btn academy-btn-small academy-molva-refresh',
+    text: X.molvaButton,
+    onclick: async (e) => {
+      molvaNote = { kind: '', text: '' };
+      const res = await runAction(e.currentTarget, status, () => call(host, 'refreshMolva'), X.molvaDone);
+      if (res && res.ok !== false) {
+        molvaNote = {
+          kind: 'ok',
+          text: fill(X.molvaDone, { posts: res.posts || 0, replies: res.replies || 0 }) + (res.skipped ? X.molvaDoneSkipped : ''),
+        };
+        renderPanel(host);
+      } else if (res) {
+        molvaNote = { kind: 'error', text: String(res.error || 'Не получилось.') };
+      }
+    },
+  });
+  return el('div', { class: 'academy-molva-refresh-box' }, [
+    el('div', { class: 'academy-row academy-row-buttons' }, [button]),
+    status,
+  ]);
+}
+
+/** Блок «Статисты и сюжетики» целиком — секцией, если нужен отдельно. */
 export function renderCastBlock(host, preset) {
+  const parts = renderCastParts(host, preset);
+  return parts ? section(extraLabels(preset).mobSection, parts) : null;
+}
+
+/**
+ * Статисты и сюжетики — узлами, без секции: они входят в общий блок «Молва»
+ * настроек (баг 30), под подзаголовком. Нет семестра — `null`.
+ */
+export function renderCastParts(host, preset) {
   const state = safe(() => host.getState(), null);
   if (!state || !state.started) return null;
   const X = extraLabels(preset);
@@ -92,7 +136,8 @@ export function renderCastBlock(host, preset) {
     el('div', { class: 'academy-note', text: t.who }),
   ]));
 
-  return section(X.mobSection, [
+  return [
+    el('div', { class: 'academy-mob-title academy-mob-heading', text: X.mobSection }),
     el('p', { class: 'academy-note', text: X.mobNote }),
     castWarn ? el('p', { class: 'academy-note academy-note-warn', text: fill(X.mobWarn, { text: castWarn }) }) : null,
     members.length ? el('div', { class: 'academy-mob-list' }, members) : el('p', { class: 'academy-note', text: X.mobEmpty }),
@@ -105,6 +150,7 @@ export function renderCastBlock(host, preset) {
           if (res && res.ok !== false) {
             castWarn = Array.isArray(res.warnings) ? res.warnings.join(' ') : '';
             renderPanel(host);
+            renderSettingsBlock(host);
           }
         },
       }),
@@ -114,5 +160,5 @@ export function renderCastBlock(host, preset) {
     el('div', { class: 'academy-mob-title', text: X.mobThreadsTitle }),
     threads.length ? el('div', { class: 'academy-mob-list' }, threads) : el('p', { class: 'academy-note', text: X.mobThreadsNone }),
     el('p', { class: 'academy-note', text: view.room }),
-  ]);
+  ];
 }

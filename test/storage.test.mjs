@@ -560,6 +560,20 @@ test('история ходов: мусор и чужой формат не чи
   assert.equal(read[1].stamp, null, 'откаченный ход остаётся откаченным');
 });
 
+test('история ходов: выпуски молвы переживают запись и чтение, мусор в них выбрасывается', () => {
+  const ctx = fakeContext();
+  saveState(ctx, good());
+  const item = { id: 'molva-1-x#1', src: 'molva-1-x', kind: 'reaction', nick: 'всё-видел', text: 'Слышали про бал?', chan: 'chat' };
+  const delta = { stamp: 's1', items: [item, { id: '', text: '' }], threads: [], molva: { issue: 1, since: 0, facts: ['f1'], at: { day: '2026-10-08', time: '' } } };
+  saveTurns(ctx, [turn(1, { molva: [delta, 'мусор', null] }), turn(2)]);
+  const back = loadTurns(ctx, preset);
+  assert.equal(back[0].molva.length, 1);
+  assert.equal(back[0].molva[0].stamp, 's1');
+  assert.deepEqual(back[0].molva[0].items.map((x) => x.id), ['molva-1-x#1'], 'битая запись выброшена');
+  assert.equal(back[0].molva[0].molva.issue, 1);
+  assert.deepEqual(back[1].molva, [], 'у хода без выпусков — пусто');
+});
+
 test('clearState и загрузка забывают историю ходов', async () => {
   const ctx = fakeContext();
   saveState(ctx, good());

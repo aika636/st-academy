@@ -24,7 +24,11 @@ import {
 import { applySceneEvents, applyReactions, localMet, revertSceneSource, SCENE_KINDS } from './core/scene.mjs';
 import {
   reactionCap, carryFeedMarks, rememberFeedMarks, markRead, markPlayed, setLoudness, toggleReact, recentPosts, postByRef,
+  feedItems as feedItemsOf,
 } from './core/feed.mjs';
+import {
+  tickMolva, molvaDue, everyOf, planIssue, buildMolvaPrompt, parseIssue, applyIssue, replayMolva, DELTAS_KEPT,
+} from './core/molva.mjs';
 import {
   emptyPlot, takeHook, dropHook, draftHook, hookPrompt, onGeneration, onPlayerSent, onReply, expireHooks,
   secretaryHooks, knownHooks, playedRefs, autoPick, isMuted, quietScene, HOLIDAY_KIND,
@@ -41,7 +45,7 @@ import { diffMilestones, milestoneName, milestones, recordTally } from './core/m
 import { stopList, filterPeople, stopHit } from './core/stop-names.mjs';
 import { normalizeCast, castNames, guessCastLocal } from './core/card-cast.mjs';
 import { addClassmate, updateClassmate, removeClassmate } from './core/classmates.mjs';
-import { castOf as feedCastOf, setCast as setFeedCast, updateMember as updateFeedMember, carryCast, worldRealities } from './core/feed-cast.mjs';
+import { castOf as feedCastOf, setCast as setFeedCast, updateMember as updateFeedMember, carryCast, worldRealities, calendarNames, rumorAuthors } from './core/feed-cast.mjs';
 import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName, carryRoster } from './core/classmates.mjs';
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump } from './core/engine.mjs';
@@ -1561,6 +1565,10 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   }
 
   state = sceneOfTurn(state, text, tokens, mark, c);
+  // Молва (шаг 2): ещё один ответ бота в счёт выпусков; выпуск этого же варианта
+  // ответа, если он уже был (пересчёт, правка, возврат на свайп), ложится заново.
+  // Считается от снимка «до ответа», поэтому свайп откатывает и счёт, и выпуск.
+  state = replayMolva(tickMolva(state), turn.molva, mark);
   // Пересчёт идёт от снимка «до ответа»: отметки ленты, поставленные после
   // него (прочитано, взято, истекло), переносятся с прошлой версии.
   // Память свайпов хода — то, что игрок отметил на этом же варианте до ухода
@@ -1594,6 +1602,10 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
   await syncLorebook();
   refreshPanel();
+  // Молва выпускается отдельным вызовом и без секретаря; ответ бота не ждёт её.
+  if (source === 'received') {
+    autoMolva(mesId, mark).catch((err) => console.error(`[${MODULE}] молва не выпущена:`, err));
+  }
   return 'посчитан';
 }
 
@@ -2571,6 +2583,7 @@ function feedCastInput() {
   return {
     preset: live.preset,
     realities: worldRealities(state, live.preset),
+    calendar: calendarNames(state, live.preset),
     heroine: String((c && c.name1) || ''),
     mainNames: castMainNames(c),
     classmates: (state.classmates || []).map((p) => p && p.name).filter(Boolean),
@@ -2615,6 +2628,104 @@ async function ensureFeedCast({ force = false } = {}) {
     }
   })();
   return castBuilding;
+}
+
+// --- выпуск молвы (шаг 2 плана «Молва») ------------------------------------------------
+//
+// Отдельный вызов модели, а не хвост секретаря: повестку (слоты, авторы,
+// отвечающие, квота на главных) собирает код, модель пишет реплики
+// (`core/molva.mjs`). Работает и без секретаря — счёт идёт по ответам бота
+// (`handleMessage`). Выпуск привязан к ответу, после которого он вышел: дельта
+// лежит в ходе (`turn.molva`), свайп откатывает её вместе со всей лентой, а
+// пересчёт того же ответа кладёт обратно. Пропущенные выпуски не догоняются.
+
+/** Настройки молвы: раз в сколько ответов и «только по кнопке». */
+function molvaSettings() {
+  const f = storage.loadSettings(ctx()).feed || {};
+  return { every: everyOf(f.molvaEvery), manual: f.molvaManual === true };
+}
+
+/** Идёт ли выпуск — второй не запускается. */
+let molvaRunning = null;
+
+/** Автомат: пора выпускать — выпускаем, тихо; сбой — в консоль, ответ бота уже обработан. */
+async function autoMolva(mesId, mark) {
+  if (!live.state || !live.state.started || feedMuted()) return;
+  if (!molvaDue(live.state, molvaSettings())) return;
+  const turn = live.turns[live.turns.length - 1];
+  if (!turn || turn.mesId !== mesId || turn.stamp !== mark) return;
+  if ((turn.molva || []).some((d) => d.stamp === mark)) return;
+  const res = await runMolva({ auto: true, mark });
+  if (!res.ok) console.warn(`[${MODULE}] молва: ${res.error}`);
+}
+
+/**
+ * Выпустить молву: каст (нет — соберётся), повестка, запрос, проверки, запись.
+ *
+ * @param {{auto?: boolean, mark?: string}} [opts] `auto` — по счёту ответов: тихо и со сбросом счёта при неудаче
+ * @returns {Promise<{ok: true, posts: number, replies: number, skipped: number} | {ok: false, error: string}>}
+ */
+async function runMolva({ auto = false, mark = '' } = {}) {
+  if (!live.state || !live.state.started || !live.preset) return { ok: false, error: 'семестра в этом чате нет' };
+  if (molvaRunning) return { ok: false, error: 'Молва уже обновляется — подождите немного.' };
+  const c = ctx();
+  const op = captureOperation();
+  molvaRunning = (async () => {
+    try {
+      const cast = await ensureFeedCast();
+      if (!cast.ok) return { ok: false, error: `Каст молвы не собран: ${cast.error}` };
+      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялась молва');
+
+      // К какому ответу привязан выпуск: к тому, после которого он вышел
+      // (автомат), или к последнему посчитанному (кнопка). Нет хода — без привязки.
+      const last = live.turns[live.turns.length - 1];
+      const turn = last && last.stamp && (!mark || last.stamp === mark) ? last : null;
+      if (auto && !turn) return { ok: false, error: 'Ответ сменился, пока собирался каст.' };
+      const stamp = turn ? turn.stamp : '';
+
+      const stop = classmateStop();
+      const { work, agenda } = planIssue(live.state, live.preset, { stop, every: auto ? molvaSettings().every : 0 });
+      if (!agenda.slots.length) return { ok: false, error: 'Писать некому: в касте нет подходящих статистов.' };
+      const prompt = buildMolvaPrompt(work, live.preset, agenda, { statusLine: statusLine(live.state, live.preset) });
+      const res = await api.generateMolva(prompt, storage.apiSettings(c), c);
+      if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялась молва');
+      if (!res.ok) return { ok: false, error: `Молва не обновилась: ${res.error}` };
+      // Пока шёл запрос, ответ могли свайпнуть: выпуск про прежний вариант не нужен.
+      if (turn && live.turns[live.turns.length - 1] !== turn) return { ok: false, error: 'Ответ сменился, пока писалась молва.' };
+      if (turn && turn.stamp !== stamp) return { ok: false, error: 'Ответ сменился, пока писалась молва.' };
+
+      const parsed = parseIssue(res.text, agenda, {
+        pool: rumorAuthors(work, { stop }),
+        stop,
+        truncated: res.truncated === true,
+        existing: feedItemsOf(live.state).slice(-40).map((x) => x.text),
+      });
+      const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto });
+      if (parsed.rejected.length) console.info(`[${MODULE}] молва: отброшено`, parsed.rejected);
+      if (!out.ok) {
+        // Автомат не бьёт по запросам после каждого ответа: счёт сбрасывается, дельта-пустышка
+        // держит его и при пересчёте этого ответа.
+        if (out.delta && turn) {
+          turn.molva = [...(turn.molva || []), out.delta].slice(-DELTAS_KEPT);
+          await commit(replayMolva(live.state, [out.delta]));
+        }
+        return { ok: false, error: res.truncated
+          ? 'Модель оборвалась на середине — молва не обновилась. Попробуйте ещё раз.'
+          : 'Модель ответила не по форме — ни одна реплика не прошла проверку. Попробуйте ещё раз.' };
+      }
+      const next = replayMolva(live.state, [out.delta]);
+      if (turn) turn.molva = [...(turn.molva || []), out.delta].slice(-DELTAS_KEPT);
+      await commit(next);
+      refreshPanel();
+      return { ok: true, posts: out.posts, replies: out.replies, skipped: parsed.rejected.length };
+    } catch (err) {
+      console.error(`[${MODULE}] молва не обновилась:`, err);
+      return { ok: false, error: `Молва не обновилась: ${(err && err.message) || err}` };
+    } finally {
+      molvaRunning = null;
+    }
+  })();
+  return molvaRunning;
 }
 
 // --- стоп-лист имён в плане (9.3.6) -----------------------------------------
@@ -3079,6 +3190,9 @@ const host = {
 
     /** Убедиться, что каст молвы есть; нет — собрать (шаг 2 зовёт это перед выпуском). */
     ensureFeedCast: () => ensureFeedCast(),
+
+    /** Кнопка «Обновить молву»: выпуск сейчас, независимо от счёта ответов. */
+    refreshMolva: () => runMolva({}),
 
     /** Кнопка «Пересобрать каст»: статисты новые, сюжетики прежнего каста закрываются. */
     rebuildFeedCast: () => ensureFeedCast({ force: true }),

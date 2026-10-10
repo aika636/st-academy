@@ -750,6 +750,33 @@
   font-weight: 600;
 }
 
+/* Подзаголовок внутри общего блока «Молва» в настройках. */
+.academy-mob-heading {
+  margin-top: 12px;
+}
+
+/* «Обновлять молву раз в [3] ответов» — в одну строку, поле узкое. */
+.academy-field-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.academy-field-inline > span {
+  font-size: inherit;
+  color: inherit;
+}
+
+.academy-field-inline > .academy-input {
+  width: 4.5em;
+  flex: none;
+}
+
+.academy-molva-refresh-box {
+  margin: 6px 0;
+}
+
 .academy-mob-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
