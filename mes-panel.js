@@ -89,7 +89,7 @@ export function sectionLabel(section, labels = {}) {
   return fillText(section.label, { ...LABELS, ...labels });
 }
 
-const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная' };
+const ATTENDANCE = { skip: 'прогул', late: 'опоздание', excused: 'уважительная', worked: 'прогул отработан' };
 
 /**
  * Строка события (`ui.hookJournal`) словами. Отметка «был на паре» —

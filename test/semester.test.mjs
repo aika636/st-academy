@@ -427,16 +427,17 @@ test('прогульщицу отчисляют, и каждый порог ин
   let s = semester(DAY_TWO);
   const before = s.reputation.value;
 
-  // Ни одного `t=+1`: сцена каждый раз перепрыгивает через целый день, и все
-  // четыре пары этого дня выводятся прогулянными.
+  // Прогул — только прямой факт (`skip=`): сцена каждый день называет все четыре
+  // пары прогулянными. Календарь молчаливых прогулов больше не выводит.
   const feed = [];
-  for (let d = 0; d < 4; d += 1) feed.push(`Она снова не пошла.\n${marker('t=+1 day')}`);
+  for (let d = 0; d < 5; d += 1) {
+    feed.push(`Она снова не пошла.\n${marker('t=+1 day skip=chemistry skip=physics skip=history skip=math')}`);
+  }
   const { state: after, steps } = run(s, feed);
   s = after;
 
   const att = totalStats(s);
-  assert.equal(att.present, 0, 'ни одной посещённой пары');
-  assert.ok(att.skips >= 12, `прогулов: ${att.skips}`);
+  assert.equal(att.skips, 20, `прогулов: ${att.skips}`);
   assert.equal(effectiveSkips(s, 'chemistry', preset) >= preset.attendance.debtAfterSkips, true);
   assert.equal(debts(s).length, 4, 'хвост по каждому предмету');
 
@@ -446,13 +447,14 @@ test('прогульщицу отчисляют, и каждый порог ин
   assert.equal(s.reputation.expelled, true, 'прогульщица обязана быть отчислена');
   assert.equal(reputationLabel(s, preset), 'отчислена');
 
-  // Пороги: предупреждение на втором дне, отчисление на третьем — и ни одного
-  // повтора на четвёртом, хотя репутация всё это время лежит ниже обоих порогов.
+  // Пороги: предупреждение на десятом прогуле (третий день), отчисление на
+  // семнадцатом (пятый) — и ни одного повтора, хотя репутация всё это время
+  // лежит ниже порога предупреждения.
   const kinds = steps.map((st) => st.injects.map((i) => i.id));
-  assert.deepEqual(kinds, [[], ['reputation-warn'], ['reputation-expel'], []], JSON.stringify(kinds));
+  assert.deepEqual(kinds, [[], [], ['reputation-warn'], [], ['reputation-expel']], JSON.stringify(kinds));
   assert.deepEqual(s.pending, [], 'очередь снята полностью');
-  assert.equal(steps[1].injects[0].text, preset.vocab.warnInject);
-  assert.equal(steps[2].injects[0].text, preset.vocab.expelInject);
+  assert.equal(steps[2].injects[0].text, preset.vocab.warnInject);
+  assert.equal(steps[4].injects[0].text, preset.vocab.expelInject);
 });
 
 test('порог репутации не размножается, даже когда за один ответ пробиты оба', () => {

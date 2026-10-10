@@ -108,6 +108,10 @@ export const METADATA_KEY = 'academy';
  * @property {string}  subjectId
  * @property {'present'|'skip'|'late'|'excused'} status
  * @property {?number} periodIndex
+ * @property {number}  [cost]      сколько репутации снял этот прогул (положительное
+ *                                 число); отработка возвращает ровно столько
+ * @property {string}  [workedOff] день, когда прогул отработан (`attendance.workOff`);
+ *                                 записи остаются в истории, но не висят открытыми
  */
 
 /**

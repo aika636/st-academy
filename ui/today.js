@@ -409,10 +409,10 @@ function heldJumpBlock(host, view, U) {
     () => call(host, 'resolveJump', accept),
     accept ? U.jumpAccepted : U.jumpDismissed,
   ).then((res) => {
-    // Число пропущенных занятий известно только после ответа ядра, и сказать
+    // Число засчитанных занятий известно только после ответа ядра, и сказать
     // его надо до перерисовки — она этот узел унесёт.
-    if (accept && res && res.ok && res.missed) {
-      setStatus(status, 'ok', fill(U.jumpAcceptedMissed, { count: res.missed }));
+    if (accept && res && res.ok && res.counted) {
+      setStatus(status, 'ok', fill(U.jumpAcceptedMissed, { count: res.counted }));
     }
     renderPanel(host);
   });
@@ -458,8 +458,8 @@ function manualTimeBlock(host, view, U) {
     'Календарь поправлен.',
   ).then((res) => {
     // Что стало с ведомостью, надо сказать до перерисовки: она унесёт узел.
-    if (res && res.ok && res.missed) setStatus(status, 'ok', fill(U.repairCounted, { count: res.missed }));
-    else if (res && res.ok && res.wouldMiss) setStatus(status, 'ok', fill(U.repairNotCounted, { count: res.wouldMiss }));
+    if (res && res.ok && res.counted) setStatus(status, 'ok', fill(U.repairCounted, { count: res.counted }));
+    else if (res && res.ok && res.wouldCount) setStatus(status, 'ok', fill(U.repairNotCounted, { count: res.wouldCount }));
     renderPanel(host);
   });
 

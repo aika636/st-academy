@@ -174,7 +174,7 @@ export function describeApplied(item, vocab, ctx = {}) {
   const { state = null, preset = null } = ctx || {};
   vocab = vocab || {};
   switch (item.kind) {
-    case 'attendance': return `посещаемость: ${item.subjectId} — ${item.status}`;
+    case 'attendance': return `посещаемость: ${item.subjectId} — ${item.status}${item.derived ? ' (по приходу на пару)' : ''}`;
     case 'missed': return `пропущено по расписанию: ${item.count}`;
     case 'grade': return `оценка: ${item.subjectId} — ${item.value}`;
     // Число отношения тут законно: отладка — единственное место, куда оно

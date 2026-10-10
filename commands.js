@@ -211,8 +211,8 @@ export async function timeText(host, args = {}) {
   const U = uiLabels(host.getPreset());
   return lines([
     whenText(host),
-    res.missed ? fill(U.cmdCounted, { count: res.missed }) : null,
-    res.wouldMiss ? fill(U.cmdNotCounted, { count: res.wouldMiss }) : null,
+    res.counted ? fill(U.cmdCounted, { count: res.counted }) : null,
+    res.wouldCount ? fill(U.cmdNotCounted, { count: res.wouldCount }) : null,
     res.reputation ? fill(U.cmdReputationMoved, { from: res.reputation.from, to: res.reputation.to }) : null,
   ]);
 }

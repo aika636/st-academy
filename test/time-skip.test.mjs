@@ -122,13 +122,13 @@ test('9.2 потолок промотки: заказанное плюс сут�
 });
 
 test('9.2 политика посещаемости промотки: умолчание attend, мусор — тоже attend', () => {
-  assert.deepEqual(SKIP_POLICIES, ['attend', 'absent', 'ask']);
+  assert.deepEqual(SKIP_POLICIES, ['attend', 'ask']);
   for (const id of ['ru-university', 'jp-highschool', 'magic-academy']) {
     assert.equal(skipPolicyOf(loadPreset(id)), 'attend', `${id}: пресет объявляет attend`);
   }
   assert.equal(skipPolicyOf({}), 'attend');
   assert.equal(skipPolicyOf(withPolicy('прогул')), 'attend');
-  assert.equal(skipPolicyOf(withPolicy('absent')), 'absent');
+  assert.equal(skipPolicyOf(withPolicy('absent')), 'attend', 'старое absent читается как attend');
 });
 
 // --- санкционированный прыжок -----------------------------------------------
@@ -157,7 +157,7 @@ test('9.2 прыжок дальше потолка промотки всё ра�
 
   const res = resolveHeldJump(run.state, withPolicy('attend'), true);
   assert.equal(res.applied, true);
-  assert.equal(res.missed.length, 0, 'принятый прыжок из промотки не превращается в прогулы');
+  assert.ok(res.counted > 0, 'принятый прыжок из промотки записан посещённым');
   assert.equal(skipsOf(res.state), 0);
   assert.ok(presentOf(res.state) > 0);
 });
@@ -178,12 +178,13 @@ test('9.2 skipPolicy attend: перешагнутые дни — присутс�
   assert.equal(presentOf(run.state), 20);
 });
 
-test('9.2 skipPolicy absent: перешагнутые дни — прогулы, как у любого прыжка', () => {
+test('9.2 старое skipPolicy absent прогулов больше не пишет: перешагнутые дни посещены', () => {
   const s = semester('2024-10-07');
   const run = applyResponse(s, WEEK_LATER, withPolicy('absent'), { timeSkip: { days: 7 } });
   assert.equal(run.state.calendar.day, '2024-10-14');
-  assert.ok(run.missed.length > 0);
-  assert.equal(presentOf(run.state), 0);
+  assert.equal(run.missed.length, 0);
+  assert.equal(skipsOf(run.state), 0);
+  assert.equal(presentOf(run.state), 20);
 });
 
 test('9.2 skipPolicy ask пока ведёт себя как attend и видна в отладке', () => {

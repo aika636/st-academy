@@ -1068,13 +1068,13 @@ function noticeMilestones(before, after) {
 }
 
 /**
- * Один тост на прыжок через дни (9.4.4): «Прошло занятий: 12, из них
- * пропущено: 4» — вместо молчания и вместо пачки по прогулу. `run.jump`
+ * Один тост на прыжок через дни (9.4.4): «Прошло занятий: 12, засчитаны
+ * как посещённые» — вместо молчания и вместо пачки по прогулу. `run.jump`
  * приходит из ядра только у прыжков через дни (`engine.sweepAttendance`).
  */
 function noticeJump(jump) {
   if (!jump || !jump.periods) return;
-  toast('info', fill(extraLabels(live.preset).jumpToast, { periods: jump.periods, missed: jump.missed || 0 }));
+  toast('info', fill(extraLabels(live.preset).jumpToast, { periods: jump.periods }));
 }
 
 /**
@@ -3359,8 +3359,8 @@ const host = {
       const now = (res.state.reputation && res.state.reputation.value) || 0;
       return {
         ok: true,
-        missed: res.missed.length,
-        wouldMiss: res.wouldMiss,
+        counted: res.counted,
+        wouldCount: res.wouldCount,
         reputation: now === was ? null : { from: was, to: now },
       };
     },
@@ -3386,7 +3386,7 @@ const host = {
       if (accept !== false) retimeLatestEntry();
       noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();
-      return { ok: true, missed: res.missed.length };
+      return { ok: true, counted: res.counted };
     },
 
     async testApi() {

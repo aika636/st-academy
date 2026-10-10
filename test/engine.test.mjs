@@ -110,7 +110,7 @@ test('очередь инжектов снимается с возвращённ
   const preset = strictPreset;
   let s = semester(DAY_TWO);
   s.reputation.value = 3;
-  const r = applyResponse(s, `Скандал.\n${marker('t=+1 day')}`, preset);
+  const r = applyResponse(s, `Скандал.\n${marker('t=+1 day skip=chemistry')}`, preset);
   assert.deepEqual(r.injects.map((i) => i.id), ['reputation-expel']);
   assert.deepEqual(r.state.pending, [], 'takePending снял всё с копии');
   assert.deepEqual(s.pending, [], 'исходное состояние очереди не имело и не получило');
@@ -564,14 +564,18 @@ test('прогульщица: тот же исход и те же пороги �
   let s = semester(DAY_TWO);
   const before = s.reputation.value;
 
+  // Прогул — только прямой факт (`skip=`): по четыре пары в ответе, пять ответов.
+  // Предупреждение ложится на десятом прогуле (третий ответ), отчисление — на
+  // семнадцатом (пятый), и каждое звучит ровно один раз.
   const feed = [];
-  for (let d = 0; d < 4; d += 1) feed.push(`Она снова не пошла.\n${marker('t=+1 day')}`);
+  for (let d = 0; d < 5; d += 1) {
+    feed.push(`Она снова не пошла.\n${marker('t=+1 day skip=chemistry skip=physics skip=history skip=math')}`);
+  }
   const { state: after, steps } = run(s, feed, {}, strictPreset);
   s = after;
 
   const att = totalStats(s);
-  assert.equal(att.present, 0);
-  assert.ok(att.skips >= 12, `прогулов: ${att.skips}`);
+  assert.equal(att.skips, 20, `прогулов: ${att.skips}`);
   assert.equal(effectiveSkips(s, 'chemistry', preset) >= preset.attendance.debtAfterSkips, true);
   assert.equal(debts(s).length, 4);
 
@@ -582,10 +586,10 @@ test('прогульщица: тот же исход и те же пороги �
   assert.equal(reputationLabel(s, preset), 'отчислена');
 
   const kinds = steps.map((st) => st.injects.map((i) => i.id));
-  assert.deepEqual(kinds, [[], ['reputation-warn'], ['reputation-expel'], []], JSON.stringify(kinds));
+  assert.deepEqual(kinds, [[], [], ['reputation-warn'], [], ['reputation-expel']], JSON.stringify(kinds));
   assert.deepEqual(s.pending, []);
-  assert.equal(steps[1].injects[0].text, preset.vocab.warnInject);
-  assert.equal(steps[2].injects[0].text, preset.vocab.expelInject);
+  assert.equal(steps[2].injects[0].text, preset.vocab.warnInject);
+  assert.equal(steps[4].injects[0].text, preset.vocab.expelInject);
 });
 
 test('кривая метка: мусор в rejected, годное из того же блока применяется', () => {
@@ -606,36 +610,36 @@ test('кривая метка: мусор в rejected, годное из тог�
   assert.equal(s.calendar.idle, 1, 'ответ, в котором время не разобралось, считается простоем');
 });
 
-test('ручной сдвиг ведомость не трогает, но говорит, сколько бы зачлось', () => {
-  // Решение прежнее — ремонт календаря не наказывает за день, которого не
-  // играли, — а вот молчание было дефектом: человек двигал время и не знал,
-  // что прогулы, репутация и отношения при этом не наступают вовсе.
+test('ручной сдвиг ведомость не трогает, но говорит, сколько бы записалось', () => {
+  // Ремонт календаря не пишет в ведомость день, которого не играли, — а молчание
+  // было дефектом: человек двигал время и не знал, что при этом происходит.
   const s = semester(DAY_TWO);
   const r = manualTime(s, { shift: { unit: 'day', n: 1 } }, preset);
 
   assert.equal(r.applied, true);
-  assert.deepEqual(r.missed, [], 'без просьбы ведомость чистая');
+  assert.equal(r.counted, 0, 'без просьбы ведомость чистая');
   assert.deepEqual(r.state.attendance.records, []);
   assert.equal(r.state.reputation.value, preset.reputation.start);
-  assert.equal(r.wouldMiss, preset.week.periodsPerDay, 'но сколько бы зачлось — известно');
+  assert.equal(r.wouldCount, preset.week.periodsPerDay, 'но сколько записалось бы — известно');
 });
 
-test('ручной сдвиг с count зачитывает пропущенное как обычное движение времени', () => {
+test('ручной сдвиг с count записывает пропущенное посещённым, а не прогулом', () => {
   const s = semester(DAY_TWO);
   const r = manualTime(s, { shift: { unit: 'day', n: 1 }, count: true }, preset);
 
   assert.equal(r.applied, true);
-  assert.equal(r.missed.length, preset.week.periodsPerDay);
-  assert.equal(r.wouldMiss, 0, 'зачтённое дважды не предлагается');
-  assert.ok(r.state.reputation.value < preset.reputation.start, 'последствия настоящие');
+  assert.equal(r.counted, preset.week.periodsPerDay);
+  assert.equal(r.wouldCount, 0, 'записанное дважды не предлагается');
+  assert.equal(r.state.reputation.value, preset.reputation.start, 'посещённое репутацию не двигает');
   assert.ok(r.state.attendance.records.length, 'записи в ведомости появились');
+  assert.ok(r.state.attendance.records.every((x) => x.status === 'present'));
 });
 
 test('ручной сдвиг никуда — ведомости не касается вовсе', () => {
   const s = semester(DAY_TWO);
   const r = manualTime(s, { shift: { unit: 'day', n: 0 }, count: true }, preset);
-  assert.deepEqual(r.missed, []);
-  assert.equal(r.wouldMiss, 0);
+  assert.equal(r.counted, 0);
+  assert.equal(r.wouldCount, 0);
 });
 
 test('«не надо» прыжок забывает, календарь остаётся на месте', () => {
@@ -647,7 +651,7 @@ test('«не надо» прыжок забывает, календарь ост
   assert.equal(no.applied, false);
   assert.equal(no.state.calendar.day, TERM_START, 'календарь не двинулся');
   assert.equal(no.state.calendar.heldJump, null, 'и вопрос больше не задаётся');
-  assert.deepEqual(no.missed, []);
+  assert.equal(no.counted, 0);
 });
 
 test('придержанный прыжок протухает, как только время пошло само', () => {
@@ -671,7 +675,7 @@ test('принятый прыжок в сессию её открывает — 
   assert.ok(yes.state.exams.items.length);
 });
 
-test('прыжок дальше горизонта не даёт ни одного прогула, ближний — даёт', () => {
+test('прыжок любой длины не даёт ни одного прогула: пропущенное посещено', () => {
   const preset = strictPreset;
   const s = semester(DAY_TWO);
   const horizon = preset.attendance.inferHorizonDays;
@@ -679,20 +683,20 @@ test('прыжок дальше горизонта не даёт ни одног
   const held = applyResponse(s, '📅 24 декабря 2024, 09:00\nОна вернулась после долгого перерыва.', preset);
   assert.equal(held.heldJump.day, '2024-12-24', 'три месяца вперёд — сперва вопрос человеку');
 
-  // Принятый прыжок идёт тем же путём, что обычное движение времени: горизонт
-  // вывода прогулов работает и здесь, иначе «принять» стоило бы человеку
-  // семестра прогулов задним числом.
+  // Принятый прыжок идёт тем же путём, что обычное движение времени: пара за
+  // скачком посещена, и «принять» не стоит человеку семестра прогулов задним
+  // числом. Длина скачка ничего не меняет.
   const far = resolveHeldJump(held.state, preset, true);
   assert.equal(far.state.calendar.day, '2024-12-24');
-  assert.deepEqual(far.missed, []);
-  assert.deepEqual(far.state.attendance.records, []);
+  assert.ok(far.counted > 0);
+  assert.ok(far.state.attendance.records.every((x) => x.status === 'present'));
   assert.equal(far.state.reputation.value, preset.reputation.start);
   assert.equal(far.state.reputation.expelled, false);
 
   const near = applyResponse(s, `Четыре дня как в тумане.\n${marker(`t=+${horizon - 3} day`)}`, preset);
-  assert.equal(near.missed.length, (horizon - 3) * preset.week.periodsPerDay);
-  assert.ok(near.state.reputation.value < preset.reputation.start);
-  assert.ok(near.debug.applied.some((x) => x.kind === 'missed'));
+  assert.equal(near.missed.length, 0);
+  assert.ok(near.state.attendance.records.every((x) => x.status === 'present'));
+  assert.equal(near.state.reputation.value, preset.reputation.start);
 });
 
 test('сдвиг больше потолка пресета календарь не двигает, причина уходит в notes', () => {
@@ -796,10 +800,6 @@ test('первый ответ в семестре не приносит прог
   assert.equal(relationOf(r.state, 'petrova'), preset.relations.start,
     'преподаватель не проехал четыре ярлыка за один ответ');
   assert.deepEqual(debts(r.state), []);
-  assert.ok(
-    r.state.journal.some((e) => e.kind === 'attendance' && e.text.includes('сутки заведения семестра')),
-    'причина названа в журнале, а не умолчана',
-  );
 });
 
 test('семестр заводят посреди дня: ни прогулов, ни присутствия за эти сутки', () => {
@@ -819,7 +819,8 @@ test('семестр заводят посреди дня: ни прогулов
 
   // А в следующем дне ведомость заполняется как обычно.
   const next = applyResponse(acc, `Ещё день.\n${marker('t=+1 day')}`, preset);
-  assert.ok(next.missed.length > 0, 'дальше календарь работает как раньше');
+  assert.ok(next.state.attendance.records.some((r) => r.day === '2025-09-02' && r.status === 'present'),
+    'дальше календарь работает как раньше: следующий день записан посещённым');
 });
 
 test('семестр заведён в выходной: правило держится на дате, а не на фазе', () => {
@@ -832,10 +833,11 @@ test('семестр заведён в выходной: правило держ
   assert.equal(toMonday.state.calendar.day, '2025-09-08');
   assert.deepEqual(toMonday.missed, [], 'в выходные прогуливать нечего');
 
-  // Понедельник — уже обычный день: прогулы за него считаются.
+  // Понедельник — уже обычный день: пары за скачком записаны посещёнными.
   const monday = applyResponse(toMonday.state, `И этот день мимо.\n${marker('t=+1 day')}`, preset);
-  assert.equal(monday.missed.length, preset.week.periodsPerDay);
-  assert.ok(monday.state.attendance.records.every((r) => r.day === '2025-09-08'));
+  assert.equal(monday.missed.length, 0);
+  assert.equal(monday.state.attendance.records.length, preset.week.periodsPerDay);
+  assert.ok(monday.state.attendance.records.every((r) => r.day === '2025-09-08' && r.status === 'present'));
 });
 
 test('прыжок сразу через неделю: день заведения не считается, остальные — считаются', () => {
@@ -845,10 +847,11 @@ test('прыжок сразу через неделю: день заведени
 
   assert.equal(r.state.calendar.day, '2025-09-08');
   // Понедельник — сутки заведения, вторник–пятница — четыре учебных дня.
-  assert.equal(r.missed.length, 4 * preset.week.periodsPerDay);
+  assert.equal(r.missed.length, 0);
+  assert.equal(r.state.attendance.records.length, 4 * preset.week.periodsPerDay);
   assert.deepEqual(r.state.attendance.records.filter((x) => x.day === MONDAY), [],
-    'день заведения остался пустым, соседние — нет');
-  assert.ok(r.state.reputation.value < preset.reputation.start, 'за остальные дни отвечать пришлось');
+    'день заведения остался пустым, соседние — записаны посещёнными');
+  assert.equal(r.state.reputation.value, preset.reputation.start, 'за скачок отвечать не пришлось');
 });
 
 test('названный вслух прогул в день заведения записывается: правило про вывод, а не про отметку', () => {
