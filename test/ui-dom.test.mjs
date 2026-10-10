@@ -229,19 +229,21 @@ test('вкладка настроек: каждый блок на месте и 
   api.destroy();
 });
 
-test('вкладка настроек: до старта раскрыт путь «завести семестр»', () => {
+test('вкладка настроек: и до старта семестра все блоки свёрнуты', () => {
   const { api, node } = mount(fakeHost(null, {}, { enabled: false }));
   const body = openTab(node, 'settings');
   const openTitles = [];
+  let details = 0;
   walk(body, (n) => {
-    if (n.tagName === 'DETAILS' && 'open' in n.attrs) {
+    if (n.tagName !== 'DETAILS') return;
+    details += 1;
+    if ('open' in n.attrs) {
       const head = n.children.find((c) => c.className === 'academy-section-title');
       openTitles.push(head ? head.textContent : '');
     }
   });
-  const U = ui.uiLabels(preset);
-  assert.deepEqual(openTitles, [U.surveySection, U.planSection, U.startSection],
-    'раскрыты ровно анкета, таблица и кнопка старта — и ничего больше');
+  assert.ok(details > 0, 'блоки на месте');
+  assert.deepEqual(openTitles, [], 'при открытии панели раскрытых блоков нет');
   api.destroy();
 });
 

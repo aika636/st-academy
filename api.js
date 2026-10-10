@@ -39,6 +39,7 @@
 import { buildPlanPrompt, parsePlanResponse, validatePlan, extractJson, fill, balancedBlock } from './core/plan-gen.mjs';
 import { emptySurvey } from './core/state.mjs';
 import { buildCastPrompt, castFromModel } from './core/card-cast.mjs';
+import { assembleCast } from './core/feed-cast.mjs';
 
 /** Умолчания таймаутов, мс. Данные, не логика. */
 export const TIMEOUTS = {
@@ -79,13 +80,27 @@ export const TIMEOUTS = {
 export const TOKEN_BUDGETS = {
   ping: 8,
   survey: 1024,
-  // Кто в карточке (`guessCardCast`): несколько имён с написаниями.
-  cast: 768,
-  plan: 4096,
+  // Кто в карточке (`guessCardCast`): несколько имён с написаниями. Было 768 —
+  // у думающей модели размышление съедает такой потолок до первого имени.
+  cast: 1536,
+  // Каст молвы (`generateFeedCast`): восемь строк по семь полей кириллицей и
+  // запас на размышление; замена одного статиста берёт тот же потолок — строка
+  // короткая, а платят за выданное, не за разрешённое. Живой прогон 10.10 (Gemini
+  // thinking): на 2048 каст то зависал, то «не разбирался» — ответ рвался на
+  // середине строки, а обрыв по длине на пути таверны не был виден.
+  feedCast: 4096,
+  // Живой прогон 10.10: на 4096 план упёрся в обрыв, и половина дисциплин
+  // пропала. Рассуждение думающей модели съедает часть потолка до текста
+  // ответа, а платят за выданное, не за разрешённое — поэтому запас щедрый.
+  // Оборванный ответ при этом всё равно спасается (`salvageJson`).
+  plan: 8192,
   // Разбор ответа (секретарь, `core/analysis`): строка метки, до шести строк
   // реакций курса (шаг 3) и «Кратко»; остальное — запас на размышление
-  // думающей модели, как у анкеты.
-  analysis: 1536,
+  // думающей модели, как у анкеты. Живой прогон 10.10: на 1536 Gemini thinking
+  // четыре раза подряд отдал метку без закрытия (`<!-- [ACADEMY … deal=@heroine:`
+  // и обрыв) — часть потолка ушла на размышление. Оборванная метка теперь
+  // спасается (`salvageMarker`), но проще не обрывать.
+  analysis: 4096,
   default: 1024,
 };
 
@@ -204,6 +219,93 @@ export function escapeMacros(text) {
 }
 
 /**
+ * Ждать ответ не дольше срока. `generateRaw` отменить нельзя (останавливает его
+ * только общее событие «стоп», а оно прервало бы и чужую генерацию), поэтому по
+ * сроку мы просто перестаём ждать: кнопка «Идёт запрос…» не должна висеть вечно
+ * (живой прогон 10.10: «Пересобрать каст» завис без таймаута).
+ */
+function withDeadline(promise, ms, signal) {
+  return new Promise((resolve, reject) => {
+    const fail = (timeout) => {
+      const error = new Error(timeout ? 'timeout' : 'aborted');
+      error.name = 'AbortError';
+      if (timeout) error.timeout = true;
+      reject(error);
+    };
+    if (signal && signal.aborted) return fail(false);
+    const timer = setTimeout(() => fail(true), ms);
+    const onAbort = () => { clearTimeout(timer); fail(false); };
+    if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+/**
+ * Запрос таверны без чужих вставок.
+ *
+ * Зачем. `generateRaw` шлёт событие `chat_completion_prompt_ready` (и
+ * `GENERATE_AFTER_COMBINE_PROMPTS` для текстовых API) так же, как обычная
+ * генерация (`script.js: generateRawData`), и расширения-соседи дописывают в
+ * наш запрос свои инструкции: «На износ» (`na-iznos`) требует первой строкой
+ * тег `<!-- NI t=… -->`, трекер питания — `<!-- NN … -->`, BB-UI-Regex-Pack
+ * добавляет модули промпта, Horae — свой контекст. Секретарь отвечал тегом `NI`
+ * и мусором вокруг метки (живой прогон 10.10). «На износ» отличает фоновый
+ * запрос по `GENERATION_STARTED`, которого у `generateRaw` нет.
+ *
+ * Как. Первым слушателем снимается копия промпта (только если в нём наш текст —
+ * чужую генерацию в этот момент не трогаем), последним промпт возвращается к
+ * копии. Нет `makeFirst`/`makeLast` (старая сборка) — запрос идёт как есть.
+ */
+export async function withoutForeignInjections(ctx, probe, run) {
+  const bus = ctx && ctx.eventSource;
+  if (!bus || typeof bus.makeFirst !== 'function' || typeof bus.makeLast !== 'function'
+    || typeof bus.removeListener !== 'function') return run();
+  const types = (ctx && (ctx.eventTypes || ctx.event_types)) || {};
+  const chatEvent = types.CHAT_COMPLETION_PROMPT_READY || 'chat_completion_prompt_ready';
+  const textEvent = types.GENERATE_AFTER_COMBINE_PROMPTS || 'generate_after_combine_prompts';
+  const needle = String(probe == null ? '' : probe).trim().slice(0, 60);
+  if (!needle) return run();
+  const has = (content) => typeof content === 'string' && content.includes(needle);
+  let chatSnap = null;
+  let textSnap = null;
+
+  const chatFirst = (data) => {
+    if (chatSnap || !data || data.dryRun || !Array.isArray(data.chat)) return;
+    if (data.chat.some((m) => m && has(m.content))) {
+      chatSnap = { data, chat: data.chat, copy: data.chat.map((m) => ({ ...m })) };
+    }
+  };
+  const chatLast = (data) => {
+    if (!chatSnap || data !== chatSnap.data) return;
+    chatSnap.chat.splice(0, chatSnap.chat.length, ...chatSnap.copy);
+    data.chat = chatSnap.chat;
+  };
+  const textFirst = (data) => {
+    if (textSnap || !data || data.dryRun || typeof data.prompt !== 'string') return;
+    if (has(data.prompt)) textSnap = { data, prompt: data.prompt };
+  };
+  const textLast = (data) => {
+    if (!textSnap || data !== textSnap.data) return;
+    data.prompt = textSnap.prompt;
+  };
+
+  bus.makeFirst(chatEvent, chatFirst);
+  bus.makeLast(chatEvent, chatLast);
+  bus.makeFirst(textEvent, textFirst);
+  bus.makeLast(textEvent, textLast);
+  try {
+    return await run();
+  } finally {
+    for (const [e, f] of [[chatEvent, chatFirst], [chatEvent, chatLast], [textEvent, textFirst], [textEvent, textLast]]) {
+      try { bus.removeListener(e, f); } catch { /* сосед сломал шину — не наша беда */ }
+    }
+  }
+}
+
+/**
  * Запрос через подключение самой таверны.
  *
  * Два пути, и оба настоящие. Выбран профиль подключения — идём
@@ -239,9 +341,9 @@ export async function tavernComplete(ctx, req = {}) {
       const messages = [];
       if (system) messages.push({ role: 'system', content: system });
       messages.push({ role: 'user', content: user });
-      const out = await service.sendRequest(profile.id, messages, maxTokens, {
+      const out = await withDeadline(service.sendRequest(profile.id, messages, maxTokens, {
         stream: false, extractData: true, includePreset: true, includeInstruct: true,
-      });
+      }), req.timeout || TIMEOUTS.complete, req.signal);
       const text = parseCompletion(out);
       if (!text.trim()) return { ok: false, code: 'empty', status: null, detail: '', message: 'Модель вернула пустой ответ.' };
       return {
@@ -260,7 +362,7 @@ export async function tavernComplete(ctx, req = {}) {
     }
   }
 
-  if (!c || typeof c.generateRaw !== 'function') {
+  if (!c || (typeof c.generateRaw !== 'function' && typeof c.generateRawData !== 'function')) {
     return {
       ok: false,
       code: 'no-endpoint',
@@ -276,9 +378,17 @@ export async function tavernComplete(ctx, req = {}) {
     // под реплику в ролевой: таверна на время запроса подменяет лимит через
     // `TempResponseLength.save` (`script.js:3941`, `:4063`).
     // Экранирование макросов — только здесь, см. `escapeMacros`.
-    const out = await c.generateRaw({
-      prompt: escapeMacros(user), systemPrompt: escapeMacros(system), responseLength: maxTokens,
-    });
+    //
+    // `generateRawData` вместо `generateRaw`, когда он есть: он отдаёт ответ
+    // бэкенда целиком, с `finish_reason`, — по нему видно настоящий обрыв по
+    // длине (`generateRaw` его выбрасывает). Нет его — прежний `generateRaw`.
+    const args = { prompt: escapeMacros(user), systemPrompt: escapeMacros(system), responseLength: maxTokens };
+    const ask = typeof c.generateRawData === 'function'
+      ? () => c.generateRawData(args)
+      : () => c.generateRaw(args);
+    const out = await withoutForeignInjections(c, args.prompt, () => withDeadline(
+      ask(), req.timeout || TIMEOUTS.complete, req.signal,
+    ));
     const text = parseCompletion(out);
     if (!text.trim()) return { ok: false, code: 'empty', status: null, detail: '', message: 'Модель вернула пустой ответ.' };
     return { ok: true, text, via: 'tavern', budget: maxTokens, truncated: isTruncated(out, text) };
@@ -390,20 +500,26 @@ function isTruncated(data, text) {
 }
 
 /**
- * Фраза про обрыв. Говорит, что случилось и что делать; про «поднять лимит»
- * сказано ровно потому, что бюджет расширения доезжает не всегда — путь
- * `generateRaw` полагается на временную подмену лимита внутри таверны.
+ * Фраза про обрыв — человеческими словами. Ни «токенов», ни «лимита», ни совета
+ * «впишите свой адрес»: у большинства работает только подключение таверны, а
+ * лимитом там распоряжается не расширение и не игрок. Остаётся то, что можно
+ * сделать: повторить и, если надо, заполнить руками.
  *
- * @param {string} half целиком оборот про половину («учебный план пришёл наполовину»)
- * @param {number} [budget] бюджет, который просило расширение
+ * @param {string} half что именно не договорено («анкета пришла наполовину»)
  * @param {string} [fallback] что человек может сделать сам
  */
-export function truncatedMessage(half, budget, fallback = '') {
-  const asked = budget ? ` Расширение просило ${budget} токенов.` : '';
-  return `Модель начала отвечать и была оборвана по лимиту токенов: ${half}.${asked}`
-    + ' Поднимите лимит ответа в настройках подключения таверны'
-    + ' или впишите свой адрес с ключом — там лимитом распоряжается расширение.'
+export function truncatedMessage(half, fallback = '') {
+  return `Модель не договорила: ${half}. Попробуйте ещё раз.`
     + (fallback ? ` ${fallback}` : '');
+}
+
+/** Существительное «предмет» с числом: 1 предмет, 3 предмета, 8 предметов. */
+function subjectsCount(n) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  const word = m10 === 1 && m100 !== 11 ? 'предмет'
+    : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? 'предмета' : 'предметов';
+  return `${n} ${word}`;
 }
 
 /**
@@ -899,6 +1015,7 @@ export async function complete(api, req = {}) {
   // своего адреса нет.
   return tavernComplete(ctx, {
     system, user, maxTokens: budgetOf(req.maxTokens, TOKEN_BUDGETS.default), profileId: (api && api.profile) || '',
+    timeout: req.timeout, signal,
   });
 }
 
@@ -939,9 +1056,11 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
       break;
     }
 
-    const parsed = parsePlanResponse(res.text, preset);
+    // Оборванный ответ разбирается со спасением: всё, что договорено до
+    // последнего целого элемента, лучше пустой таблицы (прогон 10.10).
+    const parsed = parsePlanResponse(res.text, preset, { salvage: res.truncated === true });
     const checked = validatePlan(parsed.plan, preset);
-    if (parsed.ok && checked.ok) {
+    if (parsed.ok && checked.ok && !parsed.partial) {
       return {
         ok: true,
         plan: checked.plan,
@@ -955,13 +1074,27 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
     // только JSON» стал длиннее — второй ответ оборвётся там же, только за
     // деньги. Поэтому здесь `break`, а не `continue`.
     if (res.truncated) {
+      // Спасённое отдаётся как успех с пометкой: таблица заполнена тем, что
+      // успело прийти, а подпись честно говорит, что план неполный.
+      if (parsed.partial && parsed.ok && checked.ok) {
+        return {
+          ok: true,
+          partial: true,
+          plan: checked.plan,
+          notice: `Модель не договорила — вот что успела: ${subjectsCount(checked.plan.subjects.length)}.`
+            + ' Можно дописать руками в таблице ниже или собрать план ещё раз.',
+          errors: [...new Set([...parsed.errors, ...checked.errors, 'truncated'])],
+          raw: parsed.raw,
+          attempts: attempt,
+          via: res.via,
+        };
+      }
       last = {
-        // «Учебный план» и «дисциплины» тут стояли рядом и оба мимо словаря:
-        // русскому вузу показывали слово магической академии, а магической —
-        // слово вуза. Название берётся из пресета, а форма фразы выбрана без
-        // рода: «Расписание предметов пришёл наполовину» не сказать.
-        error: truncatedMessage(`${planWord(preset)} — только половина`, res.budget,
-          'Таблицу ниже можно заполнить вручную.'),
+        // Название берётся из пресета (русскому вузу — «Учебный план»,
+        // магической академии — «Список дисциплин»), а фраза построена так,
+        // чтобы род слова не мешал: оно стоит дополнением.
+        error: `Модель не договорила, и ${planWord(preset)} из её ответа собрать не вышло.`
+          + ' Нажмите кнопку генерации ещё раз. Таблицу ниже можно заполнить вручную.',
         code: 'truncated',
         raw: parsed.raw,
         errors: [...new Set([...parsed.errors, ...checked.errors, 'truncated'])],
@@ -1321,7 +1454,7 @@ export async function guessSurvey(preset, api, ctx, opts = {}) {
     // То же решение, что и у плана: обрыв по длине повтором не лечится.
     if (res.truncated) {
       last = {
-        error: truncatedMessage('анкета пришла наполовину', res.budget, 'Поля анкеты можно заполнить вручную.'),
+        error: truncatedMessage('анкета пришла наполовину', 'Поля анкеты можно заполнить вручную.'),
         code: 'truncated',
         raw: parsed.raw,
         errors: [...new Set([...parsed.errors, 'truncated'])],
@@ -1375,4 +1508,33 @@ export async function guessCardCast(preset, api, ctx, opts = {}) {
     if (cast || res.truncated) break;
   }
   return { ok: false, ...last };
+}
+
+/**
+ * Каст молвы (`core/feed-cast.mjs`): восемь постоянных статистов одним
+ * запросом, затем по запросу на каждого, чьи типаж, интерес, манера или ник не
+ * прошли проверку кодом. Состояние не пишется — каст кладёт хост. Повторов
+ * транспорта здесь нет, как у плана и анкеты: их делает `request`.
+ *
+ * @param {Object} input вход `feed-cast.buildCastPrompt` и `stop` — стоп-лист имён
+ * @param {Object} api {endpoint, key, model}
+ * @param {Object} [ctx] контекст таверны
+ * @param {{signal?: AbortSignal, timeout?: number, ask?: Function}} [opts] `ask` — подмена запроса (тесты)
+ * @returns {Promise<{ok: true, members: Object[], warnings: string[], calls: number}
+ *   | {ok: false, code: string, error: string, raw?: string, calls: number}>}
+ */
+export async function generateFeedCast(input, api, ctx, opts = {}) {
+  const ask = typeof opts.ask === 'function' ? opts.ask : async (prompt) => {
+    const res = await complete(api, {
+      system: prompt.system,
+      user: prompt.user,
+      ctx,
+      signal: opts.signal,
+      timeout: opts.timeout,
+      temperature: 0.9,
+      maxTokens: budgetOf(opts.maxTokens, TOKEN_BUDGETS.feedCast),
+    });
+    return res.ok ? { ok: true, text: res.text, truncated: res.truncated === true } : { ok: false, code: res.code, message: res.message };
+  };
+  return assembleCast(input, ask);
 }

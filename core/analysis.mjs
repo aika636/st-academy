@@ -26,7 +26,7 @@
 //
 // Модуль чистый: состояние, пресет и тексты на входе, строки на выходе.
 
-import { parseMarker, keepMarkerKinds, markerKeys, partyOf, MARKER_RE, HEROINE } from './parse-marker.mjs';
+import { parseMarker, keepMarkerKinds, markerKeys, partyOf, salvageMarker, MARKER_RE, HEROINE } from './parse-marker.mjs';
 import { sittableExams, kindOf } from './exams.mjs';
 import { teacherOfSubject } from './state.mjs';
 import { holidaysAhead, holidaysOn } from './holidays.mjs';
@@ -259,11 +259,22 @@ function todaysExamLines(state, preset) {
  *
  * @param {string} raw ответ модели
  * @param {Object} lexicon то же, что `parseMarker`: пресет со списками состояния и `names`
- * @returns {{found: boolean, tokens: string[], summary: string, rejected: Array<{raw: string, reason: string}>}}
+ * @returns {{found: boolean, partial: boolean, tokens: string[], summary: string, rejected: Array<{raw: string, reason: string}>}}
  */
 export function parseAnalysis(raw, lexicon) {
-  const text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
-  const found = new RegExp(MARKER_RE.source, 'i').test(text);
+  let text = String(raw || '').replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
+  let found = new RegExp(MARKER_RE.source, 'i').test(text);
+  // Метка без закрытия (ответ оборвался на бюджете токенов) — не «метки нет»:
+  // целые пары спасаются, `partial` честно говорит, что хвост потерян.
+  let partial = false;
+  if (!found) {
+    const saved = salvageMarker(text);
+    if (saved) {
+      text = text.slice(0, saved.start) + saved.marker + text.slice(saved.end);
+      found = true;
+      partial = saved.partial;
+    }
+  }
   const tokens = [];
   const rejected = [];
   // Номер факта — его место в метке, как его видит модель: считаются все
@@ -389,7 +400,7 @@ export function parseAnalysis(raw, lexicon) {
   // состояние не идёт.
   const m = /кратко\s*[:：]\s*(.+)/i.exec(text);
   const summary = m ? m[1].replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 300) : '';
-  return { found, tokens, summary, rejected };
+  return { found, partial, tokens, summary, rejected };
 }
 
 // --- реакции: блок «что сочинено» -------------------------------------------------

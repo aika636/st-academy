@@ -12,7 +12,14 @@
 //                about: [id…], heroine, loud?, factText?, gist?, playedSrc? } ],
 //     seen:  { [personId]: {day, time, local?} },   // кто когда был в сцене
 //     deals: [ { id, src, a, b, what, open, since, closedOn } ],
+//     cast:  [ { id, nick, type, interest, goal, manner, ally, rival } ],
+//     threads: [ { id, topic, members: [id…], dispute, stage, source, since } ],
 //   }
+//
+// `cast` — постоянные статисты молвы (до 8), `threads` — сюжетики массовки
+// (до 3): шаг 1 плана «Молва» (`etap-molva.md`). Что с ними делать — в
+// `core/feed-cast.mjs` и `core/feed-threads.mjs`; здесь только форма и
+// нормализация, чтобы они жили в `state.feed` и откатывались со всей лентой.
 //
 // Четыре решения.
 //
@@ -140,11 +147,26 @@ export const DEFAULT_EXTRAS = [
 /** Примеры ников с типажом в скобках (`feed.nickExamples`); пресет без своих — общие. */
 export const DEFAULT_NICK_EXAMPLES = ['всё-видел (сплетник)', 'не скажу кто (завистница)', 'вечно второй (ботан)'];
 
+/**
+ * Манеры речи статистов (`feed.manners`): поведение, а не ярлык. Пресет без
+ * своих — общие, без примет заведения.
+ */
+export const DEFAULT_MANNERS = [
+  'отвечает вопросом на вопрос',
+  'хвалит и тут же поддевает',
+  'пишет коротко, без знаков препинания',
+  'всё переводит на своё увлечение',
+  'начинает фразу с «только никому» и рассказывает всем',
+  'оговаривается и сам же поправляет',
+  'ссылается на то, что «все уже знают»',
+  'шутит там, где другие ругаются',
+];
+
 /** Список строк пресета: без пустых и повторов, с потолком; пусто — умолчание. */
-function presetList(raw, fallback, max) {
+function presetList(raw, fallback, max, len = 48) {
   const out = [];
   for (const v of Array.isArray(raw) ? raw : []) {
-    const t = oneLine(v, 48);
+    const t = oneLine(v, len);
     if (t && !out.includes(t)) out.push(t);
   }
   return out.length ? out.slice(0, max) : fallback;
@@ -158,6 +180,10 @@ export function feedNickExamples(preset) {
   return presetList(preset && preset.feed && preset.feed.nickExamples, DEFAULT_NICK_EXAMPLES, 4);
 }
 
+export function feedManners(preset) {
+  return presetList(preset && preset.feed && preset.feed.manners, DEFAULT_MANNERS, 16, 120);
+}
+
 /** Сколько реакций допускает громкость при потолке пресета. */
 export function loudCap(loud, cap = REACTION_CAP) {
   const row = LOUDNESS.find((l) => l.level === loud) || LOUDNESS[1];
@@ -168,13 +194,13 @@ export function loudCap(loud, cap = REACTION_CAP) {
 
 /** Пустая лента. */
 export function emptyFeed() {
-  return { items: [], seen: {}, deals: [] };
+  return { items: [], seen: {}, deals: [], cast: [], threads: [] };
 }
 
 /**
  * Лента состояния — заведённая и нормализованная, на месте. Старое
  * состояние без поля получает пустую.
- * @returns {{items: Object[], seen: Object, deals: Object[]}}
+ * @returns {{items: Object[], seen: Object, deals: Object[], cast: Object[], threads: Object[]}}
  */
 export function ensureFeed(state) {
   const fresh = normalizeFeed(state && state.feed);
@@ -194,7 +220,9 @@ export function normalizeFeed(raw) {
     }
   }
   const deals = (Array.isArray(src.deals) ? src.deals : []).map(normalizeDeal).filter(Boolean).slice(-DEALS_MAX);
-  return { items, seen: trimSeen(seen), deals };
+  // Каст сперва: сюжетики держатся за его id, а ссылка на ушедшего снимается.
+  const cast = normalizeCastList(src.cast);
+  return { items, seen: trimSeen(seen), deals, cast, threads: normalizeThreads(src.threads, cast) };
 }
 
 /** Запись ленты; без текста или без id — `null`. */
@@ -307,6 +335,128 @@ function normalizeDeal(raw) {
     since: str(raw.since),
     closedOn: raw.open === false ? str(raw.closedOn) : '',
   };
+}
+
+// --- каст и сюжетики --------------------------------------------------------------------
+
+/** Потолок каста: статистов модель не добавляет, больше восьми лента не держит. */
+export const CAST_MAX = 8;
+
+/** Потолок сюжетиков массовки, одновременно открытых. */
+export const THREADS_MAX = 3;
+
+/** Сколько участников у сюжетика. */
+export const THREAD_MEMBERS = [2, 3];
+
+/** Стадии сюжетика по порядку; после «развязки» он закрывается. */
+export const STAGES = ['завязка', 'спор', 'торг', 'развязка'];
+
+/** Откуда сюжетик: событие календаря, учёба, пара «союзник/соперник» каста. */
+export const THREAD_SOURCES = ['calendar', 'study', 'cast'];
+
+/** Длины полей статиста и сюжетика. */
+export const CAST_TEXT_MAX = { nick: NICK_MAX, type: 40, interest: 90, goal: 110, manner: 140 };
+export const THREAD_TEXT_MAX = { topic: 90, dispute: 180 };
+
+/** Id статиста и сюжетика: латиница, цифры, дефис — их не печатают, ими ссылаются. */
+const ID_RE = /^[\w-]{1,24}$/;
+
+/** Короткий текст поля: одна строка, без «|» — разделителя построчного формата. */
+function plain(v, max) {
+  return oneLine(v, max * 2).replace(/\|/g, '/').slice(0, max).trim();
+}
+
+/** Первый свободный id статиста: cast1, cast2… */
+export function freeId(prefix, used) {
+  for (let n = 1; ; n += 1) if (!used.has(`${prefix}${n}`)) return `${prefix}${n}`;
+}
+
+/**
+ * Статист к форме. Без ника (меньше двух букв) — `null`: безымянного нечем
+ * подписать. Остальные поля необязательны — человек мог стереть их руками.
+ * Связи (`ally`, `rival`) здесь не проверяются: это делает список целиком.
+ */
+export function normalizeMember(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const nick = cleanNick(str(raw.nick).replace(/\|/g, ' '));
+  if (!nick) return null;
+  const id = str(raw.id);
+  return {
+    id: ID_RE.test(id) ? id : '',
+    nick,
+    type: plain(raw.type, CAST_TEXT_MAX.type),
+    interest: plain(raw.interest, CAST_TEXT_MAX.interest),
+    goal: plain(raw.goal, CAST_TEXT_MAX.goal),
+    manner: plain(raw.manner, CAST_TEXT_MAX.manner),
+    ally: str(raw.ally),
+    rival: str(raw.rival),
+  };
+}
+
+/**
+ * Каст: битые записи и повторы id выбрасываются, потолок `CAST_MAX` жёсткий.
+ * Запись без id получает свободный; союзник и соперник, которых в списке нет
+ * (или это сам статист), обнуляются; один и тот же человек не бывает и тем и
+ * другим — остаётся союзник.
+ */
+export function normalizeCastList(raw) {
+  const out = [];
+  for (const r of Array.isArray(raw) ? raw : []) {
+    const m = normalizeMember(r);
+    if (!m || (m.id && out.some((x) => x.id === m.id))) continue;
+    out.push(m);
+    if (out.length >= CAST_MAX) break;
+  }
+  const used = new Set(out.map((m) => m.id).filter(Boolean));
+  for (const m of out) {
+    if (m.id) continue;
+    m.id = freeId('cast', used);
+    used.add(m.id);
+  }
+  for (const m of out) {
+    if (!used.has(m.ally) || m.ally === m.id) m.ally = '';
+    if (!used.has(m.rival) || m.rival === m.id || m.rival === m.ally) m.rival = '';
+  }
+  return out;
+}
+
+/**
+ * Сюжетик к форме. Участники — только из каста (`ids`), без повторов, от двух
+ * до трёх; меньше двух осталось — сюжетика нет. Без темы или id — `null`.
+ */
+export function normalizeThread(raw, ids) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = str(raw.id);
+  const topic = oneLine(raw.topic, THREAD_TEXT_MAX.topic);
+  if (!ID_RE.test(id) || !topic) return null;
+  const members = [];
+  for (const m of Array.isArray(raw.members) ? raw.members : []) {
+    const v = str(m);
+    if (ids.has(v) && !members.includes(v)) members.push(v);
+  }
+  if (members.length < THREAD_MEMBERS[0]) return null;
+  return {
+    id,
+    topic,
+    members: members.slice(0, THREAD_MEMBERS[1]),
+    dispute: oneLine(raw.dispute, THREAD_TEXT_MAX.dispute),
+    stage: STAGES.includes(raw.stage) ? raw.stage : STAGES[0],
+    source: THREAD_SOURCES.includes(raw.source) ? raw.source : 'cast',
+    since: str(raw.since),
+  };
+}
+
+/** Сюжетики: не больше `THREADS_MAX`, id не повторяются; участники — из `cast`. */
+export function normalizeThreads(raw, cast) {
+  const ids = new Set((Array.isArray(cast) ? cast : []).map((m) => m.id));
+  const out = [];
+  for (const r of Array.isArray(raw) ? raw : []) {
+    const t = normalizeThread(r, ids);
+    if (!t || out.some((x) => x.id === t.id)) continue;
+    out.push(t);
+    if (out.length >= THREADS_MAX) break;
+  }
+  return out;
 }
 
 // --- записи -------------------------------------------------------------------------

@@ -62,6 +62,7 @@ export const PANEL_TEXT = {
   onFact: '{fact}',
   // Сырой id секретаря («petrov-igor») — человеческой формой («Petrov Igor»).
   unparsed: 'Не разобрано: кто-то по имени {names} — такого человека нет в списках. Добавьте человека или поправьте имя и разберите заново.',
+  partial: 'Ответ секретаря оборвался: прочитано только то, что дошло целым. Проверьте список и, если нужно, разберите заново.',
   unparsedMany: 'Не разобрано: {names} — таких людей нет в списках. Добавьте их или поправьте имена и разберите заново.',
 };
 
@@ -391,6 +392,7 @@ function buildPanel(host, mesId, view) {
 
   // Кого секретарь назвал, а найти не удалось даже мягко, — не тишина в
   // консоли, а строка: человек может добавить его и разобрать заново.
+  if (view.partial) content.append(el('div', { class: 'academy-mes-note academy-mes-unparsed', text: PANEL_TEXT.partial }));
   const unparsed = (view.unparsed || []).filter(Boolean);
   if (unparsed.length) {
     content.append(el('div', { class: 'academy-mes-note academy-mes-unparsed', text: unparsedText(unparsed) }));

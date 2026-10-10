@@ -963,7 +963,7 @@ export function renderCardCastBlock(host, preset) {
       }),
     ]),
     status,
-  ], !cast.checked);
+  ]);
 }
 
 export function renderSoundBlock(host, preset, settings) {

@@ -581,6 +581,23 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
     return { state: next, applied: false, reason };
   }
 
+  // Первое чтение времени в чате с эпохой не из нашего года (фэнтези «1824»,
+  // а календарь заведён по сегодняшнему 2026): якорь календаря — просто дата по
+  // умолчанию, а не факт сюжета. Иначе каждая дата сюжета была бы «откатом на
+  // двести лет», время не двинулось бы никогда (живой прогон 10.10). Якорь
+  // переезжает на год текста целиком — месяц и число остаются, — но только пока
+  // на календаре ничего не построено: время не двигалось, посещаемости и записей
+  // журнала (кроме отладочных) нет. Разница в год-два — обычный переход через
+  // Новый год, её не трогаем.
+  if (payload.day !== undefined && payload.day !== null) {
+    const shifted = reanchoredTerm(next, day);
+    if (shifted) {
+      pushJournal(next, { kind: 'debug', text: `календарь перенесён на эпоху сюжета: ${cal.day} → ${shifted.day}`, data: { at, source } }, preset);
+      cal.day = shifted.day;
+      cal.termStart = shifted.termStart;
+    }
+  }
+
   // Часы переносятся со старого дня только тогда, когда день не изменился: там
   // это не догадка, а уже известный факт. На новый день часы не додумываются.
   const sameDay = day === cal.day;
@@ -644,6 +661,25 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   // смена сцены, а не сбой (замер A). В журнал он не пишется, чтобы не забить
   // кольцо; наружу уходит причина, панель покажет «+N дней».
   return { state: next, applied: true, reason: jump > 0 ? `скачок вперёд на ${jump} дн.` : 'время уточнено' };
+}
+
+/**
+ * Новые `{day, termStart}` для календаря, который ещё ничего не пережил и живёт
+ * в году, далёком от года первой даты сюжета; иначе `null`. См. `setAbsolute`.
+ */
+function reanchoredTerm(state, textDay) {
+  const cal = state.calendar;
+  if (numberOr(cal.moved, 0) !== 0) return null;
+  if (state.attendance && Array.isArray(state.attendance.records) && state.attendance.records.length) return null;
+  if ((state.journal || []).some((e) => e.kind !== 'debug')) return null;
+  const dy = parseDay(textDay).y - parseDay(cal.day).y;
+  if (Math.abs(dy) < 2) return null;
+  const shift = (day) => {
+    const { y, m, d } = parseDay(day);
+    // 29 февраля в невисокосном году станет 1 марта: нормализует formatDay.
+    return formatDay({ y: y + dy, m, d });
+  };
+  return { day: shift(cal.day), termStart: isDay(cal.termStart) ? shift(cal.termStart) : cal.termStart };
 }
 
 /**

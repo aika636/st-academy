@@ -129,3 +129,11 @@ test('у каждого встроенного пресета стоп-слов�
     assert.equal(stopHit(p.vocab.teacher, stopList({ preset: p })), null, `${p.id}: «${p.vocab.teacher}» в стоп-листе`);
   }
 });
+
+test('персонаж карточки узнаётся в кириллице с другой транслитерацией (Kharis → Харис, Кхарис)', () => {
+  const stop = stopList({ char: 'Vandrel Kharis' });
+  for (const name of ['Вандрел Харис', 'Вандрел Кхарис', 'Харис', 'Вандрел']) {
+    assert.equal(stopHit(name, stop)?.kind, STOP_CHAR, name);
+  }
+  assert.equal(stopHit('Гэвин Харт', stop), null, 'другой человек не задет');
+});

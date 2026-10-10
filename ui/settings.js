@@ -18,6 +18,7 @@ import {
   renderApiBlock, renderAnalysisBlock, renderModeBlock, renderPresetBlock, renderLorebookBlock,
   renderTransferBlock, renderSoundBlock, renderFeedBlock, renderDrawBlock, renderDebugBlock, renderCardCastBlock,
 } from './settings-blocks.js';
+import { renderCastBlock } from './cast.js';
 
 /** Шесть полей анкеты (3.6). Порядок — как в таблице плана. */
 export const SURVEY_FIELDS = [
@@ -142,10 +143,21 @@ export function validateSubjectRows(rows, preset) {
   return { ok: errors.length === 0, errors, notes, subjects, teachers };
 }
 
-/** Анкета из состояния или из настроек-черновика. Всегда шесть полей. */
-export function surveyOf(state, settings) {
-  const draft = (settings && settings.ui && settings.ui.surveyDraft) || null;
-  return { ...emptySurvey(), ...(draft || {}), ...((state && state.survey) || {}) };
+/**
+ * Анкета из состояния или из настроек-черновика. Всегда шесть полей.
+ *
+ * Черновик лежит в общих настройках, но помечен чатом (`chatId`) и подставляется
+ * только в нём: раньше анкета нового чата открывалась с «современный город /
+ * Woodland Court» из старой игры (прогон 10.10). Черновик без метки — старый,
+ * глобальный — не применяется нигде: чей он, неизвестно, а чужая анкета в новом
+ * чате хуже пустой (поля заполняются «по карточке» одной кнопкой).
+ */
+export function surveyOf(state, settings, chatId = '') {
+  const raw = (settings && settings.ui && settings.ui.surveyDraft) || null;
+  const mine = raw && typeof raw.chatId === 'string' && raw.chatId === String(chatId || '');
+  const draft = {};
+  if (mine) for (const key of Object.keys(emptySurvey())) if (typeof raw[key] === 'string') draft[key] = raw[key];
+  return { ...emptySurvey(), ...draft, ...((state && state.survey) || {}) };
 }
 
 /**
@@ -209,7 +221,7 @@ export function settingsView(state, settings, preset, extra = {}) {
   if (started) blockers.push(U.blockStarted);
 
   return {
-    survey: SURVEY_FIELDS.map((f) => ({ ...f, value: String(surveyOf(state, settings)[f.key] || '') })),
+    survey: SURVEY_FIELDS.map((f) => ({ ...f, value: String(surveyOf(state, settings, extra.chatId)[f.key] || '') })),
     subjects: rows.subjects,
     teachers: rows.teachers,
     validation: check,
@@ -355,10 +367,6 @@ export function renderSettings(host) {
   const settings = safe(() => host.getSettings(), {}) || {};
   const view = settingsView(state, settings, preset, hostExtra(host));
   const U = view.labels;
-  // Пока семестр не начат, раскрыты блоки пути «завести семестр с нуля»
-  // (см. комментарий у `section`); после старта — ни одного.
-  const setup = !view.started;
-
   const box = el('div', { class: 'academy-settings' });
 
   // --- анкета -------------------------------------------------------------
@@ -411,7 +419,10 @@ export function renderSettings(host) {
       // заведение, 9.3.6): выбросить его нельзя — на него ссылаются предметы, —
       // поэтому человеку говорится, кого переименовать в таблице.
       else if (res && res.ok && Array.isArray(res.warnings) && res.warnings.length) {
-        setStatus(lastPlanStatus(), 'error', res.warnings.join(' '));
+        setStatus(lastPlanStatus(), 'error', [res.notice, res.warnings.join(' ')].filter(Boolean).join(' '));
+      } else if (res && res.ok && res.partial && res.notice) {
+        // Модель не договорила, но кое-что спаслось: «План получен» было бы неправдой.
+        setStatus(lastPlanStatus(), 'error', String(res.notice));
       }
     },
   });
@@ -424,14 +435,14 @@ export function renderSettings(host) {
     guessStatus,
     el('div', { class: 'academy-row academy-row-buttons' }, [genBtn]),
     planStatus,
-  ], setup));
+  ]));
   mounted.planStatus = planStatus;
 
   // --- персонаж карточки --------------------------------------------------
   box.append(renderCardCastBlock(host, preset));
 
   // --- таблица предметов и преподавателей ---------------------------------
-  box.append(renderPlanTable(host, view, preset, setup));
+  box.append(renderPlanTable(host, view, preset));
 
   // --- пресет заведения ---------------------------------------------------
   box.append(renderPresetBlock(host, view));
@@ -454,6 +465,8 @@ export function renderSettings(host) {
 
   // --- поток курса: поводы в сюжет (шаг 4) --------------------------------
   box.append(renderFeedBlock(host, preset, settings));
+  const mobBlock = renderCastBlock(host, preset);
+  if (mobBlock) box.append(mobBlock);
 
   // --- портреты: «Нарисовать» через провайдеров таверны (аватарки, шаг 4) ---
   const drawBlock = renderDrawBlock(host, preset, settings);
@@ -511,7 +524,7 @@ export function renderSettings(host) {
     }),
     el('div', { class: 'academy-row academy-row-buttons' }, [startBtn]),
     startStatus,
-  ], setup));
+  ]));
 
   return box;
 }
@@ -532,12 +545,14 @@ export function hostExtra(host) {
     // Профили подключения таверны. Хост постарше их не отдаёт — тогда графа
     // «актуальный API» остаётся, но без списка профилей.
     connections: safe(() => (host.getConnections ? host.getConnections() : null), null),
+    // Id чата: черновик анкеты принадлежит чату, в котором набран.
+    chatId: safe(() => (host.getChatId ? String(host.getChatId() || '') : ''), ''),
   };
 }
 
 const lastPlanStatus = () => mounted.planStatus;
 
-function renderPlanTable(host, view, preset, open = false) {
+function renderPlanTable(host, view, preset) {
   const U = view.labels;
   const X = extraLabels(preset);
   const status = el('div', { class: 'academy-status' });
@@ -709,7 +724,7 @@ function renderPlanTable(host, view, preset, open = false) {
     el('p', { class: 'academy-note', text: U.planNote }),
     body,
     status,
-  ], open);
+  ]);
 }
 
 function collect(inputs) {
@@ -718,10 +733,14 @@ function collect(inputs) {
   return out;
 }
 
-/** Черновик анкеты до старта семестра живёт в настройках, а не в состоянии. */
+/**
+ * Черновик анкеты до старта семестра живёт в настройках, а не в состоянии, и
+ * помечен чатом (`surveyOf`): в другом чате он не подставится.
+ */
 function saveDraft(host, survey) {
   try {
-    const res = host.setSettings({ ui: { surveyDraft: survey } });
+    const chatId = safe(() => (host.getChatId ? String(host.getChatId() || '') : ''), '');
+    const res = host.setSettings({ ui: { surveyDraft: { ...survey, chatId } } });
     return Promise.resolve(res);
   } catch (err) {
     return Promise.resolve({ ok: false, error: err });

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   normalizeBase, chatUrl, modelsUrl, hasOwnEndpoint, parseCompletion, parseModels,
   classifyError, errorDetail, headersFor, complete, listModels, testConnection, generatePlan,
-  resolveSource, tavernComplete,
+  resolveSource, tavernComplete, withoutForeignInjections,
   setFetch, setContextProvider,
   TOKEN_BUDGETS, finishReason, isTruncatedReason, looksTruncated, truncatedMessage,
   DEFAULT_SURVEY_PROMPT, SURVEY_KEYS, readCharacterCard, firstCharacterMessage, cardToText,
@@ -723,9 +723,9 @@ test('обрыв через таверну называется обрывом, 
   const res = await generatePlan(survey, preset, { source: 'tavern' }, ctx);
   assert.equal(res.ok, false);
   assert.equal(res.code, 'truncated', 'прежний код `parse` уводил чинить разбор вместо лимита');
-  assert.match(res.error, /оборван/i);
-  assert.match(res.error, /лимит/i);
-  assert.match(res.error, new RegExp(String(TOKEN_BUDGETS.plan)), 'сколько просили — часть ответа на «что делать»');
+  assert.match(res.error, /не договорил/i);
+  assert.doesNotMatch(res.error, /токен|лимит|адрес/i, 'игрок на это повлиять не может');
+  assert.match(res.error, /ещё раз/i);
   assert.ok(res.errors.includes('truncated'));
   assert.equal(res.raw, halfPlan, 'сырой ответ человеку остаётся');
   assert.equal(calls, 1, 'повтор тем же бюджетом оборвётся там же — это трата чужих денег');
@@ -763,17 +763,17 @@ test('оборванная анкета тоже названа обрывом �
   const res = await guessSurvey(preset, { source: 'tavern' }, ctx);
   assert.equal(res.ok, false);
   assert.equal(res.code, 'truncated');
-  assert.match(res.error, /оборван/i);
+  assert.match(res.error, /не договорил/i);
   assert.match(res.error, /анкет/i);
   assert.equal(calls, 1);
 });
 
-test('фраза об обрыве говорит, что делать', () => {
-  const m = truncatedMessage('учебный план пришёл наполовину', 2048, 'Дисциплины можно вписать руками.');
-  assert.match(m, /2048/);
-  assert.match(m, /лимит ответа/i, 'первое лекарство — поднять лимит');
-  assert.match(m, /свой адрес с ключом/i, 'второе — свой адрес, где лимитом распоряжается расширение');
+test('фраза об обрыве говорит, что делать, без токенов и чужих настроек', () => {
+  const m = truncatedMessage('анкета пришла наполовину', 'Поля можно вписать руками.');
+  assert.match(m, /не договорил/i);
+  assert.match(m, /ещё раз/i);
   assert.match(m, /руками/i);
+  assert.doesNotMatch(m, /токен|лимит|адрес/i);
 });
 
 // Пин, а не доказательство правки: прежнее `req.maxTokens || 1024` давало то же
@@ -819,8 +819,8 @@ test('бюджет плана и анкеты выдерживает модел�
   const ctx = { generateRaw: async (arg) => { calls.push(arg); return planJson; } };
   const res = await generatePlan(survey, preset, { source: 'tavern' }, ctx);
   assert.equal(res.ok, true, JSON.stringify(res));
-  assert.ok(calls[0].responseLength >= 4096,
-    `плану ушло ${calls[0].responseLength} токенов: живьём 2048 обрывались на рассуждении`);
+  assert.ok(calls[0].responseLength >= 8192,
+    `плану ушло ${calls[0].responseLength} токенов: живьём 2048 и 4096 обрывались`);
 
   const guessCalls = [];
   const guess = JSON.stringify({ era: 'современность', country: 'Россия', institution: 'вуз' });
@@ -838,10 +838,10 @@ test('бюджет плана и анкеты выдерживает модел�
   });
   await generatePlan(survey, preset, { endpoint: 'https://x.y', key: 'k', model: 'm' }, null);
   assert.equal(bodies[0].max_tokens, TOKEN_BUDGETS.plan);
-  assert.ok(bodies[0].max_tokens >= 4096);
+  assert.ok(bodies[0].max_tokens >= 8192);
 });
 
-test('плашка про обрыв плана называет его словом пресета, а не чужим', async () => {
+test('плашка про обрыв плана без единого предмета называет его словом пресета', async () => {
   setFetch(async () => { throw new Error('сеть трогать нельзя'); });
   const magic = JSON.parse(readFileSync(
     fileURLToPath(new URL('../presets/magic-academy.json', import.meta.url)), 'utf8'));
@@ -857,6 +857,64 @@ test('плашка про обрыв плана называет его слов
   assert.equal(mg.code, 'truncated');
   assert.match(mg.error, /Список дисциплин/, `у Академии это «список дисциплин»: ${mg.error}`);
   assert.equal(/[Уу]чебный план/.test(mg.error), false, mg.error);
+});
+
+// --- спасение оборванного плана (прогон 10.10) ---------------------------------
+
+const cutPlans = {
+  'посреди строки': '{"subjects":[{"id":"chem","name":"Химия","teacherId":"pet"},{"id":"bio","name":"Био',
+  'посреди объекта': '{"subjects":[{"id":"chem","name":"Химия","teacherId":"pet"},{"id":"bio","name":"Биология",',
+  'после запятой': '{"subjects":[{"id":"chem","name":"Химия","teacherId":"pet"},{"id":"bio","name":"Биология","teacherId":"pet"},',
+  'в заборе': '```json\n{"subjects":[{"id":"chem","name":"Химия","teacherId":"pet"},{"id":"bio","name":"Био',
+  'в преподавателях': '{"subjects":[{"id":"chem","name":"Химия","teacherId":"pet"}],"teachers":[{"id":"pet","name":"Петрова","traits":["строгая","злопамятная"]},{"id":"iv","name":"Ив","traits":["до',
+};
+
+for (const [where, text] of Object.entries(cutPlans)) {
+  test(`оборванный план (${where}) отдаёт то, что договорено`, async () => {
+    setFetch(async () => { throw new Error('сеть трогать нельзя'); });
+    let calls = 0;
+    const ctx = { generateRaw: async () => { calls += 1; return text; } };
+    const res = await generatePlan(survey, preset, { source: 'tavern' }, ctx);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.partial, true);
+    assert.equal(calls, 1, 'повтор тем же бюджетом оборвётся там же');
+    assert.ok(res.plan.subjects.length >= 1);
+    assert.equal(res.plan.subjects[0].id, 'chem');
+    assert.match(res.notice, /Модель не договорила — вот что успела: \d+ предмет/);
+    assert.doesNotMatch(res.notice, /токен|лимит|адрес|половин/i);
+    assert.equal(res.raw, text, 'сырой ответ остаётся');
+  });
+}
+
+test('оборванный план: недописанный элемент не попадает в таблицу', async () => {
+  setFetch(async () => { throw new Error('сеть трогать нельзя'); });
+  const ctx = { generateRaw: async () => cutPlans['посреди объекта'] };
+  const res = await generatePlan(survey, preset, { source: 'tavern' }, ctx);
+  assert.deepEqual(res.plan.subjects.map((s) => s.id), ['chem']);
+  assert.match(res.notice, /1 предмет\./);
+
+  const t = await generatePlan(survey, preset, { source: 'tavern' },
+    { generateRaw: async () => cutPlans['в преподавателях'] });
+  assert.deepEqual(t.plan.teachers.map((x) => x.id), ['pet'], 'Ив без дописанных черт не берётся');
+});
+
+test('сообщения «только половина» при пустой таблице больше нет', async () => {
+  setFetch(async () => { throw new Error('сеть трогать нельзя'); });
+  for (const text of [...Object.values(cutPlans), halfPlan, '{"subjects":[{"id":"a"', '[{"na']) {
+    const res = await generatePlan(survey, preset, { source: 'tavern' }, { generateRaw: async () => text });
+    const shown = res.ok ? res.notice : res.error;
+    assert.doesNotMatch(shown, /половин|токен|лимит/i, shown);
+    // Либо в таблице есть что показать, либо честно сказано, что не вышло.
+    assert.ok(res.ok ? res.plan.subjects.length > 0 : res.code === 'truncated', text);
+  }
+});
+
+test('целый, но кривой ответ не «спасается»: спасение только для оборванного', async () => {
+  setFetch(async () => { throw new Error('сеть трогать нельзя'); });
+  const res = await generatePlan(survey, preset, { source: 'tavern' },
+    { generateRaw: async () => 'вот план: {"subjects": [ {"name": } ]}' });
+  assert.equal(res.ok, false);
+  assert.equal(res.code, 'parse');
 });
 
 // --- мелочи API (9.1.7) --------------------------------------------------------
@@ -1198,4 +1256,69 @@ test('запасной путь только на сетевой отказ и �
   setFetch(async () => { calls += 1; return reply(401, { error: { message: 'bad key' } }); });
   assert.equal((await listModels(api)).code, 'auth');
   assert.equal(calls, 1, 'сервер ответил 401 — CORS тут ни при чём, таверну не беспокоим');
+});
+
+// --- живой прогон 10.10: чужие вставки, обрыв, зависание ---------------------------
+
+/** Шина событий как в таверне: `makeFirst`/`makeLast`/`removeListener`, `emit` по порядку. */
+function fakeBus() {
+  const events = {};
+  return {
+    on(e, f) { (events[e] = events[e] || []).push(f); },
+    makeFirst(e, f) { events[e] = [f, ...(events[e] || []).filter((x) => x !== f)]; },
+    makeLast(e, f) { events[e] = [...(events[e] || []).filter((x) => x !== f), f]; },
+    removeListener(e, f) { events[e] = (events[e] || []).filter((x) => x !== f); },
+    async emit(e, data) { for (const f of [...(events[e] || [])]) await f(data); },
+  };
+}
+
+test('таверна: чужие вставки в промпт запроса снимаются, чужая генерация не трогается', async () => {
+  const bus = fakeBus();
+  // Сосед дописывает свою инструкцию в каждый запрос, как «На износ» (`NI`).
+  bus.on('chat_completion_prompt_ready', (d) => { d.chat.push({ role: 'system', content: 'FIRST line must be <!-- NI t=… -->' }); });
+  let sent = null;
+  const ctx = {
+    eventSource: bus,
+    eventTypes: { CHAT_COMPLETION_PROMPT_READY: 'chat_completion_prompt_ready', GENERATE_AFTER_COMBINE_PROMPTS: 'generate_after_combine_prompts' },
+    generateRawData: async ({ prompt, systemPrompt }) => {
+      const data = { chat: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], dryRun: false };
+      await bus.emit('chat_completion_prompt_ready', data);
+      sent = data.chat;
+      return { choices: [{ message: { content: 'ответ' }, finish_reason: 'stop' }] };
+    },
+  };
+  const res = await tavernComplete(ctx, { system: 'СИС', user: 'Разбери этот фрагмент ответа рассказчика.' });
+  assert.equal(res.ok, true);
+  assert.equal(res.truncated, false);
+  assert.deepEqual(sent.map((m) => m.content), ['СИС', 'Разбери этот фрагмент ответа рассказчика.'], 'вставка соседа снята');
+
+  // Чужая генерация, у которой нашего текста нет, остаётся с вставками.
+  const other = { chat: [{ role: 'user', content: 'реплика игрока' }] };
+  await withoutForeignInjections(ctx, 'Разбери этот фрагмент', async () => { await bus.emit('chat_completion_prompt_ready', other); });
+  assert.equal(other.chat.length, 2);
+  // Слушатели за собой убраны: следующая чужая генерация идёт как обычно.
+  const next = { chat: [{ role: 'user', content: 'Разбери этот фрагмент ответа' }] };
+  await bus.emit('chat_completion_prompt_ready', next);
+  assert.equal(next.chat.length, 2);
+});
+
+test('таверна: finish_reason=length из generateRawData — настоящий обрыв', async () => {
+  const ctx = {
+    generateRawData: async () => ({ choices: [{ message: { content: '<!-- [ACADEMY skip=история late=' }, finish_reason: 'length' }] }),
+  };
+  const res = await tavernComplete(ctx, { user: 'U' });
+  assert.equal(res.ok, true);
+  assert.equal(res.truncated, true);
+});
+
+test('таверна: запрос, который не отвечает, кончается таймаутом, а не зависанием', async () => {
+  const ctx = { generateRawData: () => new Promise(() => {}) };
+  const res = await tavernComplete(ctx, { user: 'U', timeout: 20 });
+  assert.equal(res.ok, false);
+  assert.equal(res.code, 'timeout');
+});
+
+test('бюджеты секретаря и каста выдерживают модель, которая думает вслух', () => {
+  assert.ok(TOKEN_BUDGETS.analysis >= 4096);
+  assert.ok(TOKEN_BUDGETS.feedCast >= 4096);
 });

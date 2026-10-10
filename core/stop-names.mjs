@@ -198,7 +198,12 @@ const RU_LAT = {
 export function nameSkeleton(word) {
   let s = String(word == null ? '' : word).toLowerCase().replace(/ё/g, 'е');
   s = s.replace(/[а-я]/g, (ch) => (RU_LAT[ch] === undefined ? ch : RU_LAT[ch]));
+  // «Kharis» ↔ «Харис» ↔ «Кхарис»: «kh» — один звук «х», а начальный «х» значим
+  // (иначе скелет «Харис» — `rs`, короче порога). Прописная H переживает
+  // удаление гласных ниже и приводится к строчной в конце.
   s = s.replace(/[^a-z]/g, '')
+    .replace(/kh/g, 'h')
+    .replace(/^h/, 'H')
     .replace(/dzh|dj|zh|g(?=[eiy])|j|g$/g, 'J')
     .replace(/ck|q|c(?![eiyh])/g, 'k')
     .replace(/c/g, 's')

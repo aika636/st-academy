@@ -41,6 +41,7 @@ import { diffMilestones, milestoneName, milestones, recordTally } from './core/m
 import { stopList, filterPeople, stopHit } from './core/stop-names.mjs';
 import { normalizeCast, castNames, guessCastLocal } from './core/card-cast.mjs';
 import { addClassmate, updateClassmate, removeClassmate } from './core/classmates.mjs';
+import { castOf as feedCastOf, setCast as setFeedCast, updateMember as updateFeedMember, carryCast, worldRealities } from './core/feed-cast.mjs';
 import { markerPeople, confirmCandidate, listCandidates, findClassmate, sameName, carryRoster } from './core/classmates.mjs';
 import { buildSchedule } from './core/schedule.mjs';
 import { manualTime, resolveHeldJump } from './core/engine.mjs';
@@ -1395,7 +1396,7 @@ async function rollbackLatest(turn, mesId, reason = 'swipe') {
   live.oneShot = turn.oneShotBefore;
   // Люди, добавленные и поправленные руками после ответа, — решение игрока,
   // а не событие ответа: откат их не отменяет (`classmates.carryRoster`).
-  turn.before = carryRoster(live.state, turn.before);
+  turn.before = carryManual(live.state, turn.before);
   // Отметки игрока на уходящем варианте ответа («своё», «прочитано»,
   // «взято») запоминаются ходом: вернётся игрок на этот свайп — вернутся и
   // они (`feed.rememberFeedMarks`, решение владелицы 08.10).
@@ -1516,7 +1517,7 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   }
   // Пересчёт идёт от снимка, но курс в нём — нынешний: человека, которого
   // добавили руками после ответа, пересчёт не стирает (`carryRoster`).
-  if (!fresh) turn.before = carryRoster(live.state, turn.before);
+  if (!fresh) turn.before = carryManual(live.state, turn.before);
   const before = turn.before;
 
   const settings = storage.loadSettings(c);
@@ -1814,6 +1815,27 @@ function entryOf(mark, turn) {
   return ledgerEntry(mark) || (turn && turn.stamp ? ledgerEntry(turn.stamp) : null);
 }
 
+/**
+ * После принятого прыжка плашка последнего ответа переезжает на новую дату.
+ * Запись протокола несёт день и время, на которые ответ был посчитан, — то есть
+ * день до придержанного прыжка; без этого плашка показывала «21 сентября» при
+ * шапке «14 октября» до следующего ответа (живой прогон 10.10). Прыжок
+ * придержан именно ответом, который сейчас последний, — его запись и правится.
+ */
+function retimeLatestEntry() {
+  const cal = live.state && live.state.calendar;
+  if (!cal || !cal.day) return;
+  const chat = chatOf();
+  for (let i = chat.length - 1; i >= 0; i -= 1) {
+    if (!eligible(chat[i])) continue;
+    const entry = entryOf(stamp(String(chat[i].mes || '')), liveTurnOf(i, chat));
+    if (entry && entry.stamp && (entry.day !== cal.day || (cal.time && entry.time !== cal.time))) {
+      putLedger({ ...entry, day: cal.day, time: cal.time || entry.time });
+    }
+    return;
+  }
+}
+
 /** Вид плашки для ответа `mesId`; `null` — не ответ модели или семестра нет. */
 function panelView(mesId) {
   if (!live.preset || !live.state || !live.state.started) return null;
@@ -1847,6 +1869,8 @@ function panelView(mesId) {
     error: live.analysisErrors.get(mark) || '',
     // Кого секретарь назвал, а в списках нет, — словами на плашке.
     unparsed: ((draft ? draft.unparsed : tokens && entry.unparsed) || []).slice(),
+    // Метка секретаря оборвалась: часть выводов потеряна, и плашка так и говорит.
+    partial: Boolean(draft && draft.partial),
     // Слова заведения для разделов плашки: «Класс», «Отношение учителей».
     labels: panelLabels(),
   };
@@ -2010,7 +2034,7 @@ async function analyzeMessage(mesId) {
     // добавленных руками после ответа (`carryRoster`), — иначе секретарь их не
     // видит, а «Разобрать заново» не находит. Это безопасно для отката: те же
     // люди переживут и пересчёт этого ответа, и свайп.
-    if (turn) turn.before = carryRoster(live.state, turn.before);
+    if (turn) turn.before = carryManual(live.state, turn.before);
     const base = turn ? turn.before : live.state;
     const prompt = buildAnalysisPrompt(base, live.preset, {
       reply: stripMarker(text),
@@ -2038,7 +2062,9 @@ async function analyzeMessage(mesId) {
     const parsed = parseAnalysis(res.text, { ...lexiconOf(base, c), feedPosts: turn ? recentPosts(base) : [] });
     if (!parsed.found) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
-      return fail('Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
+      return fail(res.truncated
+        ? 'Секретарь не договорил: ответ оборвался раньше метки. Попробуйте ещё раз.'
+        : 'Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
     }
     // Пока шёл запрос, ответ могли свайпнуть или поправить: выводы — про
     // прежний текст, и к новому их не приложить.
@@ -2048,7 +2074,7 @@ async function analyzeMessage(mesId) {
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
       stamp: mark,
-      draft: { tokens: parsed.tokens, summary: parsed.summary, unparsed: unparsedNames(parsed.rejected) },
+      draft: { tokens: parsed.tokens, summary: parsed.summary, unparsed: unparsedNames(parsed.rejected), partial: parsed.partial === true },
       at: Date.now(),
     });
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
@@ -2489,7 +2515,7 @@ async function handleDeleted() {
   }
   live.turns = kept;
   live.oneShot = target.oneShotBefore;
-  await commit(carryRoster(live.state, target.before));
+  await commit(carryManual(live.state, target.before));
   announceRollback('delete');
   // Регенерация: старт пришёл раньше среза (ремонт, факт 2), и предупреждение
   // промотки тогда считалось от дня ПОСЛЕ срезанного ответа. Теперь день верный.
@@ -2523,6 +2549,72 @@ async function handleChatChanged() {
   // быть ничего (галочку включили в прошлом чате), а отпечаток сброшен выше.
   await syncLorebook();
   refreshPanel();
+}
+
+/** Живое состояние → снимок хода: руками сделанное (курс, каст молвы) откатом не отменяется. */
+function carryManual(live, before) {
+  return carryCast(live, carryRoster(live, before));
+}
+
+// --- каст молвы (шаг 1 плана «Молва») ------------------------------------------------
+//
+// Восемь постоянных статистов ленты. Собирается одним запросом при первой
+// надобности (каст пуст) и по кнопке «Пересобрать каст»; точка входа для выпуска
+// молвы (шаг 2) — `ensureFeedCast`: «убедись, что каст есть, и дай его».
+// Каст — решение человека и сборки, а не событие ответа: свайп его не откатывает
+// (`carryManual`), а сюжетики откатывает вместе с остальной лентой.
+
+/** Что нужно сборке каста от мира: пресет, реалии, имена, которых нельзя занимать. */
+function feedCastInput() {
+  const c = ctx();
+  const state = live.state;
+  return {
+    preset: live.preset,
+    realities: worldRealities(state, live.preset),
+    heroine: String((c && c.name1) || ''),
+    mainNames: castMainNames(c),
+    classmates: (state.classmates || []).map((p) => p && p.name).filter(Boolean),
+    stop: classmateStop(),
+  };
+}
+
+/** Идёт ли сборка каста — вторая кнопка и выпуск не запускают вторую. */
+let castBuilding = null;
+
+/**
+ * Убедиться, что каст есть. Пуст — собрать (один запрос и точечные замены);
+ * `force` — собрать заново (кнопка «Пересобрать каст»: id статистов новые,
+ * сюжетики прежнего каста уходят). Результат пишется в состояние только если
+ * чат тот же.
+ *
+ * @param {{force?: boolean}} [opts]
+ * @returns {Promise<{ok: true, cast: Object[], created: boolean, warnings: string[]} | {ok: false, error: string}>}
+ */
+async function ensureFeedCast({ force = false } = {}) {
+  if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+  const have = feedCastOf(live.state);
+  if (have.length && !force) return { ok: true, cast: have, created: false, warnings: [] };
+  if (castBuilding) return castBuilding;
+  const c = ctx();
+  const op = captureOperation();
+  castBuilding = (async () => {
+    try {
+      const res = await api.generateFeedCast(feedCastInput(), storage.apiSettings(c), c);
+      if (!isCurrent(op)) return chatChanged('собирался каст молвы');
+      if (!res.ok) return { ok: false, error: res.error || 'запрос не удался', code: res.code, raw: res.raw };
+      const next = cloneState(live.state);
+      const cast = setFeedCast(next, res.members);
+      await commit(next);
+      refreshPanel();
+      return { ok: true, cast, created: true, warnings: res.warnings || [] };
+    } catch (err) {
+      console.error(`[${MODULE}] каст молвы не собран:`, err);
+      return { ok: false, error: `Каст не собран: ${(err && err.message) || err}` };
+    } finally {
+      castBuilding = null;
+    }
+  })();
+  return castBuilding;
 }
 
 // --- стоп-лист имён в плане (9.3.6) -----------------------------------------
@@ -2655,6 +2747,8 @@ const host = {
     max: USER_PRESETS_MAX,
   }),
   getSettings: () => storage.loadSettings(ctx()),
+  /** Id текущего чата — к нему привязан черновик анкеты. */
+  getChatId: () => currentChatId(),
   /**
    * Персонаж карточки для «Настроек»: название карточки, список и можно ли его
    * править (в групповом чате — нет: там стоп-лист и так знает всех участников).
@@ -2860,13 +2954,16 @@ const host = {
       // проходить `validateState`, — поэтому план ложится целиком, а человеку
       // говорится, кого переименовать.
       const warnings = stopWarnings((res.plan && res.plan.teachers) || [], c, survey);
-      if (!warnings.length) return { ok: true };
+      // Оборванный план, который удалось спасти, ложится, но с пометкой: панель
+      // подписывает таблицу честно («вот что успела»).
+      const partial = res.partial ? { partial: true, notice: res.notice } : {};
+      if (!warnings.length) return { ok: true, ...partial };
       try {
         if (globalThis.toastr && typeof globalThis.toastr.warning === 'function') {
           globalThis.toastr.warning(warnings.join(' '), 'Academy');
         }
       } catch { /* всплывашка — вежливость, не условие */ }
-      return { ok: true, warnings };
+      return { ok: true, warnings, ...partial };
     },
 
     /** Правка таблицы предметов руками — тот же путь, что у генерации (3.6). */
@@ -2978,6 +3075,23 @@ const host = {
         secret: teacher.secret || '',
         traits: [...(teacher.traits || [])],
       };
+    },
+
+    /** Убедиться, что каст молвы есть; нет — собрать (шаг 2 зовёт это перед выпуском). */
+    ensureFeedCast: () => ensureFeedCast(),
+
+    /** Кнопка «Пересобрать каст»: статисты новые, сюжетики прежнего каста закрываются. */
+    rebuildFeedCast: () => ensureFeedCast({ force: true }),
+
+    /** Правка статиста руками: ник, типаж, интерес, цель, манера. */
+    async updateFeedMember(id, patch = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
+      const next = cloneState(live.state);
+      const res = updateFeedMember(next, id, patch);
+      if (!res.ok) return res;
+      await commit(next);
+      refreshPanel();
+      return res;
     },
 
     /**
@@ -3269,6 +3383,7 @@ const host = {
         return { ok: false, error: res.reason || 'прыжок не применился' };
       }
       setInjects({});
+      if (accept !== false) retimeLatestEntry();
       noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();
       return { ok: true, missed: res.missed.length };

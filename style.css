@@ -731,6 +731,31 @@
   width: auto;
 }
 
+/* Статисты и сюжетики ленты: карточка статиста с пятью полями и подписью о связях. */
+.academy-mob-list {
+  display: grid;
+  gap: 8px;
+}
+
+.academy-mob-member,
+.academy-mob-thread {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--SmartThemeBorderColor, var(--academy-dim));
+  border-radius: 8px;
+}
+
+.academy-mob-title {
+  font-weight: 600;
+}
+
+.academy-mob-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+}
+
 /* Однокурсник, похожий на персонажа бота. */
 .academy-cast-hit {
   display: flex;

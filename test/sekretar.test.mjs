@@ -102,7 +102,7 @@ test('короткое имя узнаётся, только если оно о�
 
 test('секретарь: пустая метка — «ничего не случилось», без метки — сбой', () => {
   const s = semester();
-  assert.deepEqual(parseAnalysis('<!-- [ACADEMY] -->', lexicon(s)), { found: true, tokens: [], summary: '', rejected: [] });
+  assert.deepEqual(parseAnalysis('<!-- [ACADEMY] -->', lexicon(s)), { found: true, partial: false, tokens: [], summary: '', rejected: [] });
   assert.equal(parseAnalysis('<!-- [ACADEMY grade=chemistry:5] -->\nКратко: Аня получила пятёрку по химии.', lexicon(s)).summary,
     'Аня получила пятёрку по химии.');
   assert.equal(parseAnalysis('Ничего не произошло.', lexicon(s)).found, false);
@@ -672,4 +672,55 @@ test('сквозной: журнал событий говорит, что Ак�
   const tavern = await boot();
   await reply(tavern, 'Сцена.');
   assert.match(tavern.seam.host.panelDiagnosis(), /последние события: ответ \(normal\) #\d+ — посчитан/);
+});
+
+// --- живой прогон 10.10: чужие комментарии и оборванная метка ---------------------
+//
+// Консоль прогона обрезала сырые ответы, поэтому образцы воссозданы по их началу:
+// первой строкой — тег соседнего расширения (`<!-- NI t=… -->`), затем метка
+// секретаря, у которой кончился бюджет токенов на середине значения.
+
+test('секретарь: чужой комментарий до метки не мешает, оборванная метка спасает целые пары', () => {
+  const s = semester();
+  const cut = [
+    '<!-- NI t=+2m | Ренее: stress=minor:ультиматум префекта -->',
+    '<!-- [ACADEMY skip=история late=math clash=petrova:Аня:уклонение от отработки deal=@heroine:',
+  ].join('\n');
+  const res = parseAnalysis(cut, lexicon(s));
+  assert.equal(res.found, true, 'оборванная метка — не «метки нет»');
+  assert.equal(res.partial, true, 'хвост потерян, и разбор об этом говорит');
+  assert.ok(res.tokens.includes('skip=history') && res.tokens.includes('late=math'), res.tokens.join(' | '));
+  assert.ok(!res.tokens.some((t) => t.startsWith('deal=')), 'оборванная пара не берётся');
+});
+
+test('секретарь: метка без «-->», за которой идёт второй блок, — пары целые, ничего не отброшено', () => {
+  const s = semester();
+  const raw = '<!-- [ACADEMY skip=история late=math\nЧто сочинено:\nloud=0\nКратко: прогул.';
+  const res = parseAnalysis(raw, lexicon(s));
+  assert.equal(res.found, true);
+  assert.equal(res.partial, false);
+  assert.deepEqual(res.tokens.filter((t) => /^(skip|late)=/.test(t)).sort(), ['late=math', 'skip=history']);
+  assert.equal(res.summary, 'прогул.');
+});
+
+test('секретарь: оборванная метка не утаскивает в значение чужой комментарий после себя', () => {
+  const s = semester();
+  const raw = '<!-- [ACADEMY skip=история late=math <!-- NN time=11:00 | tp=1 -->';
+  const res = parseAnalysis(raw, lexicon(s));
+  assert.equal(res.found, true);
+  assert.ok(res.tokens.includes('skip=history'));
+  assert.ok(!res.rejected.some((r) => /NN|tp=/.test(r.raw)), JSON.stringify(res.rejected));
+});
+
+test('секретарь: закрытая метка среди чужих комментариев разбирается как раньше', () => {
+  const s = semester();
+  const raw = '<!-- NI t=+5m -->\n<!-- [ACADEMY grade=химия:5] -->\n<!-- NN time=11:00 -->\nКратко: пятёрка.';
+  const res = parseAnalysis(raw, lexicon(s));
+  assert.equal(res.found, true);
+  assert.equal(res.partial, false);
+  assert.deepEqual(res.tokens, ['grade=chemistry:5']);
+});
+
+test('секретарь: ответ без единой метки по-прежнему сбой', () => {
+  assert.equal(parseAnalysis('<!-- NI t=+5m | Ренее: stress=minor:выговор -->\nрассуждения без метки', lexicon(semester())).found, false);
 });

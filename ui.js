@@ -67,6 +67,7 @@ export { holidaysView, ownEventsView } from './ui/holidays.js';
 export { milestonesView, achievementsView } from './ui/achievements.js';
 export { PEOPLE_HISTORY, PEOPLE_PARTS, relationScore, peopleView } from './ui/people.js';
 export { classmatesView, scoreText } from './ui/classmates.js';
+export { castView, CAST_FIELDS } from './ui/cast.js';
 export { feedView, statusText as feedStatusText, FEED_SHOWN, feedVisible } from './ui/feed.js';
 export { gradebookView, awaitingView } from './ui/gradebook.js';
 export { todayView, examResultsToday } from './ui/today.js';

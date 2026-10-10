@@ -586,3 +586,38 @@ test('часы уже по сетке — привязка молчит и ни�
   assert.equal(r.applied, false);
   assert.equal(r.state.calendar.time, first);
 });
+
+// --- живой прогон 10.10: сюжет в 1824, календарь заведён по сегодняшнему году ---
+
+test('первая дата сюжета из другой эпохи переносит якорь календаря, а не считается откатом', () => {
+  const s = mk({ day: '2026-09-21', termStart: '2026-09-21' });
+  const r = setAbsolute(s, { day: '1824-09-21', time: '09:00' }, 'A', preset);
+  assert.equal(r.applied, true, r.reason);
+  assert.equal(r.state.calendar.day, '1824-09-21');
+  assert.equal(r.state.calendar.time, '09:00');
+  assert.equal(r.state.calendar.termStart, '1824-09-21', 'начало семестра переехало вместе с якорем');
+  assert.equal(r.state.calendar.moved, 1);
+});
+
+test('перенос якоря с прыжком вперёд: потолок суток работает уже на новой эпохе', () => {
+  const s = mk({ day: '2026-09-21', termStart: '2026-09-21' });
+  const r = setAbsolute(s, { day: '1824-10-14', time: '23:18' }, 'A', preset);
+  assert.equal(r.applied, false);
+  assert.ok(r.held, 'прыжок придержан, а не принят как откат на двести лет');
+  assert.equal(r.held.from, '1824-09-21');
+  assert.equal(r.state.calendar.termStart, '1824-09-21');
+});
+
+test('якорь не переезжает, если календарь уже жил: настоящий откат остаётся откатом', () => {
+  const s = mk({ day: '2026-09-21', termStart: '2026-09-21', moved: 2 });
+  const r = setAbsolute(s, { day: '1824-09-21', time: '09:00' }, 'A', preset);
+  assert.equal(r.applied, false);
+  assert.match(r.reason, /откат времени назад/);
+  assert.equal(r.state.calendar.day, '2026-09-21');
+});
+
+test('якорь не переезжает на переход через Новый год (разница в год)', () => {
+  const s = mk({ day: '2024-12-30', termStart: '2024-09-02' });
+  const r = setAbsolute(s, { day: '2025-01-05' }, 'A', preset);
+  assert.equal(r.state.calendar.termStart, '2024-09-02');
+});

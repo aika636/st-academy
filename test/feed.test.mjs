@@ -14,13 +14,13 @@ const bare = () => ({ calendar: { day: '2026-10-05' } });
 
 test('лента: поля нет — пустая, битое — нормализуется, не бросает', () => {
   const s = bare();
-  assert.deepEqual(ensureFeed(s), { items: [], seen: {}, deals: [] });
-  assert.deepEqual(s.feed, { items: [], seen: {}, deals: [] });
+  assert.deepEqual(ensureFeed(s), { items: [], seen: {}, deals: [], cast: [], threads: [] });
+  assert.deepEqual(s.feed, { items: [], seen: {}, deals: [], cast: [], threads: [] });
   const raw = { items: [null, { id: 'a', text: '  слух  ', chan: 'anon', status: 'вечно' }, { id: '', text: 'x' }], seen: 'мусор', deals: [{}] };
   const feed = normalizeFeed(raw);
   assert.equal(feed.items.length, 1);
   assert.deepEqual([feed.items[0].text, feed.items[0].rumor, feed.items[0].status, feed.items[0].read], ['слух', true, 'new', false]);
-  assert.deepEqual(normalizeFeed('строка'), { items: [], seen: {}, deals: [] });
+  assert.deepEqual(normalizeFeed('строка'), { items: [], seen: {}, deals: [], cast: [], threads: [] });
 });
 
 test('лента: кольцо держит последние FEED_MAX, тот же id заменяется на месте', () => {

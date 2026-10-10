@@ -335,13 +335,29 @@ test('анкета — ровно шесть полей из плана, все 
   }
 });
 
-test('черновик анкеты живёт в настройках, пока состояния нет', () => {
-  const draft = { era: 'киберпанк', country: 'Япония' };
-  assert.equal(surveyOf(null, { ui: { surveyDraft: draft } }).era, 'киберпанк');
+test('черновик анкеты живёт в настройках, пока состояния нет, и только в своём чате', () => {
+  const draft = { era: 'киберпанк', country: 'Япония', chatId: 'chat-A' };
+  assert.equal(surveyOf(null, { ui: { surveyDraft: draft } }, 'chat-A').era, 'киберпанк');
+  assert.equal(surveyOf(null, { ui: { surveyDraft: draft } }, 'chat-A').chatId, undefined, 'метка чата в анкету не течёт');
   // Как только семестр начат, истина — в состоянии.
   const state = started();
   state.survey.era = 'современность';
-  assert.equal(surveyOf(state, { ui: { surveyDraft: draft } }).era, 'современность');
+  assert.equal(surveyOf(state, { ui: { surveyDraft: draft } }, 'chat-A').era, 'современность');
+});
+
+test('черновик анкеты не переезжает в другой чат, старый безымянный не применяется нигде', () => {
+  const draft = { era: 'современность', country: 'Woodland Court', chatId: 'chat-A' };
+  const other = surveyOf(null, { ui: { surveyDraft: draft } }, 'chat-B');
+  assert.deepEqual(other, surveyOf(null, {}, 'chat-B'), 'в чужом чате анкета пустая');
+  assert.equal(other.era, '');
+
+  const legacy = { era: 'современность', country: 'Woodland Court' };
+  assert.equal(surveyOf(null, { ui: { surveyDraft: legacy } }, 'chat-A').era, '');
+  assert.equal(surveyOf(null, { ui: { surveyDraft: legacy } }, '').era, '');
+  assert.equal(settingsView(null, { ui: { surveyDraft: draft } }, preset, { chatId: 'chat-B' })
+    .survey.filter((f) => f.key !== 'lang').every((f) => f.value === ''), true);
+  assert.equal(settingsView(null, { ui: { surveyDraft: draft } }, preset, { chatId: 'chat-A' })
+    .survey.find((f) => f.key === 'era').value, 'современность');
 });
 
 test('три положения источника времени, «авто» по умолчанию', () => {

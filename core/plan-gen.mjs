@@ -115,15 +115,68 @@ export function buildPlanPrompt(survey, preset) {
  *
  * @returns {{ok: boolean, plan: {subjects: Array, teachers: Array}, errors: string[], raw: string}}
  */
-export function parsePlanResponse(text, preset) {
+export function parsePlanResponse(text, preset, opts = {}) {
   const raw = typeof text === 'string' ? text : String(text == null ? '' : text);
-  const data = extractJson(raw);
+  let data = extractJson(raw);
+  let partial = false;
+  // Спасение — только для ответа, про который известно, что он оборван:
+  // целому, но кривому JSON «дорезать хвост» значило бы молча терять данные.
+  if (data === undefined && opts.salvage === true) {
+    data = salvageJson(raw);
+    partial = data !== undefined;
+  }
   if (data === undefined) {
     return { ok: false, plan: { subjects: [], teachers: [] }, errors: ['no-json'], raw };
   }
   const shaped = shapePlan(data);
   const checked = validatePlan(shaped.plan, preset);
-  return { ok: checked.ok, plan: checked.plan, errors: [...shaped.errors, ...checked.errors], raw };
+  return {
+    ok: checked.ok, plan: checked.plan, errors: [...shaped.errors, ...checked.errors], raw,
+    ...(partial ? { partial: true } : {}),
+  };
+}
+
+/**
+ * Спасти оборванный JSON: оставить всё до последнего ПОЛНОГО элемента массива и
+ * закрыть открытые скобки. Режем только по границе элемента (`}`/`]`, чей
+ * родитель — массив): обрыв в середине строки, в середине объекта или сразу
+ * после запятой отбрасывает недописанный элемент целиком, а не оставляет
+ * предмет без половины полей. Возвращает `undefined`, если полного элемента нет.
+ * Кавычки учитываются только двойные: апостроф в слове («Don't») строкой не
+ * открывается.
+ */
+export function salvageJson(text) {
+  const s = String(text || '');
+  const open = s.search(/[{[]/);
+  if (open < 0) return undefined;
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  let cut = -1;
+  let closers = '';
+  for (let i = open; i < s.length; i += 1) {
+    const c = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') { inString = true; continue; }
+    if (c === '{') stack.push('}');
+    else if (c === '[') stack.push(']');
+    else if (c === '}' || c === ']') {
+      if (stack.pop() !== c) return undefined;
+      if (!stack.length) return undefined; // закрылось целиком — это не обрыв
+      if (stack[stack.length - 1] === ']') {
+        cut = i + 1;
+        closers = [...stack].reverse().join('');
+      }
+    }
+  }
+  if (cut < 0) return undefined;
+  const body = s.slice(open, cut) + closers;
+  return tryParse(body) ?? tryParse(repairJson(body));
 }
 
 /**

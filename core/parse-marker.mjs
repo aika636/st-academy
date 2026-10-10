@@ -26,7 +26,9 @@
  * ACADEMY брать нельзя, иначе меткой станет любое упоминание академии в прозе.
  *
  * Тело — ленивое `[\s\S]*?`: метка почти всегда однострочная, но перенос строки
- * внутри комментария не должен её ломать. Ограничитель `\]{0,2}\s*-->` съедает
+ * внутри комментария не должен её ломать. Другого `<!--` в теле быть не может:
+ * оборванная метка иначе дотянулась бы до чужого `-->` (тег соседнего
+ * расширения) и утащила его в своё значение. Ограничитель `\]{0,2}\s*-->` съедает
  * закрывающие скобки, если они есть.
  */
 import { impactWeight } from './relations.mjs';
@@ -35,7 +37,7 @@ import { sameName } from './classmates.mjs';
 import { slugify } from './plan-gen.mjs';
 
 export const MARKER_RE =
-  /<!--\s*\[{0,2}\s*academy\b([\s\S]*?)\]{0,2}\s*-->|\[{1,2}\s*academy\b([^\]\n]*)\]{1,2}/gi;
+  /<!--\s*\[{0,2}\s*academy\b((?:(?!<!--)[\s\S])*?)\]{0,2}\s*-->|\[{1,2}\s*academy\b([^\]\n]*)\]{1,2}/gi;
 
 // --- словарь ключей --------------------------------------------------------
 // Русские имена в инструкции не предлагались, но модель к ним склонна, а стоят
@@ -193,6 +195,48 @@ export function keepMarkerKinds(text, kinds) {
     const kept = markerPairs(body).filter((p) => keep.has(p.kind)).map((p) => p.raw);
     return `<!-- [ACADEMY${kept.length ? ` ${kept.join(' ')}` : ''}] -->`;
   });
+}
+
+/**
+ * Оборванная метка: `<!-- [ACADEMY …` без `-->`. Так выглядит ответ, у которого
+ * кончился бюджет токенов (думающая модель тратит его на размышление): живой
+ * прогон 10.10 — `<!-- [ACADEMY new=Гэвин … deal=@heroine:` и обрыв, а чужой
+ * `<!-- NI … -->` строкой выше.
+ *
+ * Метка читается до конца ответа, до следующего `<!--` или до строки второго
+ * блока («Что сочинено», `loud=`, `react=`, «Кратко»). Если конца у ответа нет —
+ * последняя пара могла оборваться на середине значения, и её отбрасывают;
+ * целые пары до неё остаются. Если за меткой идёт следующий блок, значит, не
+ * хватило лишь `-->`: пары целые, ничего не отбрасывается.
+ *
+ * @param {string} text
+ * @returns {?{marker: string, start: number, end: number, partial: boolean}}
+ *   `marker` — каноническая метка из спасённых пар, `start..end` — что она
+ *   заменяет в тексте, `partial` — последняя пара отброшена как оборванная
+ */
+export function salvageMarker(text) {
+  if (typeof text !== 'string' || !text) return null;
+  const closed = new Set([...text.matchAll(MARKER_RE)].map((m) => m.index));
+  const open = /<!--\s*\[{0,2}\s*academy\b/gi;
+  for (const m of text.matchAll(open)) {
+    if (closed.has(m.index)) continue;
+    const from = m.index + m[0].length;
+    const rest = text.slice(from);
+    const stops = [rest.search(/<!--/), rest.search(/\n[ \t]*(?:что сочинено|кратко|loud|react|reply)(?![\p{L}\d_])/iu)].filter((i) => i >= 0);
+    const cut = stops.length ? Math.min(...stops) : -1;
+    const body = (cut >= 0 ? rest.slice(0, cut) : rest).replace(/\]{1,2}\s*$/, '');
+    const pairs = markerKeys(`<!-- [ACADEMY ${body}] -->`);
+    const partial = cut < 0 && pairs.length > 0;
+    if (partial) pairs.pop();
+    const kept = pairs.filter((p) => p.value).map((p) => p.raw);
+    return {
+      marker: `<!-- [ACADEMY${kept.length ? ` ${kept.join(' ')}` : ''}] -->`,
+      start: m.index,
+      end: cut >= 0 ? from + cut : text.length,
+      partial,
+    };
+  }
+  return null;
 }
 
 /**

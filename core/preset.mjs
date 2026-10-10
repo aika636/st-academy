@@ -410,7 +410,7 @@ export function normalizeFeedBlock(preset) {
   const warnings = [];
   const block = preset.feed;
   if (block === undefined) return { errors, warnings };
-  if (!isPlain(block)) return { errors: ['feed: нужен объект {reactionCap, extras, nickExamples}'], warnings };
+  if (!isPlain(block)) return { errors: ['feed: нужен объект {reactionCap, extras, nickExamples, manners}'], warnings };
   if (block.reactionCap !== undefined) {
     const [lo, hi] = CAP_BOUNDS;
     if (!isInt(block.reactionCap)) {
@@ -422,9 +422,10 @@ export function normalizeFeedBlock(preset) {
       block.reactionCap = n;
     }
   }
-  // Типажи статистов и примеры ников (`feed.extras`, `feed.nickExamples`) —
-  // списки строк; мусор не отвергает пресет, лента берёт общие слова.
-  for (const key of ['extras', 'nickExamples']) {
+  // Типажи статистов, примеры ников и манер речи (`feed.extras`,
+  // `feed.nickExamples`, `feed.manners`) — списки строк; мусор не отвергает
+  // пресет, лента берёт общие слова.
+  for (const key of ['extras', 'nickExamples', 'manners']) {
     const list = block[key];
     if (list === undefined) continue;
     if (!Array.isArray(list) || !list.every((v) => typeof v === 'string' && v.trim())) {
