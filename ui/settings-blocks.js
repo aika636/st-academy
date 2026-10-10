@@ -130,7 +130,7 @@ export function renderApiBlock(host, view) {
   const SOURCES = [
     {
       id: 'tavern',
-      label: 'Актуальный API таверны',
+      label: 'Подключение таверны',
       hint: 'То, чем таверна отвечает прямо сейчас. Ключ вводить не нужно — расширение ничего не отправляет само.',
     },
     {
@@ -156,7 +156,7 @@ export function renderApiBlock(host, view) {
   let profileRow = null;
   if (!own && a.profiles.length) {
     const select = el('select', { class: 'text_pole academy-input' }, [
-      el('option', { value: '', text: 'Текущее подключение таверны', selected: !a.profile }),
+      el('option', { value: '', text: 'То, что выбрано в таверне сейчас', selected: !a.profile }),
       ...a.profiles.map((p) => el('option', {
         value: p.id,
         text: p.model ? `${p.name} (${p.model})` : p.name,
@@ -168,7 +168,7 @@ export function renderApiBlock(host, view) {
       safe(() => host.setSettings({ api: { profile: select.value } }, { quiet: true }), null);
       setStatus(status, 'note', select.value
         ? 'Профиль выбран. Проверьте связь — запрос пойдёт через него.'
-        : 'Выбрано текущее подключение таверны.');
+        : 'Выбрано то, что стоит в таверне сейчас.');
     });
     profileRow = el('label', { class: 'academy-field' }, [el('span', { text: 'Профиль подключения' }), select]);
   }
@@ -256,7 +256,7 @@ export function renderAnalysisBlock(host, view) {
     }))
     : el('p', { class: 'academy-note', text: 'Правило экзаменов выбирается, когда в чате заведён семестр.' });
 
-  return section('Разбор ответов и экзамены', [
+  return section('Секретарь и правило экзаменов', [
     el('p', { class: 'academy-note', text: 'Секретарь — отдельный запрос через API Академии, только по кнопке на плашке под ответом: читает ответ модели и записывает оценки, прогулы, опоздания и перемены в отношении преподавателей. Последний ответ пересчитывается начисто, старый получает поправку датой того ответа. Каждый вывод можно вычеркнуть.' }),
     el('p', { class: 'academy-note', text: 'Кто решает исход контрольного в этом чате:' }),
     rules,
@@ -447,7 +447,7 @@ export function renderPresetBlock(host, view) {
   return section(U.presetSection, [
     el('p', { class: 'academy-note', text: U.presetNote }),
     p.notice ? el('p', { class: 'academy-warn', text: p.notice }) : null,
-    el('label', { class: 'academy-field' }, [el('span', { text: U.presetSection }), select]),
+    el('label', { class: 'academy-field' }, [el('span', { text: T.pickField }), select]),
     p.drift ? el('p', { class: 'academy-warn', text: p.drift }) : null,
     p.gone ? el('p', { class: 'academy-warn', text: p.gone }) : null,
     el('div', { class: 'academy-row academy-row-buttons' }, [

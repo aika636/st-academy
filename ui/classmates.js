@@ -231,6 +231,9 @@ function classmateForm(host, p, view, X) {
     text: X.cmRemove,
     onclick: () => {
       ask.hidden = false;
+      // Вопрос стоит под кнопками, у нижнего края панели: без прокрутки он
+      // оказывался за краем, и «Да, удалить» не было видно (живой прогон 10.10).
+      if (typeof ask.scrollIntoView === 'function') ask.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
   }) : null;
   if (p) {

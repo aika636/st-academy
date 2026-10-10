@@ -28,6 +28,11 @@
 //    (cache-busting в прогонах, две копии расширения), парсер в живой таверне —
 //    один.
 //
+// 5. **Результат виден человеку, а не только пайпу.** Команда возвращает строку
+//    (чтобы работало `/academy | /echo {{pipe}}` и скрипты), но ещё и показывает
+//    её окошком таверны: набрав `/academy` в строке чата, без показа не увидишь
+//    ничего. Скрипту, которому окошко мешает, — `quiet=yes`.
+//
 // Всё берётся из `getContext()` (`st-context.js:164-169`): статический импорт
 // `../../../slash-commands/*` завязывает файл на путь установки и не резолвится
 // вне браузера.
@@ -61,19 +66,55 @@ function blocked(host) {
   return `${joinSentences([health.title, health.text])}${tail}`;
 }
 
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+/**
+ * Показать результат команды человеку (решение 5): окошком таверны, а если его
+ * нет — всплывашкой. Закрытия окошка не ждём: пайп таверны не должен стоять,
+ * пока человек читает. Любой сбой показа молчит — строка в пайп уйдёт и так.
+ *
+ * @returns {boolean} показано ли хоть чем-то
+ */
+export function showResult(context, title, text) {
+  const out = String(text || '').trim();
+  if (!out) return false;
+  try {
+    if (context && typeof context.callGenericPopup === 'function') {
+      const html = `<h3>${escapeHtml(title)}</h3><div style="white-space: pre-wrap; text-align: left;">${escapeHtml(out)}</div>`;
+      const type = context.POPUP_TYPE ? context.POPUP_TYPE.TEXT : 1;
+      Promise.resolve(context.callGenericPopup(html, type, '', { wide: true, allowVerticalScrolling: true }))
+        .catch((err) => console.warn('[academy] окошко команды не показалось:', err));
+      return true;
+    }
+    if (typeof toastr !== 'undefined' && toastr && typeof toastr.info === 'function') {
+      toastr.info(escapeHtml(out).replace(/\n/g, '<br>'), title, { escapeHtml: false, timeOut: 20000, extendedTimeOut: 20000 });
+      return true;
+    }
+  } catch (err) {
+    console.warn('[academy] результат команды не показан:', err);
+  }
+  return false;
+}
+
 /**
  * Обёртка вокруг тела команды. Исключение отсюда порвало бы конвейер таверны
- * целиком (решение 2), поэтому наружу уходит только строка.
+ * целиком (решение 2), поэтому наружу уходит только строка. Та же строка
+ * показывается человеку (решение 5), если не сказано `quiet=yes`.
  */
-function guard(name, fn) {
+function guard(name, fn, context, title) {
   return async (namedArgs, unnamedArg) => {
+    const args = namedArgs || {};
+    let out;
     try {
-      const out = await fn(namedArgs || {}, unnamedArg);
-      return typeof out === 'string' ? out : String(out ?? '');
+      const res = await fn(args, unnamedArg);
+      out = typeof res === 'string' ? res : String(res ?? '');
     } catch (err) {
       console.error(`[academy] /${name} сорвалась:`, err);
-      return `/${name}: команда сорвалась — ${(err && err.message) || err}`;
+      out = `/${name}: команда сорвалась — ${(err && err.message) || err}`;
     }
+    if (!yes(args.quiet)) showResult(context, title || `/${name}`, out);
+    return out;
   };
 }
 
@@ -199,7 +240,16 @@ export async function timeText(host, args = {}) {
     // пустое, ни битое состояние, — поэтому день есть. Пустая форма остаётся
     // страховкой на случай состояния без даты: соврать она не может.
     const day = (host.getState() && host.getState().calendar && host.getState().calendar.day) || 'ГГГГ-ММ-ДД';
-    return `${whenText(host)}\nЧто двигать: day=${day}, time=10:30, days=1, periods=-2, count=yes.`;
+    const U = uiLabels(host.getPreset());
+    return lines([
+      whenText(host),
+      'Как двигать календарь:',
+      `  day=${day} — перейти на эту дату`,
+      '  time=10:30 — поставить это время',
+      '  days=1 — сдвинуть на столько дней (назад — со знаком минус)',
+      `  periods=-2 — ${U.cmdShiftPeriods}`,
+      `  count=yes — ${U.cmdCountArg || 'зачесть пропущенное прогулами'}`,
+    ]);
   }
 
   const res = await host.actions.manualTime(patch);
@@ -339,19 +389,23 @@ export function registerCommands(host, context) {
     ? NA.fromProps({ name, description, typeList, isRequired: false })
     : null);
 
+  // Общий ключ всех команд (решение 5): показ окошком отключается, пайп остаётся.
+  const quiet = () => named('quiet', 'yes — не показывать окошко, только вернуть текст в пайп', [T.STRING]);
   const defs = [
     {
       name: 'academy',
       aliases: ['academy-status'],
       returns: U.cmdStatusReturns,
       helpString: U.cmdStatusHelp,
-      callback: guard('academy', () => statusText(host)),
+      namedArgumentList: [quiet()].filter(Boolean),
+      callback: guard('academy', () => statusText(host), c, '/academy'),
     },
     {
       name: 'academy-grades',
       returns: U.cmdGradesReturns,
       helpString: U.cmdGradesHelp,
-      callback: guard('academy-grades', () => gradesText(host)),
+      namedArgumentList: [quiet()].filter(Boolean),
+      callback: guard('academy-grades', () => gradesText(host), c, '/academy-grades'),
     },
     {
       name: 'academy-time',
@@ -363,20 +417,23 @@ export function registerCommands(host, context) {
         named('days', 'сдвиг в днях, можно отрицательный', [T.NUMBER]),
         named('periods', U.cmdShiftPeriods, [T.NUMBER]),
         named('count', U.cmdCountArg, [T.STRING]),
+        quiet(),
       ].filter(Boolean),
-      callback: guard('academy-time', (args) => timeText(host, args)),
+      callback: guard('academy-time', (args) => timeText(host, args), c, '/academy-time'),
     },
     {
       name: 'academy-state',
       returns: U.cmdStateReturns,
       helpString: U.cmdStateHelp,
-      callback: guard('academy-state', () => stateJson(host)),
+      namedArgumentList: [quiet()].filter(Boolean),
+      callback: guard('academy-state', () => stateJson(host), c, '/academy-state'),
     },
     {
       name: 'academy-debug',
       returns: 'разбор последнего ответа модели',
       helpString: 'Последний прогон: что разобрано, из какого источника взято время и что ушло в инжекты.',
-      callback: guard('academy-debug', () => debugText(host)),
+      namedArgumentList: [quiet()].filter(Boolean),
+      callback: guard('academy-debug', () => debugText(host), c, '/academy-debug'),
     },
   ];
 

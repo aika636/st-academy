@@ -1404,6 +1404,19 @@
   background: color-mix(in srgb, var(--academy-mes-gold) 16%, transparent);
 }
 
+.academy-mes-chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7em;
+  color: var(--ac-mute);
+  transition: transform 0.15s ease;
+}
+
+.academy-mes-open .academy-mes-chevron {
+  transform: rotate(180deg);
+}
+
 .academy-mes-action,
 .academy-mes-drop {
   flex: 0 0 auto;
@@ -1851,19 +1864,22 @@
 }
 
 .academy-panel .academy-tab {
+  /* Значок над подписью, как на телефоне: в строку «Сегод…», «Свито…» и «Настр…»
+     не влезали в панель 540 px (живой прогон 10.10) — подпись обязана быть целой. */
   flex: 1 1 0;
+  flex-direction: column;
   min-width: 0;
-  min-height: 42px;
-  gap: 6px;
+  min-height: 50px;
+  gap: 2px;
   margin-bottom: -1px;
-  padding: 8px 6px 7px;
+  padding: 6px 2px 5px;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: none;
   color: var(--ac-mute);
   opacity: 1;
-  font-size: 0.87em;
+  font-size: 0.8em;
   transition: color 0.15s, border-color 0.15s;
 }
 
@@ -1872,14 +1888,22 @@
 }
 
 .academy-tab-icon {
-  font-size: 0.95em;
+  font-size: 1.25em;
 }
 
+/* Подпись переносится по словам и обрезается многоточием только на третьей
+   строке: целиком читаются и «Сегодня», и «Нефритовая табличка». */
 .academy-tab-label {
+  max-width: 100%;
   min-width: 0;
+  line-height: 1.1;
+  text-align: center;
+  overflow-wrap: normal;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .academy-panel .academy-tab-on {

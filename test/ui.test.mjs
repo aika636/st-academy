@@ -166,11 +166,11 @@ test('точность date: пара идёт по счётчику, а час�
 
 // --- 3. Индикатор простоя (3.2) ---------------------------------------------
 
-test('отметка «время двигалось тогда-то» и превращение её в жалобу', () => {
+test('отметка «время сдвинулось тогда-то» и превращение её в жалобу', () => {
   const fresh = todayView(started({ source: 'A', idle: 0 }), preset);
   assert.equal(fresh.stalled, false);
-  assert.match(fresh.timeMark, /двигалось в последнем ответе/);
-  assert.match(fresh.timeMark, /из контекста/, 'видно, какой источник сработал');
+  assert.match(fresh.timeMark, /сдвинулось в последнем ответе/);
+  assert.match(fresh.timeMark, /из текста ответа/, 'видно, какой источник сработал');
 
   const quiet = todayView(started({ source: 'B', idle: 3 }), preset);
   assert.equal(quiet.stalled, false);
@@ -181,7 +181,7 @@ test('отметка «время двигалось тогда-то» и пре
   assert.match(stuck.timeMark, /Время стоит, проверьте источник/);
 
   const never = todayView(started(), preset);
-  assert.match(never.timeMark, /ни разу не двигалось/);
+  assert.match(never.timeMark, /ещё не сдвигалось/);
 });
 
 // --- 4. Не больше шести чисел на экране (3.3) --------------------------------

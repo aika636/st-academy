@@ -150,7 +150,7 @@ test('черновик курса: факты и «что говорят» сл�
   let view = tavern.seam.panel.panelFor(id);
   const words = view.tokens.map((t) => t.text);
   assert.ok(words.includes('стычка: Вера Соколова и Мила Орлова — из-за конспекта'));
-  assert.ok(words.includes('новое имя: Глеб Морозов — после сохранения его можно будет добавить'));
+  assert.ok(words.includes('новое лицо: Глеб Морозов — после сохранения его можно будет добавить'));
   assert.deepEqual(view.tokens.filter((t) => t.kind === 'react').map((t) => t.about), [
     'Вера Соколова и Мила Орлова — стычка из-за конспекта',
     'Вера Соколова и Мила Орлова — стычка из-за конспекта',
@@ -178,7 +178,7 @@ test('черновик курса: факты и «что говорят» сл�
   assert.ok(cand, 'кнопка «в курс»');
   assert.equal((await tavern.seam.panel.confirmCandidate(id, cand.candidate)).ok, true);
   assert.ok(course(tavern).some((c) => c.name === 'Глеб Морозов'));
-  assert.ok(tavern.seam.panel.panelFor(id).tokens.some((t) => t.text === 'новое имя: Глеб Морозов — уже в разделе «Курс»'));
+  assert.ok(tavern.seam.panel.panelFor(id).tokens.some((t) => t.text === 'новое лицо: Глеб Морозов — уже в разделе «Курс»'));
 
   // Отменить сохранение — лента, дела и встреча уходят; человек, взятый галочкой, остаётся.
   assert.equal((await tavern.seam.panel.clearAnalysis(id)).ok, true);

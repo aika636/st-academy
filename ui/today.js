@@ -5,7 +5,7 @@ import { currentPeriod, dayPlan, nextPeriod } from '../core/schedule.mjs';
 import { isStalled, phaseOf, termAt, weekIndex } from '../core/time.mjs';
 import { gradeInfo, isPassing } from '../core/exams.mjs';
 import {
-  uiLabels, fill, SOURCE_LABEL, stateHealth, formatDate, formatWeek, termTitle, capNumbers, plural,
+  uiLabels, fill, TIME_VIA, stateHealth, formatDate, formatWeek, termTitle, capNumbers, plural,
   extraLabels, whereText, slotText, mounted, el, runAction, setStatus, renderEmpty, call,
   renderPanel,
 } from './common.js';
@@ -102,7 +102,11 @@ export function todayView(state, preset) {
   }
 
   let next = null;
-  if (nxt) {
+  // «Сегодня начнём с» (или «Перемена, дальше») и «Дальше» про одну и ту же пару — две карточки подряд
+  // читались как повтор: следующую прячем, пока она и есть та, с которой начнём.
+  const nextIsNow = Boolean(nxt && now && now.status !== 'now' && nxt.day === cal.day && nxt.subjectId === now.subjectId
+    && nxt.index === cur.index);
+  if (nxt && !nextIsNow) {
     const sameDay = nxt.day === cal.day;
     const nextSlot = dayPlan(state, preset, nxt.day).find((p) => p.index === nxt.index) || null;
     next = {
@@ -125,9 +129,9 @@ export function todayView(state, preset) {
     ? 'Время стоит, проверьте источник.'
     : cal.source
       ? (idle === 0
-        ? `Время двигалось в последнем ответе (${SOURCE_LABEL[cal.source] || cal.source}).`
-        : `Время двигалось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${SOURCE_LABEL[cal.source] || cal.source}).`)
-      : 'Время ещё ни разу не двигалось.';
+        ? `Время сдвинулось в последнем ответе (${TIME_VIA[cal.source] || cal.source}).`
+        : `Время сдвинулось ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад (${TIME_VIA[cal.source] || cal.source}).`)
+      : 'Время в чате ещё не сдвигалось.';
 
   // Имя периода на экране: только когда периодов в году больше одного. У
   // пресета с одним периодом называть нечего — «семестр» и так один, и лишняя
@@ -175,6 +179,7 @@ export function todayView(state, preset) {
     silentReason,
     now,
     next,
+    nextIsNow,
     plan: plan.map((p) => ({
       index: p.index,
       ordinal: p.index + 1,
@@ -268,15 +273,32 @@ export function examResultsToday(state, preset) {
       tierText,
       pending,
       head: fill(X.checkLine, {
-        kind: (kind && kind.name) || String(item.kind || ''),
+        kind: String((kind && kind.name) || item.kind || '').toLowerCase(),
         subject: (subject && subject.name) || item.subjectId || '',
-        value: (info && info.label) || String(shown),
+        value: String(shown),
       }),
       rollText: auto ? X.checkAuto : fill(X.checkRoll, { roll: last.roll, dc: last.dc, tier: tierText }),
       notes,
     });
   }
   return out;
+}
+
+// --- итог действия на «Сегодня» ---------------------------------------------
+
+/** Сколько живёт слово о результате: дольше — уже не новость, а мусор на экране. */
+const NOTE_TTL = 60 * 1000;
+
+function setTodayNote(text, repair = false) {
+  mounted.todayNote = text ? { text, repair, at: Date.now() } : null;
+}
+
+/** Итог последнего действия, пока он свеж; иначе `null`. */
+function todayNoteOf() {
+  const n = mounted.todayNote;
+  if (!n) return null;
+  if (Date.now() - n.at > NOTE_TTL) { mounted.todayNote = null; return null; }
+  return n;
 }
 
 // --- вкладка «Сегодня» ------------------------------------------------------
@@ -300,6 +322,16 @@ export function renderToday(host, view, preset) {
       view.time ? el('span', { class: 'academy-clock', text: view.time }) : null,
     ]),
   ]));
+
+  // Вопрос про прыжок времени — самым первым: внизу под расписанием его не
+  // замечали, а пока он висит, календарь стоит на месте.
+  if (view.heldJump) box.append(heldJumpBlock(host, view, U));
+
+  const X0 = extraLabels(preset);
+  if (X0.weekHint) box.append(el('div', { class: 'academy-note academy-week-hint', text: X0.weekHint }));
+
+  const note = todayNoteOf();
+  if (note) box.append(el('div', { class: 'academy-status academy-status-ok academy-today-note', text: note.text }));
 
   // Исход сегодняшней проверки (9.4.1) — выше расписания: в день экзамена это
   // главная новость, а пар в этот день обычно и нет («сессия — лекций нет»).
@@ -325,7 +357,7 @@ export function renderToday(host, view, preset) {
       view.next.where ? el('div', { class: 'academy-where', text: view.next.where }) : null,
       el('div', { class: 'academy-slot', text: view.next.when }),
     ]));
-  } else if (!view.silent) {
+  } else if (!view.silent && !view.nextIsNow) {
     box.append(el('div', { class: 'academy-silent', text: U.noNext }));
   }
 
@@ -347,8 +379,6 @@ export function renderToday(host, view, preset) {
     class: view.stalled ? 'academy-timemark academy-timemark-stalled' : 'academy-timemark',
     text: view.timeMark,
   }));
-
-  if (view.heldJump) box.append(heldJumpBlock(host, view, U));
 
   const X = extraLabels(preset);
   const holidays = holidaysBlock(view.holidays, X);
@@ -386,8 +416,12 @@ function examResultLine(r) {
       }),
       el('span', { class: 'academy-subject', text: r.head }),
     ]),
-    el('div', { class: 'academy-slot', text: r.rollText }),
-    ...(r.notes || []).map((n) => el('div', { class: 'academy-note', text: n })),
+    // Бросок и пометки — по раскрытию: на экране остаётся «Алгебра: контрольная — 4».
+    el('details', { class: 'academy-verdict-more' }, [
+      el('summary', { text: 'Подробности' }),
+      el('div', { class: 'academy-slot', text: r.rollText }),
+      ...(r.notes || []).map((n) => el('div', { class: 'academy-note', text: n })),
+    ]),
   ]);
 }
 
@@ -409,10 +443,12 @@ function heldJumpBlock(host, view, U) {
     () => call(host, 'resolveJump', accept),
     accept ? U.jumpAccepted : U.jumpDismissed,
   ).then((res) => {
-    // Число пропущенных занятий известно только после ответа ядра, и сказать
-    // его надо до перерисовки — она этот узел унесёт.
-    if (accept && res && res.ok && res.missed) {
-      setStatus(status, 'ok', fill(U.jumpAcceptedMissed, { count: res.missed }));
+    // Число пропущенных занятий известно только после ответа ядра, а перерисовка
+    // унесёт этот узел, — поэтому итог уходит в память вкладки (`todayNote`).
+    if (res && res.ok) {
+      setTodayNote(accept && res.missed
+        ? fill(U.jumpAcceptedMissed, { count: res.missed })
+        : (accept ? U.jumpAccepted : U.jumpDismissed));
     }
     renderPanel(host);
   });
@@ -457,13 +493,24 @@ function manualTimeBlock(host, view, U) {
     () => call(host, 'manualTime', { ...patch, count: Boolean(count.checked) }),
     'Календарь поправлен.',
   ).then((res) => {
-    // Что стало с ведомостью, надо сказать до перерисовки: она унесёт узел.
-    if (res && res.ok && res.missed) setStatus(status, 'ok', fill(U.repairCounted, { count: res.missed }));
-    else if (res && res.ok && res.wouldMiss) setStatus(status, 'ok', fill(U.repairNotCounted, { count: res.wouldMiss }));
+    // Куда ушли часы и что стало с ведомостью, надо сказать до перерисовки:
+    // она унесёт узел, поэтому слова ложатся в память вкладки (`todayNote`) и
+    // блок остаётся раскрытым — раньше он схлопывался молча.
+    if (res && res.ok) {
+      const parts = [];
+      if (res.to && res.to.day) {
+        const slot = Number.isInteger(res.to.ordinal) ? ` (${fill(U.slot, { ordinal: res.to.ordinal })})` : '';
+        parts.push(fill(U.shiftedTo, { when: `${formatDate(res.to.day)}${res.to.time ? `, ${res.to.time}` : ''}${slot}` }));
+      }
+      if (res.missed) parts.push(fill(U.repairCounted, { count: res.missed }));
+      else if (res.wouldMiss) parts.push(fill(U.repairNotCounted, { count: res.wouldMiss }));
+      if (parts.length) setTodayNote(parts.join(' '), true);
+    }
     renderPanel(host);
   });
 
-  const details = el('details', { class: 'academy-repair' }, [
+  const note = todayNoteOf();
+  const details = el('details', { class: 'academy-repair', open: Boolean(note && note.repair) }, [
     el('summary', { text: 'Поправить время вручную' }),
     el('div', { class: 'academy-repair-body' }, [
       el('p', {

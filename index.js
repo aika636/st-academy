@@ -1672,7 +1672,7 @@ function turnRows(before, after, exam) {
     }
   }
   const fresh = all.slice(from);
-  const rows = hookJournal({ ...after, journal: fresh }, live.preset, 50).map(rowText).filter(Boolean);
+  const rows = hookJournal({ ...after, journal: fresh }, live.preset, 50).map((r) => rowText(r, rowWords())).filter(Boolean);
   // Итог, который мир узнает позже (9.4.3): журнал наружу его прячет, но что
   // контрольное сдавали, видно сразу — без оценки.
   if (exam && exam.announceOn) {
@@ -1873,6 +1873,21 @@ function panelView(mesId) {
     partial: Boolean(draft && draft.partial),
     // Слова заведения для разделов плашки: «Класс», «Отношение учителей».
     labels: panelLabels(),
+    // Прыжок времени ждёт решения (карточка на «Сегодня»): строка «без перемен»
+    // об этом ответе молчала бы о главном.
+    heldJump: Boolean(live.state.calendar && live.state.calendar.heldJump && (turn || uncounted)),
+  };
+}
+
+/** Слова заведения для строк плашки: «долг» школы, «хвост» вуза, «прореха» магов. */
+function rowWords() {
+  const U = uiLabels(live.preset);
+  return {
+    rowDebt: U.rowDebt,
+    rowDebtClosed: U.rowDebtClosed,
+    rowJump: U.rowJump,
+    rowExamMissed: U.rowExamMissed,
+    rowReputation: U.rowReputation,
   };
 }
 
@@ -1899,7 +1914,7 @@ function tokenAvatar(author) {
 /**
  * Строки разбора для плашки. Факты курса — разделом «Курс», реакции —
  * разделом «Что говорят» при своём факте (`fact` — номер строки факта),
- * новое имя — с кнопкой «в курс», пока кандидат ждёт галочки.
+ * новое лицо — с кнопкой «в курс», пока кандидат ждёт галочки.
  */
 function panelTokens(list, lexicon, entry, isDraft) {
   return list.map((t, i) => {
@@ -1943,12 +1958,12 @@ function panelTokens(list, lexicon, entry, isDraft) {
 }
 
 /**
- * «новое имя: Глеб Орлов — добавить?» и что с ним сейчас. Раздел — словом
+ * «новое лицо: Глеб Орлов — добавить?» и что с ним сейчас. Раздел — словом
  * пресета (`classmatesTitle`: «Класс», «Взвод»), в кавычках: склонять подпись
  * вкладки нельзя, а «в раздел «Класс»» читается при любом слове.
  */
 function newNameToken(name, isDraft) {
-  const head = `новое имя: ${name}`;
+  const head = `новое лицо: ${name}`;
   const part = uiLabels(live.preset).classmatesTitle;
   if (findClassmate(live.state, name)) return { text: `${head} — уже в разделе «${part}»`, brief: head, kind: 'course' };
   const cand = listCandidates(live.state).find((c) => c && sameName(c.name, name));
@@ -2064,7 +2079,7 @@ async function analyzeMessage(mesId) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       return fail(res.truncated
         ? 'Секретарь не договорил: ответ оборвался раньше метки. Попробуйте ещё раз.'
-        : 'Секретарь ответил не по форме — метки в ответе нет. Попробуйте ещё раз.');
+        : 'Секретарь ответил не так, как нужно. Попробуйте ещё раз.');
     }
     // Пока шёл запрос, ответ могли свайпнуть или поправить: выводы — про
     // прежний текст, и к новому их не приложить.
@@ -3357,8 +3372,16 @@ const host = {
       noticeChanges(before, live.state, { source: 'manual' });
       refreshPanel();
       const now = (res.state.reputation && res.state.reputation.value) || 0;
+      // Куда встали часы: панель после действия строится заново и без этих слов
+      // не скажет человеку, перешагнул сдвиг пару или остановился на ней.
+      const cal = live.state.calendar || {};
       return {
         ok: true,
+        to: {
+          day: cal.day,
+          time: cal.precision === 'datetime' ? cal.time : null,
+          ordinal: cal.precision === 'datetime' && Number.isInteger(cal.periodIndex) ? cal.periodIndex + 1 : null,
+        },
         missed: res.missed.length,
         wouldMiss: res.wouldMiss,
         reputation: now === was ? null : { from: was, to: now },

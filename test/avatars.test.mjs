@@ -71,6 +71,22 @@ test('маска: значок по основе слова ника, без м�
   assert.equal(maskIcon('❤ Миша'), '💘', 'сердце в нике — само себе значок');
 });
 
+test('маска: короткие основы не ловят чужие слова', () => {
+  const stray = (nick, icon) => assert.notEqual(maskIcon(nick), icon, `«${nick}» поймал чужой значок ${icon}`);
+  stray('бесстрашный', '😈');
+  stray('бескорыстная', '😈');
+  stray('пришёл поздно', '👽');
+  stray('пришла первой', '👽');
+  stray('чайка у окна', '🍵');
+  stray('Розалия', '🌸');
+  stray('мемуары', '😂');
+  assert.equal(maskIcon('бес'), '😈');
+  assert.equal(maskIcon('бесенок'), '😈');
+  assert.equal(maskIcon('пришелец'), '👽');
+  assert.equal(maskIcon('чай'), '🍵');
+  assert.equal(maskIcon('чайная душа'), '🍵');
+});
+
 test('маска: сеттинги — магия, космос, сянься', () => {
   assert.equal(maskIcon('тёмный маг'), '✨');
   assert.equal(maskIcon('магия-это-я'), '✨');

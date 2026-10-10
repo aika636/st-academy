@@ -66,7 +66,7 @@ export function sceneText(ev, people, heroine = '') {
   if (ev.kind === 'met') return `в сцене: ${who(ev.personId)}`;
   if (ev.kind === 'clash') return `стычка: ${who(ev.a)} и ${who(ev.b)}${ev.reason ? ` — ${ev.reason}` : ''}`;
   if (ev.kind === 'rumor') return `слух: ${who(ev.about)} — ${ev.text}`;
-  if (ev.kind === 'new') return `новое имя: ${ev.name}`;
+  if (ev.kind === 'new') return `новое лицо: ${ev.name}`;
   if (ev.kind === 'deal') return dealText(ev, people, heroine);
   return '';
 }
