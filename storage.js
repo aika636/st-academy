@@ -2,6 +2,7 @@ import { METADATA_KEY, SCHEMA_VERSION, migrate, validateState } from './core/sta
 import { normalizePlot } from './core/plot.mjs';
 import { MARKS_MAX } from './core/feed.mjs';
 import { readDeltas } from './core/molva.mjs';
+import { tidyTally } from './core/feats.mjs';
 import { fill, uiLabels } from './ui.js';
 
 export const KEY = METADATA_KEY;
@@ -22,7 +23,6 @@ export const DEFAULT_SETTINGS = {
     source: 'auto',
     profile: '',
     endpoint: '',
-    key: '',
     model: '',
   },
   preset: 'ru-university',
@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS = {
     style: 'anime',
     styleText: '',
     naiSize: 'portrait',
-    custom: { mode: 'openai', endpoint: '', key: '', model: '' },
+    custom: { mode: 'openai', endpoint: '', model: '' },
   },
   lorebook: {
     enabled: false,
@@ -540,21 +540,139 @@ export function mergeDefaults(defaults, stored) {
   return out;
 }
 
+export const KEYS_STORE = 'academy_keys';
+
+const memoryKeys = {};
+
+function keyStore() {
+  try { return globalThis.localStorage || null; } catch { return null; }
+}
+
+function readKeys() {
+  const ls = keyStore();
+  if (!ls) return { ...memoryKeys };
+  try {
+    const raw = JSON.parse(ls.getItem(KEYS_STORE) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+export function readKey(name) {
+  const v = readKeys()[name];
+  return typeof v === 'string' ? v : '';
+}
+
+export function writeKey(name, value) {
+  const keys = readKeys();
+  const v = String(value == null ? '' : value);
+  if (v) keys[name] = v;
+  else delete keys[name];
+  const ls = keyStore();
+  if (!ls) { memoryKeys[name] = v; return; }
+  try { ls.setItem(KEYS_STORE, JSON.stringify(keys)); } catch { memoryKeys[name] = v; }
+}
+
+const KEY_SLOTS = [
+  { name: 'api', get: (s) => s.api },
+  { name: 'draw', get: (s) => s.draw && s.draw.custom },
+];
+
+function takeKeys(target, clear = false) {
+  let moved = false;
+  for (const slot of KEY_SLOTS) {
+    const box = target && slot.get(target);
+    if (!box || typeof box !== 'object' || !('key' in box)) continue;
+    if (typeof box.key === 'string' && (box.key || clear)) writeKey(slot.name, box.key);
+    delete box.key;
+    moved = true;
+  }
+  return moved;
+}
+
 export function loadSettings(ctx) {
   const c = context(ctx);
   const all = c.extensionSettings;
   if (!all || typeof all !== 'object') throw new Error('academy/storage: нет extension_settings');
   if (!all[KEY] || typeof all[KEY] !== 'object') all[KEY] = {};
-  return mergeDefaults(DEFAULT_SETTINGS, all[KEY]);
+  const live = mergeDefaults(DEFAULT_SETTINGS, all[KEY]);
+  const moved = takeKeys(live);
+  const tidied = !tidyDone && tidySettings(live);
+  tidyDone = true;
+  if ((moved || tidied) && typeof c.saveSettingsDebounced === 'function') c.saveSettingsDebounced();
+  return live;
+}
+
+export const CARD_CASTS_MAX = 100;
+
+let tidyDone = false;
+
+export function tidySettings(s) {
+  const before = JSON.stringify([s.achievementTally, s.cardCasts]);
+  s.achievementTally = tidyTally(s.achievementTally);
+  const casts = s.cardCasts && typeof s.cardCasts === 'object' && !Array.isArray(s.cardCasts) ? s.cardCasts : {};
+  const kept = Object.entries(casts).filter(([, v]) => v && typeof v === 'object' && (v.checked || v.source !== 'auto'));
+  s.cardCasts = Object.fromEntries(kept.slice(-CARD_CASTS_MAX));
+  return JSON.stringify([s.achievementTally, s.cardCasts]) !== before;
+}
+
+export function putCardCast(ctx, avatar, cast) {
+  const c = context(ctx);
+  const s = loadSettings(c);
+  const all = s.cardCasts;
+  delete all[avatar];
+  all[avatar] = cast;
+  const names = Object.keys(all);
+  for (const name of names.slice(0, Math.max(0, names.length - CARD_CASTS_MAX))) delete all[name];
+  c.saveSettingsDebounced();
+  return cast;
+}
+
+export function pruneCardCasts(ctx, avatars) {
+  const c = context(ctx);
+  const s = loadSettings(c);
+  const alive = new Set(avatars);
+  const gone = Object.keys(s.cardCasts).filter((a) => !alive.has(a));
+  for (const a of gone) delete s.cardCasts[a];
+  if (gone.length) c.saveSettingsDebounced();
+  return gone.length;
+}
+
+export function dropDrafts(ctx, chatId) {
+  const c = context(ctx);
+  const s = loadSettings(c);
+  let dropped = false;
+  for (const name of ['surveyDraft', 'startDayDraft']) {
+    const d = s.ui && s.ui[name];
+    if (d && chatId && d.chatId === chatId) { delete s.ui[name]; dropped = true; }
+  }
+  if (dropped) c.saveSettingsDebounced();
+  return dropped;
 }
 
 export function saveSettings(settings, ctx) {
   const c = context(looksLikeContext(settings) ? settings : ctx);
-  const patch = looksLikeContext(settings) ? ctx : settings;
+  const raw = looksLikeContext(settings) ? ctx : settings;
   const live = loadSettings(c);
-  if (patch && patch !== live && typeof patch === 'object') deepAssign(live, patch);
+  if (raw && raw !== live && typeof raw === 'object') {
+    const patch = JSON.parse(JSON.stringify(raw));
+    takeKeys(patch, true);
+    deepAssign(live, patch);
+  }
+  takeKeys(live);
   c.saveSettingsDebounced();
   return live;
+}
+
+export function drawSettings(ctx) {
+  const d = loadSettings(ctx).draw;
+  return { ...d, custom: { ...d.custom, key: readKey('draw') } };
+}
+
+export function settingsWithKeys(ctx) {
+  const s = loadSettings(ctx);
+  return { ...s, api: { ...s.api, key: readKey('api') }, draw: drawSettings(ctx) };
 }
 
 export function deepAssign(target, patch) {
@@ -606,5 +724,5 @@ export function removeUserPreset(ctx, id) {
 
 export function apiSettings(ctx) {
   const s = loadSettings(ctx);
-  return { ...s.api };
+  return { ...s.api, key: readKey('api') };
 }

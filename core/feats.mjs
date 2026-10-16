@@ -161,17 +161,48 @@ export function featLine(e) {
   return e ? [e.name, e.detail].filter(Boolean).join(': ') : '';
 }
 
-export const TALLY_CHATS_MAX = 200;
+export const TALLY_CHATS_MAX = 50;
+
+export function chatTag(chatKey) {
+  const text = String(chatKey == null ? '' : chatKey);
+  if (/^c[0-9a-z]{1,7}$/.test(text)) return text;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `c${h.toString(36)}`;
+}
+
+function tallyEntry(raw) {
+  const chats = [...new Set((Array.isArray(raw && raw.chats) ? raw.chats : []).map(chatTag))];
+  const n = Number.isInteger(raw && raw.n) && raw.n >= chats.length ? raw.n : chats.length;
+  return { n, chats: chats.slice(-TALLY_CHATS_MAX), first: (raw && raw.first) || null };
+}
+
+export function tidyTally(tally) {
+  const base = tally && typeof tally === 'object' && !Array.isArray(tally) ? tally : {};
+  const out = {};
+  for (const [id, raw] of Object.entries(base)) if (BY_ID.has(id)) out[id] = tallyEntry(raw);
+  return out;
+}
+
+export function tallyCount(entry) {
+  if (!entry || typeof entry !== 'object') return 0;
+  if (Number.isInteger(entry.n)) return entry.n;
+  return Array.isArray(entry.chats) ? entry.chats.length : 0;
+}
 
 export function recordTally(tally, chatKey, list, today) {
   const base = tally && typeof tally === 'object' && !Array.isArray(tally) ? tally : {};
   if (!chatKey || !Array.isArray(list) || !list.length) return base;
+  const tag = chatTag(chatKey);
   let out = base;
   for (const id of new Set(list.map((m) => m && (m.feat || m.kind)).filter((k) => BY_ID.has(k)))) {
-    const cur = base[id] && Array.isArray(base[id].chats) ? base[id] : { chats: [], first: null };
-    if (cur.chats.includes(chatKey)) continue;
+    const cur = tallyEntry(base[id]);
+    if (cur.chats.includes(tag)) continue;
     if (out === base) out = { ...base };
-    out[id] = { chats: [...cur.chats, chatKey].slice(-TALLY_CHATS_MAX), first: cur.first || today || null };
+    out[id] = { n: cur.n + 1, chats: [...cur.chats, tag].slice(-TALLY_CHATS_MAX), first: cur.first || today || null };
   }
   return out;
 }

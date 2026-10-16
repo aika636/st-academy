@@ -1,6 +1,6 @@
 import { milestones, milestoneDetail } from '../core/milestones.mjs';
 import {
-  FEATS, FEAT_FAMILIES, MOMENTS_FAMILY, earnedFeats, featText, featLine, withChar,
+  FEATS, FEAT_FAMILIES, MOMENTS_FAMILY, earnedFeats, featText, featLine, withChar, tallyCount,
 } from '../core/feats.mjs';
 import { fill, stateHealth, formatDate, extraLabels, uiLabels, plural, el, memoDetails } from './common.js';
 
@@ -94,7 +94,7 @@ export function achievementsView(state, preset, tally = {}, opts = {}) {
 
   const t = tally && typeof tally === 'object' ? tally : {};
   const global = FEATS
-    .map((f, i) => ({ kind: f.id, i, n: Array.isArray(t[f.id] && t[f.id].chats) ? t[f.id].chats.length : 0 }))
+    .map((f, i) => ({ kind: f.id, i, n: tallyCount(t[f.id]) }))
     .filter((g) => g.n > 0)
     .sort((a, b) => b.n - a.n || a.i - b.i)
     .map((g) => ({ kind: g.kind, n: g.n, title: featText(g.kind, preset).name, line: fill(X.achGlobalLine, { n: g.n }) }));

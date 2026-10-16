@@ -329,6 +329,8 @@ function reloadState() {
   if (live.state) live.plot = syncBullyHook(live.plot, ...bullyHookArgs(live.state));
   live.analysisErrors.clear();
   primeCardCast();
+  if (!live.castsPruned) live.castsPruned = pruneCardCasts();
+  if (live.state && live.state.started) storage.dropDrafts(ctx(), String(currentChatId() || ''));
   if (live.state) dropCastCandidates().catch((err) => console.warn(`[${MODULE}] кандидаты не почищены:`, err));
   primeMilestones();
   return report;
@@ -993,10 +995,13 @@ function castAvatars(c) {
   }
 }
 
+const autoCasts = new Map();
+
 function castOf(avatar) {
   try {
     const all = storage.loadSettings(ctx()).cardCasts || {};
-    return all[avatar] ? normalizeCast(all[avatar]) : null;
+    if (all[avatar]) return normalizeCast(all[avatar]);
+    return autoCasts.get(avatar) || null;
   } catch {
     return null;
   }
@@ -1008,10 +1013,8 @@ function castMainNames(c) {
 
 function saveCast(avatar, cast) {
   const clean = normalizeCast(cast);
-  const all = storage.loadSettings(ctx()).cardCasts || {};
-  all[avatar] = clean;
-  storage.saveSettings({}, ctx());
-  return clean;
+  autoCasts.delete(avatar);
+  return storage.putCardCast(ctx(), avatar, clean);
 }
 
 function primeCardCast() {
@@ -1021,9 +1024,22 @@ function primeCardCast() {
     if (avatars.length !== 1 || castOf(avatars[0])) return;
     const read = api.readCharacterCard(c);
     if (!read.ok) return;
-    saveCast(avatars[0], guessCastLocal(read.card));
+    autoCasts.set(avatars[0], guessCastLocal(read.card));
   } catch (err) {
     console.warn(`[${MODULE}] персонаж карточки не угадан:`, err);
+  }
+}
+
+function pruneCardCasts() {
+  try {
+    const c = ctx();
+    const list = Array.isArray(c && c.characters) ? c.characters : [];
+    if (!list.length) return false;
+    storage.pruneCardCasts(c, list.map((ch) => ch && ch.avatar).filter(Boolean).map(String));
+    return true;
+  } catch (err) {
+    console.warn(`[${MODULE}] список персонажей карточек не почищен:`, err);
+    return false;
   }
 }
 
@@ -2584,7 +2600,7 @@ const host = {
     viewing: Boolean(live.view),
   }),
   getPresetView: () => (live.view && live.preset ? { id: live.preset.id, name: presetName(live.preset.id) } : null),
-  getSettings: () => storage.loadSettings(ctx()),
+  getSettings: () => storage.settingsWithKeys(ctx()),
   getChatId: () => currentChatId(),
   getCardCast: () => {
     const c = ctx();
@@ -2644,7 +2660,7 @@ const host = {
     });
   },
 
-  getDraw: () => ({ ...drawInfo(ctx(), storage.loadSettings(ctx()).draw), chat: currentChatId() }),
+  getDraw: () => ({ ...drawInfo(ctx(), storage.drawSettings(ctx())), chat: currentChatId() }),
 
   getCardBooks: () => api.extraBookNames(ctx()),
 
@@ -3117,7 +3133,7 @@ const host = {
       const classmate = teacher ? null : (live.state.classmates || []).find((x) => x && x.id === personId);
       let person = teacher || classmate;
       if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
-      const settings = storage.loadSettings(ctx());
+      const settings = storage.settingsWithKeys(ctx());
       const subjects = teacher
         ? (live.state.subjects || []).filter((s) => s && s.teacherId === teacher.id).map((s) => String(s.name || s.id || ''))
         : [];
@@ -3399,7 +3415,7 @@ const host = {
         : { ok: false, models: [], error: res.message, code: res.code };
     },
 
-    loadDrawModels: () => loadCustomModels(storage.loadSettings(ctx()).draw),
+    loadDrawModels: () => loadCustomModels(storage.drawSettings(ctx())),
 
     async syncLorebook() {
       const report = await syncLorebook({ force: true, immediately: true });
