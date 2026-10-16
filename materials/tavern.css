@@ -1,0 +1,55 @@
+.ad-diary[data-mat="tavern"], .ad-mat-scope[data-mat="tavern"] {
+  --ad-tint: var(--SmartThemeBlurTintColor, #171717);
+  --ad-cover: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 7%, var(--ad-tint));
+  --ad-cover-edge: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, var(--ad-tint));
+  --ad-page: var(--ad-tint);
+  --ad-grid: transparent;
+  --ad-margin: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 55%, transparent);
+
+  --ad-ink: var(--SmartThemeBodyColor, #dcdcd2);
+  --ad-ink-soft: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 70%, transparent);
+  --ad-pen: var(--SmartThemeQuoteColor, #e18a24);
+  --ad-pen-2: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 65%, var(--SmartThemeBodyColor, #dcdcd2));
+  --ad-accent: var(--SmartThemeQuoteColor, #e18a24);
+  --ad-rule: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, transparent);
+  --ad-rumor: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 40%, #b58ae0);
+  --ad-today: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 40%, #e0a93a);
+
+  --ad-tab: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 12%, var(--ad-tint));
+  --ad-tab-ink: var(--SmartThemeBodyColor, #dcdcd2);
+  --ad-tab-on: var(--SmartThemeBodyColor, #dcdcd2);
+  --ad-tab-on-ink: var(--ad-tint);
+  --ad-tab-on-line: var(--SmartThemeQuoteColor, #e18a24);
+
+  --ad-field: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 6%, var(--ad-tint));
+  --ad-field-line: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 30%, transparent);
+  --ad-now-bg: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 14%, transparent);
+  --ad-now-line: var(--SmartThemeQuoteColor, #e18a24);
+  --ad-sel-bg: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 18%, transparent);
+  --ad-good: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 45%, #6dbb78);
+  --ad-bad: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 25%, #e05a55);
+  --ad-emb-fg: var(--SmartThemeBodyColor, #dcdcd2);
+  --ad-emb-bg: var(--ad-tint);
+  --ad-emb-ac: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 60%, var(--ad-tint));
+
+  --ad-f-head: var(--mainFontFamily, system-ui, sans-serif);
+  --ad-f-body: var(--mainFontFamily, system-ui, sans-serif);
+  --ad-f-hand: var(--mainFontFamily, system-ui, sans-serif);
+  --ad-f-ui: var(--mainFontFamily, system-ui, sans-serif);
+  --ad-hand-size: 1rem;
+  --ad-scheme: normal;
+
+  --ad-r-cover: 10px; --ad-r-page: 6px; --ad-r-card: 6px; --ad-r-note: 6px; --ad-r-btn: 6px; --ad-r-field: 6px; --ad-r-tab: 6px 6px 0 0;
+  --ad-shadow-surface: 0 10px 32px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.45));
+  --ad-shadow-pop: 0 6px 18px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.45));
+  --ad-shadow-attached: none;
+  --ad-case-border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.4));
+  --ad-spine-w: 0px; --ad-pad-left: 16px; --ad-pad-left-desk: 30px; --ad-pad-left-r: 30px;
+  --ad-head-case: none; --ad-head-track: .02em; --ad-h2-size: 1.4rem;
+  --ad-doc-mark-display: none;
+  --ad-gutter-w: 2px; --ad-gutter-bg: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, transparent);
+}
+.ad-mat-scope[data-mat="tavern"] .ad-bookmark { display: none; }
+@supports (color: rgb(from red r g b / 1)) {
+  .ad-diary[data-mat="tavern"], .ad-mat-scope[data-mat="tavern"] { --ad-tint: rgb(from var(--SmartThemeBlurTintColor, #171717) r g b / 1); }
+}

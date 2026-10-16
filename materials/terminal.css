@@ -1,0 +1,34 @@
+.ad-diary[data-mat="terminal"], .ad-mat-scope[data-mat="terminal"] {
+  --ad-cover: #222d39; --ad-cover-edge: #101923;
+  --ad-page: #15222c; --ad-grid: transparent; --ad-margin: #476473;
+  --ad-ink: #edf4f6; --ad-ink-soft: #b1c4cd;
+  --ad-pen: #99d9e8; --ad-pen-2: #e6c589; --ad-accent: #99d9e8;
+  --ad-rule: #3d5663; --ad-rumor: #d2a9eb; --ad-today: #ffbf8e;
+  --ad-tab: #304451; --ad-tab-ink: #d2e5ec; --ad-tab-on: #e2f0f3; --ad-tab-on-ink: #15222c;
+  --ad-field: #1b303d; --ad-field-line: #638290;
+  --ad-f-head: "Golos Text", system-ui, sans-serif; --ad-f-body: "Golos Text", system-ui, sans-serif;
+  --ad-f-hand: "Golos Text", system-ui, sans-serif; --ad-f-doc: "IBM Plex Mono", ui-monospace, Consolas, monospace; --ad-hand-size: .95rem;
+
+  --ad-now-bg: rgba(153, 217, 232, .08); --ad-now-line: #99d9e8;
+  --ad-note: #1b303d; --ad-note-line: #3d5663;
+  --ad-sticker: #1b303d; --ad-sticker-ink: #edf4f6; --ad-sticker-line: #62848f;
+  --ad-doc: #1b303d; --ad-doc-ink: #edf4f6; --ad-doc-soft: #b1c4cd; --ad-doc-line: #3d5663; --ad-stamp: #99d9e8;
+  --ad-inner: #101c25; --ad-inner-ink: #edf4f6; --ad-inner-line: #3d5663;
+  --ad-fam-study: #99d9e8; --ad-fam-people: #ff9aa2; --ad-fam-attend: #8fe0a8; --ad-fam-secret: #d2a9eb;
+  --ad-good: #7fdca3; --ad-bad: #ff9a90;
+  --ad-emb-fg: #99d9e8; --ad-emb-bg: #15222c; --ad-emb-ac: #ffb345; --ad-scheme: dark;
+  --ad-r-cover: 10px; --ad-r-page: 2px; --ad-r-card: 3px; --ad-r-note: 3px; --ad-r-btn: 3px; --ad-r-field: 3px; --ad-r-chip: 3px; --ad-r-tab: 3px; --ad-r-ph: 0;
+  --ad-shadow-surface: 0 12px 25px rgba(13, 23, 39, .5); --ad-shadow-pop: 0 0 0 1px #62848f; --ad-shadow-attached: none;
+  --ad-focus-ring: 2px solid #99d9e8; --ad-sel-bg: #294451;
+  --ad-surface-img: none; --ad-margin-w: 0px; --ad-spine-w: 8px;
+  --ad-marker-w: 10px; --ad-marker-h: 10px; --ad-marker-r: 2px; --ad-marker-ring: 0 0 0 2px #15222c, 0 0 0 3px var(--ad-rumor);
+  --ad-hand-tilt: 0deg; --ad-head-track: .1em; --ad-h2-size: 1.4rem;
+  --ad-ph-shadow: none; --ad-ph-inset: 3px; --ad-was-deco: none; --ad-was-after: " → ";
+  --ad-gutter-w: 10px; --ad-gutter-bg: #101923;
+  --ad-case-border: 2px solid #5a6e7b; --ad-surface-edge: inset 0 0 0 1px #62848f; --ad-title-rule: 1px solid #3d5663; --ad-title-rule-pad: 8px;
+  --ad-ph-border: 1px solid #84afbd; --ad-ph-bg: #304754;
+}
+.ad-diary[data-mat="terminal"] .ad-attach[data-for="photo"] { display: block; top: -3px; right: 4px; width: 14px; height: 6px; background: #a5bec7; border: 1px solid #edf4f6; }
+.ad-diary[data-mat="terminal"] .ad-attach[data-for="photo"][data-size="lg"] { width: 20px; height: 7px; }
+.ad-diary[data-mat="terminal"] { --ad-doc-mark-display: none; }
+.ad-mat-scope[data-mat="terminal"] .ad-bookmark { display: none; }

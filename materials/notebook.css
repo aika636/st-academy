@@ -1,0 +1,123 @@
+.ad-diary[data-mat="notebook"], .ad-mat-scope[data-mat="notebook"] {
+  --ad-cover: #286448; --ad-cover-edge: #1B4A33;
+  --ad-page: #FFFEF8; --ad-grid: #DFE8ED; --ad-margin: #C12D38;
+  --ad-ink: #283247; --ad-ink-soft: #4C566B;
+  --ad-pen: #3156A6; --ad-pen-2: #C12D38; --ad-accent: #C12D38;
+  --ad-rule: #D5DFE8; --ad-rumor: #3156A6; --ad-today: #3156A6;
+  --ad-tab: #DCE9DC; --ad-tab-ink: #17432B; --ad-tab-on: #FFFEF8; --ad-tab-on-ink: #17432B; --ad-tab-on-line: #C12D38;
+  --ad-field: #ffffff; --ad-field-line: #AEBFD6;
+  --ad-f-head: "Golos Text", system-ui, sans-serif; --ad-f-body: "Golos Text", system-ui, sans-serif; --ad-f-ui: "Golos Text", system-ui, sans-serif;
+  --ad-f-hand: "Bad Script", "Segoe Print", cursive; --ad-f-doc: "Golos Text", system-ui, sans-serif; --ad-hand-size: 1.1rem;
+  --ad-f-note: "Bad Script", "Segoe Print", cursive;
+  --ad-f-hand-long: "Golos Text", system-ui, sans-serif; --ad-hand-long-size: .95rem; --ad-hand-long-lh: 1.5; --ad-hand-long-style: italic;
+  --ad-f-digits: "Golos Text", system-ui, sans-serif; --ad-num-variant: lining-nums tabular-nums;
+  --ad-f-date: "Bad Script", "Segoe Print", cursive; --ad-date-weight: 400; --ad-date-stroke: .45px currentColor;
+
+  --ad-now-bg: linear-gradient(rgba(49, 86, 166, .04), rgba(49, 86, 166, .04)), linear-gradient(rgba(255, 254, 248, .8), rgba(255, 254, 248, .8)); --ad-now-line: #3156A6;
+  --ad-note: #FFFEF8; --ad-note-line: rgba(49, 86, 166, .35);
+  --ad-sticker: linear-gradient(rgba(49, 86, 166, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(49, 86, 166, .1) 1px, transparent 1px), #FFFFFF;
+  --ad-sticker-bg-even: linear-gradient(rgba(49, 86, 166, .12) 1px, transparent 1px), linear-gradient(90deg, rgba(49, 86, 166, .12) 1px, transparent 1px), #F2F6FB;
+  --ad-sticker-bg-3n: linear-gradient(rgba(49, 86, 166, .1) 1px, transparent 1px), linear-gradient(90deg, rgba(49, 86, 166, .1) 1px, transparent 1px), #FFFFFF;
+  --ad-sticker-ink: #283247; --ad-sticker-line: transparent;
+  --ad-doc: #FFFEF8;
+  --ad-doc-ink: #283247; --ad-doc-soft: #4C566B; --ad-doc-line: #B9C6D6; --ad-stamp: #3156A6;
+  --ad-inner: #FFFEF8; --ad-inner-ink: #283247; --ad-inner-line: #C9D4DE;
+  --ad-fam-study: #3156A6; --ad-fam-people: #A8323C; --ad-fam-attend: #1F7A46; --ad-fam-secret: #5E4766;
+  --ad-good: #1B6A38; --ad-bad: #C12D38;
+  --ad-emb-fg: #FFF8E8; --ad-emb-bg: #286249; --ad-emb-ac: #E95560; --ad-scheme: light;
+  --ad-r-cover: 4px 12px 12px 4px; --ad-r-page: 2px; --ad-r-card: 4px; --ad-r-note: 3px; --ad-r-btn: 6px; --ad-r-field: 4px; --ad-r-chip: 4px; --ad-r-tab: 8px 8px 0 0; --ad-r-ph: 1px;
+  --ad-shadow-surface: 0 10px 22px rgba(10, 40, 24, .4); --ad-shadow-doc: none;
+  --ad-case-border: 1px solid #1B4A33; --ad-md-other-vis: hidden; --ad-spine-w: 11px;
+
+  --ad-surface-img: linear-gradient(var(--ad-grid) 1px, transparent 1px), linear-gradient(90deg, var(--ad-grid) 1px, transparent 1px);
+  --ad-surface-size: 18px 18px; --ad-margin-w: 2px; --ad-margin-x: var(--ad-md-line); --ad-pad-left: var(--ad-md-text); --ad-tabs-clear: 80px;
+  --ad-sel-bg: rgba(49, 86, 166, .1);
+  --ad-hand-tilt: 0deg;
+  --ad-gutter-bg: linear-gradient(90deg, transparent, rgba(40, 50, 71, .1) 45%, rgba(40, 50, 71, .18) 50%, rgba(40, 50, 71, .1) 55%, transparent);
+
+  --ad-head-label-display: block; --ad-head-label-font: 400 1.05rem/1.3 "Bad Script", cursive; --ad-head-label-case: none; --ad-head-label-track: 0;
+  --ad-head-label-bg: #FFFEF8;
+  --ad-head-label-ink: #3156A6; --ad-head-label-pad: 3px 14px 1px 10px; --ad-head-label-border: 1px solid rgba(0, 0, 0, .18); --ad-head-label-r: 2px 2px 0 0;
+  --ad-head-label-rotate: -1deg; --ad-head-label-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  --ad-head-title-bg: #FFFEF8; --ad-head-title-ink: #283247; --ad-head-title-pad: 2px 14px 3px 10px; --ad-head-title-border: 1px solid rgba(0, 0, 0, .18);
+  --ad-head-title-r: 0 0 2px 2px; --ad-head-title-rotate: -1deg; --ad-head-title-shadow: 0 2px 3px rgba(0, 0, 0, .3);
+  --ad-emblem-size: 36px;
+
+  --ad-tc-today: transparent; --ad-tc-grades: transparent; --ad-tc-people: transparent; --ad-tc-feed: transparent; --ad-tc-ach: transparent; --ad-tc-settings: transparent;
+
+  --ad-date-size: 3rem; --ad-date-ink: #3156A6; --ad-cd-ink: #3156A6;
+  --ad-was-deco: line-through; --ad-was-ink: #C12D38; --ad-was-after: " →"; --ad-was-arrow-ink: #C12D38;
+  --ad-prefix-font: 400 .95rem "Bad Script", cursive; --ad-prefix-ink: #C12D38;
+  --ad-rel-why-prefix: "дописано "; --ad-rel-why-prefix-teacher: "красной ручкой: "; --ad-rel-why-prefix-classmate: "дописано ";
+  --ad-said-prefix: "из чата класса"; --ad-said-bar: 3px;
+  --ad-sec-h-ink: #3156A6; --ad-count-ink: #3156A6; --ad-rel-now-ink: #3156A6; --ad-badge-bg: #C12D38; --ad-badge-ink: #fff;
+  --ad-mark-border: 0 none; --ad-mark-pad: 0 1px; --ad-mark-gap: 9px; --ad-mark-sep: ""; --ad-mark-bad-ink: #C12D38; --ad-mark-bad-line: #C12D38;
+  --ad-card-border: 0 none; --ad-next-border: 0 none; --ad-note-border: 1px dashed rgba(49, 86, 166, .3); --ad-strip-w: 3px; --ad-slot-size: 1.1rem; --ad-sched-t-size: 1rem; --ad-post-line: #C9D4DE;
+  --ad-stripe-bad: #C12D38; --ad-stripe-good: #1F7A46; --ad-stripe-info: #3156A6;
+  --ad-doc-mark-display: none; --ad-secret-sign-op: 0;
+  --ad-gr-pad-left: 14px; --ad-gr-margin-op: 0; --ad-gr-col-gap: 10px; --ad-gr-avg-w: 42px; --ad-gr-avg-size: 1.3rem;
+  --ad-gr-sub-size: .8rem; --ad-gr-sub-ink: var(--ad-ink-soft); --ad-gr-sub-ws: nowrap; --ad-gr-sub-ov: hidden; --ad-gr-sub-to: ellipsis;
+  --ad-gr-extra-display: inline; --ad-gr-extra-sep: " · ";
+  --ad-sum-display: flex; --ad-sum-gap: 4px 12px; --ad-sum-pad: 6px 0 8px; --ad-big-size: 1.55rem; --ad-big-none-display: none; --ad-rep-basis: 100%;
+  --ad-verdict-bg: linear-gradient(rgba(255, 254, 248, .8), rgba(255, 254, 248, .8));
+
+  --ad-ph-bg: #fff; --ad-ph-border: 3px solid #fff; --ad-ph-shadow: 0 1px 3px rgba(20, 30, 50, .3); --ad-ph-rot-a: -1.5deg; --ad-ph-rot-b: 1.2deg;
+
+  --ad-sticker-rotate: -.5deg; --ad-sticker-rotate-even: .4deg; --ad-sticker-border: 0 none; --ad-sticker-border-left: 0 none;
+  --ad-sticker-pad: 16px 14px 11px; --ad-shadow-sticker: inset 0 3px 0 #C12D38, 0 1px 3px rgba(40, 50, 71, .16);
+
+  --ad-stamp-ink: #3156A6; --ad-stamp-display: block; --ad-stamp-top: calc(100% - 6px); --ad-stamp-right: 34px; --ad-stamp-font: 400 1.35rem/1.1 "Bad Script", cursive;
+  --ad-stamp-border: 0 none; --ad-stamp-bg: transparent; --ad-stamp-case: none; --ad-stamp-track: 0; --ad-stamp-rotate: -4deg; --ad-stamp-pad: 0 6px 2px;
+
+  --ad-foot-display: block; --ad-foot-rule: 1px solid #C9D4DE; --ad-foot-font: 400 .95rem/1.2 "Bad Script", cursive; --ad-foot-case: none; --ad-foot-track: 0; --ad-foot-ink: #3156A6;
+  --ad-marker-w: 18px; --ad-marker-h: 20px; --ad-marker-r: 0; --ad-marker-rotate: 0deg;
+  --ad-done-opacity: .92; --ad-take-border: 1.5px solid var(--ad-pen); --ad-take-pad: 0 12px; --ad-take-decoration: none;
+}
+.ad-diary[data-mat="notebook"] .ad-margin-date { display: block; font-weight: 700; color: #C12D38; }
+.ad-diary[data-mat="notebook"] .ad-marker { clip-path: polygon(0 56%, 14% 42%, 36% 66%, 84% 0, 100% 14%, 36% 100%); }
+.ad-diary[data-mat="notebook"] .ad-mark { font: 400 1.25rem/1.15 "Bad Script", "Segoe Print", cursive; color: var(--ad-pen); display: inline-block; transform: rotate(-3deg); padding: 0 1px; box-sizing: border-box; }
+.ad-diary[data-mat="notebook"] .ad-mark[data-bad] { color: #C12D38; border: 1.5px solid #C12D38; border-radius: 50%; padding: 0 6px; transform: rotate(-5deg); }
+.ad-diary[data-mat="notebook"] .ad-mark { -webkit-text-stroke: .25px currentColor; }
+.ad-diary[data-mat="notebook"] .ad-attach { display: block; background: rgba(255, 255, 255, .7); box-shadow: 0 0 0 1px rgba(0, 0, 0, .06); }
+.ad-diary[data-mat="notebook"] .ad-attach[data-for="photo"] { top: -5px; left: 50%; width: 26px; height: 10px; transform: translateX(-50%) rotate(-4deg); }
+.ad-diary[data-mat="notebook"] .ad-attach[data-for="photo"][data-size="lg"] { width: 40px; height: 13px; top: -6px; }
+.ad-diary[data-mat="notebook"] .ad-attach[data-for="sticker"] {
+  top: -7px; left: 50%; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; box-shadow: 0 2px 2px rgba(0, 0, 0, .35);
+  background: radial-gradient(circle at 35% 30%, #ff9a8c 0 14%, #d4262d 40%, #8f1018 100%);
+}
+.ad-diary[data-mat="notebook"] .ad-attach[data-for="doc"] { display: none; }
+.ad-diary[data-mat="notebook"] .ad-doc { border: 0 none; background-image: none; }
+.ad-diary[data-mat="notebook"] .ad-fold { display: block; top: 0; right: 0; border-width: 0 20px 20px 0; border-style: solid; border-color: transparent var(--ad-page) rgba(0, 0, 0, .1) transparent; }
+.ad-diary[data-mat="notebook"] .ad-tab { font-weight: 600; border-top: 0 none; }
+.ad-diary[data-mat="notebook"] .ad-hand { font-weight: 400; }
+.ad-mat-scope[data-mat="notebook"] .ad-bookmark { display: block; top: -7px; left: 14px; width: 14px; height: 14px; background: #C12D38; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); }
+.ad-diary[data-mat="notebook"] .ad-marker, .ad-diary[data-mat="notebook"] .ad-marker[data-kind="today"] { background: #C12D38; }
+.ad-diary[data-mat="notebook"], .ad-mat-scope[data-mat="notebook"] {
+  --ad-sign-c: #C12D38; --ad-sign-line: #C12D38;
+  --ad-sign-off: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpolygon points='12.00,2.50 14.65,9.16 21.80,9.62 16.28,14.19 18.05,21.13 12.00,17.30 5.95,21.13 7.72,14.19 2.20,9.62 9.35,9.16'/%3E%3C/svg%3E");
+  --ad-sign-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' %3E%3Cpolygon points='12.00,1.80 14.88,8.84 22.46,9.40 16.66,14.31 18.47,21.70 12.00,17.70 5.53,21.70 7.34,14.31 1.54,9.40 9.12,8.84'/%3E%3C/svg%3E");
+  --ad-sign-mark: var(--ad-sign-none);
+}
+.ad-diary[data-mat="notebook"] input::placeholder, .ad-diary[data-mat="notebook"] textarea::placeholder,
+.ad-mat-scope[data-mat="notebook"] input::placeholder, .ad-mat-scope[data-mat="notebook"] textarea::placeholder { color: color-mix(in srgb, var(--ad-ink) 76%, transparent) !important; }
+.ad-diary[data-mat="notebook"], .ad-mat-scope[data-mat="notebook"] {
+  --ad-nb-plane: url("data:image/svg+xml,%3Csvg%20opacity%3D%22.8%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20110%2076%22%3E%3Cg%20stroke%3D%22%233156A6%22%20stroke-width%3D%221.4%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8%2032L103%208%2066%2066%2045%2043z%22%20fill%3D%22%23FFFEF8%22%2F%3E%3Cpath%20d%3D%22M103%208L45%2043l8%2024%2013-1z%22%20fill%3D%22%23DFE8ED%22%2F%3E%3Cpath%20d%3D%22M45%2043L103%208%2054%2049%22%20fill%3D%22none%22%2F%3E%3C%2Fg%3E%3Cpath%20d%3D%22M7%2058q17-15%2024-3t-15%2013%22%20fill%3D%22none%22%20stroke%3D%22%233156A6%22%20stroke-width%3D%221.2%22%20stroke-dasharray%3D%223%204%22%2F%3E%3C%2Fsvg%3E");
+  --ad-nb-scr: url("data:image/svg+xml,%3Csvg%20opacity%3D%22.6%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2044%20160%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%233156A6%22%20stroke-width%3D%221.6%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2223%22%20r%3D%2215%22%2F%3E%3Cpath%20d%3D%22M15%2020h1M28%2020h1M14%2028q8%209%2016%200%22%2F%3E%3Cpath%20d%3D%22M22%2064q-10-12-15-3q-4%208%2015%2020q19-12%2015-20q-5-9-15%203z%22%2F%3E%3Cpath%20d%3D%22M8%20112l14-8%2014%208v24l-14%209-14-9zM8%20112l14%209%2014-9M22%20121v24%22%2F%3E%3Cpath%20d%3D%22M15%20118h1M28%20126h1M28%20134h1%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+  --ad-nb-blot: url("data:image/svg+xml,%3Csvg%20opacity%3D%22.45%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20140%2070%22%3E%3Cpath%20d%3D%22M5%208l128-3-3%2013%205%2010-4%2014%203%2016L9%2065l3-13-7-13%206-14z%22%20fill%3D%22%23DDE5EE%22%20stroke%3D%22%23B8C8DD%22%2F%3E%3Cg%20fill%3D%22%233156A6%22%20opacity%3D%22.24%22%3E%3Cpath%20d%3D%22M32%2022q12-8%2018%204q15-5%2017%206q1%2014-18%2010q-20%207-24-5q-5-10%207-15z%22%2F%3E%3Ccircle%20cx%3D%2285%22%20cy%3D%2231%22%20r%3D%227%22%2F%3E%3Cellipse%20cx%3D%22104%22%20cy%3D%2247%22%20rx%3D%229%22%20ry%3D%223%22%2F%3E%3Ccircle%20cx%3D%2271%22%20cy%3D%2251%22%20r%3D%222%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
+}
+.ad-diary[data-mat="notebook"] .ad-page {
+  --ad-nb-a: none; --ad-nb-b: none; --ad-nb-a-sz: 0 0; --ad-nb-b-sz: 0 0; --ad-nb-a-pos: 0 0; --ad-nb-b-pos: 0 0;
+  background-image: var(--ad-nb-a), var(--ad-nb-b), var(--ad-surface-img);
+  background-size: var(--ad-nb-a-sz), var(--ad-nb-b-sz), var(--ad-surface-size), var(--ad-surface-size);
+  background-position: var(--ad-nb-a-pos), var(--ad-nb-b-pos), var(--ad-surface-pos, 0 0), var(--ad-surface-pos, 0 0);
+  background-repeat: no-repeat, no-repeat, repeat, repeat;
+}
+.ad-diary[data-mat="notebook"] .ad-page:is(.ad-plain, .ad-inner) { background-image: var(--ad-nb-a), var(--ad-nb-b), var(--ad-plain-img, none); }
+.ad-diary[data-mat="notebook"] [data-tab="today"] .ad-page[data-side="left"] { --ad-nb-a: var(--ad-nb-plane); --ad-nb-a-sz: 46px 32px; --ad-nb-a-pos: right 26px top 18px; }
+.ad-diary[data-mat="notebook"] [data-tab="settings"] .ad-page { --ad-nb-a: var(--ad-nb-blot); --ad-nb-a-sz: 52px 26px; --ad-nb-a-pos: left 80px bottom 100px; --ad-nb-b: var(--ad-nb-scr); --ad-nb-b-sz: 18px 66px; --ad-nb-b-pos: right 40px bottom 100px; }
+@container academy-panel (min-width: 760px) {
+  .ad-diary[data-mat="notebook"] [data-tab="today"] .ad-page[data-side="left"] { --ad-nb-a-sz: 70px 48px; --ad-nb-a-pos: right 56px top 22px; }
+  .ad-diary[data-mat="notebook"] [data-tab="settings"] .ad-page { --ad-nb-a-sz: 80px 40px; --ad-nb-b-sz: 25px 92px; --ad-nb-b-pos: right 70px bottom 110px; }
+}
+.ad-diary[data-mat="notebook"] { --ad-nb-star: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 26 26%22 opacity=%22.8%22%3E%3Cg fill=%22none%22 stroke=%22%233156A6%22 stroke-width=%221.9%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 transform=%22rotate(-9 13 13)%22%3E%3Cpath d=%22M13 2.8l2.9 6.9 7.4.6-5.6 4.9 1.7 7.3L13 18.5l-6.4 4 1.7-7.3-5.6-4.9 7.4-.6z%22/%3E%3Cpath d=%22M11 5.5l2-2.4 1.6 2.6%22 stroke-width=%221%22/%3E%3C/g%3E%3C/svg%3E"); }
+.ad-diary[data-mat="notebook"] .ad-margin-note::after { content: ""; position: absolute; top: -10px; right: 6px; width: 28px; height: 28px; background: var(--ad-nb-star) center / contain no-repeat; pointer-events: none; }
