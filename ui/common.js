@@ -160,6 +160,7 @@ export const DEFAULT_UI = {
     + 'вписать свой предмет, свести преподавателя с персонажем из карточки, переименовать под свой сеттинг.',
   planGenerate: 'Сгенерировать учебный план',
   planGenerateOk: 'План получен. Проверьте таблицу ниже.',
+  planGenerateBusy: 'Составляю план…',
   teachersTitle: 'Преподаватели',
   subjectsTitle: 'Предметы',
   addTeacher: 'Добавить преподавателя',
@@ -1121,8 +1122,9 @@ export async function runAction(button, status, fn, okText) {
     setStatus(status, 'error', 'Действие недоступно: index.js его не передал.');
     return { ok: false, error: 'no-action' };
   }
+  if (button && button.classList.contains('academy-busy')) return { ok: false, error: 'busy' };
   const label = button ? button.textContent : '';
-  if (button) { button.disabled = true; button.classList.add('academy-busy'); button.textContent = 'Идёт запрос…'; }
+  if (button) { button.disabled = true; button.classList.add('academy-busy'); button.textContent = button.dataset.busyText || 'Идёт запрос…'; }
   setStatus(status, 'busy', button ? '' : 'Идёт запрос…');
   try {
     const res = await fn();

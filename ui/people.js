@@ -410,7 +410,7 @@ function personCard(host, p, ctx) {
       fact(X.peopleTraits, p.traits.join(', ')),
       p.likesText ? el('div', { class: 'ad-kv' }, [el('span', { text: p.likesText })]) : null,
     ]
-    : [fact(X.cmDesire, p.desire), fact(X.cmProblem, p.problem), fact(X.cmManner, p.manner)];
+    : [fact(X.cmManner, p.manner)];
   const shownFacts = facts.filter(Boolean);
   if (shownFacts.length) sections.push(el('div', { class: 'ad-blk', style: 'gap: 8px' }, shownFacts));
 
@@ -418,6 +418,13 @@ function personCard(host, p, ctx) {
     sections.push(el('details', { class: 'ad-secret', dataset: { for: 'secret' } }, [
       el('summary', { text: X.secretTitle }),
       el('span', { text: p.secret }),
+    ]));
+  }
+  const hidden = teacher ? [] : [fact(X.cmDesire, p.desire), fact(X.cmProblem, p.problem)].filter(Boolean);
+  if (hidden.length) {
+    sections.push(el('details', { class: 'ad-secret', dataset: { for: 'secret' } }, [
+      el('summary', { text: X.secretTitle }),
+      ...hidden,
     ]));
   }
 

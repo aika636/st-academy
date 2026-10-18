@@ -299,6 +299,7 @@
 .ad-secret summary::-webkit-details-marker { display: none; }
 .ad-secret summary::before { content: "▸"; font-size: .85em; }
 .ad-secret[open] summary::before { content: "▾"; }
+.ad-secret[open] { display: grid; gap: 8px; padding-bottom: 4px; }
 .ad-spread[data-view="list"] .ad-people-right { display: none; }
 .ad-spread[data-view="card"] .ad-people-left { display: none; }
 .ad-spread[data-view="card"] .ad-back { display: inline-flex; align-items: center; gap: 4px; justify-self: start; min-height: 36px; padding: 0; background: none; border: 0; color: var(--ad-pen); font: 500 calc(.92rem * var(--ad-fs-scale, 1)) var(--ad-f-ui); cursor: pointer; }

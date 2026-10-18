@@ -385,11 +385,14 @@ export function renderSettings(host) {
   const genBtn = el('div', {
     class: 'menu_button academy-btn academy-btn-main',
     text: U.planGenerate,
+    'data-busy-text': U.planGenerateBusy,
     onclick: async (e) => {
       const survey = collect(inputs);
-      await saveDraft(host, survey);
-      const res = await runAction(e.currentTarget, planStatus,
-        () => call(host, 'generatePlan', survey), U.planGenerateOk);
+      const res = await runAction(e.currentTarget, planStatus, async () => {
+        await saveDraft(host, survey);
+        return call(host, 'generatePlan', survey);
+      }, U.planGenerateOk);
+      if (res && res.error === 'busy') return;
       renderPanel(host);
       if (res && res.ok !== false && str(survey.canon)) refreshCanonLayer(host);
       if (res && res.ok === false) setStatus(lastPlanStatus(), 'error', String(res.error || 'Генерация не удалась.'));

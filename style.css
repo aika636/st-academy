@@ -573,6 +573,14 @@
   pointer-events: none;
 }
 
+.academy-busy {
+  animation: academy-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes academy-pulse {
+  50% { opacity: 0.8; }
+}
+
 .academy-modes {
   display: flex;
   flex-direction: column;
