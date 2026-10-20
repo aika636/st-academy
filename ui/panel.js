@@ -675,6 +675,25 @@ function renderSettingsBlock(host) {
   const settings = safe(() => host.getSettings(), {}) || {};
   const view = settingsView(state, settings, preset, hostExtra(host));
 
+  const enabled = safe(() => host.isEnabled(), true) !== false;
+  const power = el('input', { type: 'checkbox', checked: enabled });
+  power.addEventListener('change', () => {
+    if (!power.checked) closePanel();
+    Promise.resolve(safe(() => host.setEnabled(power.checked), null))
+      .catch(() => {})
+      .then(() => renderSettingsBlock(host));
+  });
+  content.append(
+    el('label', { class: 'academy-check' }, [power, el('span', { text: 'Академия включена' })]),
+    el('p', {
+      class: 'academy-note',
+      text: enabled
+        ? 'Снимите галочку, чтобы Академия перестала добавлять текст в промпт и разбирать ответы. Семестр в чатах сохранится.'
+        : 'Академия выключена: в промпт ничего не уходит, ответы не разбираются, кнопка скрыта. Семестр в чатах сохранён и вернётся вместе с галочкой.',
+    }),
+  );
+  if (!enabled) return;
+
   const launcherNote = el('p', { class: 'academy-note' });
   content.append(el('div', { class: 'academy-row academy-row-buttons' }, [
     el('div', {

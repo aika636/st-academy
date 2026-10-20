@@ -38,7 +38,9 @@ export const CANON_PROMPT = [
   'У каждого преподавателя ещё два поля: canon — true, если человек из канона; aliases — массив других написаний имени, может быть пустым. Пример: {"id":"…","name":"…","canon":true,"aliases":["…"],"traits":["…"]}',
 ].join('\n');
 
-export const LOOKS_PROMPT = 'Ещё у каждого преподавателя поле looks — короткая внешность для портрета, под характер: начни с того, кто это и сколько лет на вид, дальше волосы, лицо, одежда или примета («женщина за шестьдесят, сухая, седой пучок, очки на цепочке, строгий серый костюм»), до 160 символов, в роде преподавателя, без имени и должности.';
+export const CANON_STAFF_PROMPT = 'Кроме тех, кто ведёт предметы, можно взять канонический персонал заведения без предметов (декан, завхоз, лесничий, целительница): на них не ссылается ни одна позиция списка, а в post — их должность.';
+
+export const LOOKS_PROMPT ='Ещё у каждого преподавателя поле looks — короткая внешность для портрета, под характер: начни с того, кто это и сколько лет на вид, дальше волосы, лицо, одежда или примета («женщина за шестьдесят, сухая, седой пучок, очки на цепочке, строгий серый костюм»), до 160 символов, в роде преподавателя, без имени и должности.';
 
 export const PROFILE_PROMPT = 'Ещё у позиций списка ({subjectGenPlural}) необязательное поле profile — по характеру и прошлому {hero}: у одной-двух позиций "strong" (даётся легко, душа лежит), у одной-двух "hard" (даётся с трудом); у остальных поля нет вовсе.';
 
@@ -58,8 +60,14 @@ function canonVocabBlock(preset, male) {
 const limitsOf = (preset) => (preset && preset.limits) || {};
 const maxSubjects = (preset) => intOr(limitsOf(preset).maxSubjects, DEFAULTS.maxSubjects);
 const maxTeachers = (preset) => intOr(limitsOf(preset).maxTeachers, DEFAULTS.maxTeachers);
-const planTeachers = (preset) => Math.min(
-  intOr(limitsOf(preset).planTeachers, DEFAULTS.planTeachers), maxTeachers(preset));
+const planTeachers = (preset, canon = false) => {
+  const own = intOr(limitsOf(preset).planTeachers, DEFAULTS.planTeachers);
+  return Math.min(canon ? intOr(limitsOf(preset).canonTeachers, own) : own, maxTeachers(preset));
+};
+const planSubjects = (preset, canon = false) => {
+  const own = intOr(limitsOf(preset).planSubjects, maxSubjects(preset));
+  return Math.min(canon ? intOr(limitsOf(preset).canonSubjects, own) : own, maxSubjects(preset));
+};
 const maxSubjectsPerTeacher = (preset) => intOr(limitsOf(preset).maxSubjectsPerTeacher, DEFAULTS.maxSubjectsPerTeacher);
 const minTraits = (preset) => intOr(limitsOf(preset).minTraits, DEFAULTS.minTraits);
 const maxTraits = (preset) => intOr(limitsOf(preset).maxTraits, DEFAULTS.maxTraits);
@@ -79,8 +87,8 @@ export function buildPlanPrompt(survey, preset, opts = {}) {
     faculty: str(s.faculty), year: str(s.year), canon,
     original: canon ? '' : original,
     lang: str(s.lang) || str(preset && preset.lang),
-    maxSubjects: String(maxSubjects(preset)),
-    maxTeachers: String(planTeachers(preset)),
+    maxSubjects: String(planSubjects(preset, Boolean(canon))),
+    maxTeachers: String(planTeachers(preset, Boolean(canon))),
     maxSubjectsPerTeacher: String(maxSubjectsPerTeacher(preset)),
     ...subjectVars(preset),
   };
@@ -102,6 +110,7 @@ ${fill(profile, { ...vars, hero: male ? 'героя' : 'героини' })}`;
       ? String(preset.prompts.plan.canon)
       : (male ? CANON_PROMPT.replace('под неё', 'под него') : CANON_PROMPT);
     prompt = `${prompt}\n${fill(block, { ...vars, hero: male ? 'героя' : 'героини' })}\n${canonVocabBlock(preset, male)}`;
+    if (planTeachers(preset, true) > planSubjects(preset, true)) prompt = `${prompt}\n${CANON_STAFF_PROMPT}`;
   }
   const lore = str(opts && opts.lore);
   if (lore) prompt = `${prompt}
@@ -122,7 +131,7 @@ export function parsePlanResponse(text, preset, opts = {}) {
     return { ok: false, plan: { subjects: [], teachers: [] }, errors: ['no-json'], raw };
   }
   const shaped = shapePlan(data);
-  const checked = validatePlan(shaped.plan, preset);
+  const checked = validatePlan(shaped.plan, preset, { canon: opts.canon });
   if (!str(opts.canon)) for (const t of checked.plan.teachers) delete t.canon;
   return {
     ok: checked.ok, plan: checked.plan, errors: [...shaped.errors, ...checked.errors], raw,
@@ -332,7 +341,8 @@ function toTraits(v) {
   return s.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
 }
 
-export function validatePlan(plan, preset) {
+export function validatePlan(plan, preset, opts = {}) {
+  const canon = Boolean(str(opts.canon));
   const errors = [];
   const inSubjects = Array.isArray(plan && plan.subjects) ? plan.subjects : [];
   const inTeachers = Array.isArray(plan && plan.teachers) ? plan.teachers : [];
@@ -355,9 +365,9 @@ export function validatePlan(plan, preset) {
     const looks = normalizeLooks(raw && raw.looks);
     teachers.push({ id, name, traits, ...teacherDetails(raw), ...(looks ? { looks } : {}), relation: numberOr(raw && raw.relation, undefined) });
   }
-  if (teachers.length > planTeachers(preset)) {
+  if (teachers.length > planTeachers(preset, canon)) {
     errors.push(`too-many-teachers:${teachers.length}`);
-    teachers.length = planTeachers(preset);
+    teachers.length = planTeachers(preset, canon);
   }
   const kept = new Set(teachers.map((t) => t.id));
   for (const t of teachers) if (t.relation === undefined) delete t.relation;
@@ -386,9 +396,9 @@ export function validatePlan(plan, preset) {
       debt: Boolean(raw && raw.debt),
     });
   }
-  if (subjects.length > maxSubjects(preset)) {
+  if (subjects.length > planSubjects(preset, canon)) {
     errors.push(`too-many-subjects:${subjects.length}`);
-    subjects.length = maxSubjects(preset);
+    subjects.length = planSubjects(preset, canon);
   }
   for (const t of teachers) {
     const count = subjects.filter((s) => s.teacherId === t.id).length;

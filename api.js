@@ -732,7 +732,7 @@ export async function generatePlan(survey, preset, api, ctx, opts = {}) {
     }
 
     const parsed = parsePlanResponse(res.text, preset, { salvage: res.truncated === true, canon: survey && survey.canon });
-    const checked = validatePlan(parsed.plan, preset);
+    const checked = validatePlan(parsed.plan, preset, { canon: survey && survey.canon });
     if (parsed.ok && checked.ok && !parsed.partial) {
       return {
         ok: true,

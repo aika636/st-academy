@@ -1917,3 +1917,8 @@ textarea.academy-input.academy-input-wrap {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+body.academy-off #academy_button,
+body.academy-off #academy_panel {
+  display: none !important;
+}

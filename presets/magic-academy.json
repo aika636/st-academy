@@ -386,7 +386,7 @@
     ]
   },
   "classmates": {
-    "size": 6,
+    "size": 10,
     "seeds": [
       "староста факультета",
       "первая по дару",
@@ -697,9 +697,12 @@
     "lateAfterMinutes": 10
   },
   "limits": {
-    "maxSubjects": 7,
-    "maxTeachers": 7,
+    "maxSubjects": 14,
+    "planSubjects": 7,
+    "canonSubjects": 12,
+    "maxTeachers": 16,
     "planTeachers": 4,
+    "canonTeachers": 15,
     "maxNumbersInPrompt": 4,
     "idleWarnAfter": 8,
     "journalSize": 200,

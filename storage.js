@@ -8,6 +8,7 @@ import { fill, uiLabels } from './ui.js';
 export const KEY = METADATA_KEY;
 
 export const DEFAULT_SETTINGS = {
+  enabled: true,
   mode: 'auto',
   prep: true,
   injectMarker: true,
