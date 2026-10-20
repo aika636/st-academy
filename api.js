@@ -40,7 +40,7 @@ export function isRetryableStatus(status) {
 }
 
 export function isGatewayText(text) {
-  return /bad gateway|gateway time-?out|upstream (?:connect|request|timed)|50[234]/i.test(String(text == null ? '' : text));
+  return /bad gateway|gateway time-?out|upstream (?:connect|request|timed)|\b50[234]\b/i.test(String(text == null ? '' : text));
 }
 
 function isGatewayBody(data) {
