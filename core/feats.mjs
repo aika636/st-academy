@@ -2,7 +2,6 @@ import { milestones, milestoneDetail } from './milestones.mjs';
 import { normalizeFeats } from './state.mjs';
 import { hash } from './feed.mjs';
 import { DIE } from './exams.mjs';
-import { heroWords } from './gender.mjs';
 
 export const RARITIES = ['common', 'rare', 'epic', 'legendary'];
 
@@ -321,25 +320,24 @@ export function syncFeats(state, { src = '' } = {}) {
 }
 
 const CHECKS = {
-  jealous: (w, g) => `персонаж карточки при свидетелях явно ревнует ${w.heroAcc} — злится, ставит соперника на место, уводит ${w.herAcc}, устраивает сцену — из-за ${w.her} поступка или чужого внимания к ${w.herDat}. Ревность — его реакция, но заслуга ${w.heroGen}: это ${w.her} достижение`,
-  correctTeacher: (w, g) => `${w.hero} ${g('указала', 'указал')} преподавателю на ошибку, и в ответе рассказчика преподаватель сам признал ${w.her} правоту`,
-  kissTeacher: (w, g) => `${w.hero} ${g('поцеловала', 'поцеловал')} преподавателя или он — ${w.herAcc}, хоть в щёку, хоть на спор`,
+  jealous: (g) => `the card character openly shows jealousy of ${g('her', 'him')} in front of witnesses: gets angry, puts a rival in place, leads ${g('her', 'him')} away, makes a scene over ${g('her', 'his')} deed or someone else's attention to ${g('her', 'him')}. The jealousy is that character's reaction but ${g('her', 'his')} achievement.`,
+  correctTeacher: (g) => `${g('she', 'he')} pointed out a teacher's mistake and in the narrator's reply the teacher admitted ${g('her', 'his')} rightness.`,
+  kissTeacher: (g) => `${g('she', 'he')} kissed a teacher or the teacher kissed ${g('her', 'him')}, even on the cheek or on a dare.`,
 };
 
 const GOOD_MOMENTS = [
   'Обратить провал в номер — превратите собственную ошибку в шутку, над которой смеётся весь зал',
   'Перехитрить экзаменатора — найдите в правилах лазейку, которую никто не замечал',
   'Спасти чужую репутацию — возьмите на себя чужой промах при свидетелях',
-  'Выйти сухой из воды — объясните невероятное так, что вам поверили',
+  'Выйти сухим из воды — объясните невероятное так, что вам поверили',
 ];
 const BAD_MOMENTS = [
   '«Сердцеед» за поцелуй — такое уже есть в каталоге',
-  '«Гений курса» за просто хороший ответ',
+  '«Гений» за просто хороший ответ',
   '«Мастер обмана» за одну мысль кого-то обмануть',
 ];
 
-export function featsPromptLines(state, preset, { char = '', heroine = 'героиня', ahead = 0, gender = 'f' } = {}) {
-  const w = heroWords(gender);
+export function featsPromptLines(state, preset, { char = '', heroine = 'the heroine', ahead = 0, gender = 'f' } = {}) {
   const g = (f, m) => (gender === 'm' ? m : f);
   const have = new Set(normalizeFeats(state && state.feats).items.map((i) => i.id));
   const open = FEATS.filter((f) => f.src === 'ach' && !have.has(f.id));
@@ -348,14 +346,15 @@ export function featsPromptLines(state, preset, { char = '', heroine = 'геро
   const context = [];
   const rules = [];
   if (open.length) {
-    context.push('Достижения, ещё не полученные (id — условие):', ...open.map((f) => `- ${f.id} — ${withChar(CHECKS[f.id] ? CHECKS[f.id](w, g) : featText(f.id, preset).desc, char)}`));
+    const cond = (f) => (CHECKS[f.id] ? CHECKS[f.id](g).replace('the card character', char ? `the card character (${char})` : 'the card character') : withChar(featText(f.id, preset).desc, char));
+    context.push('Achievements not yet earned (id — condition):', ...open.map((f) => `- ${f.id} — ${cond(f)}`));
     rules.push(
-      `- ach — достижение ${heroine} из списка «Достижения»: ach=id:основание, где основание — короткая фраза из текста, что именно случилось. Только то, что случилось в ответе рассказчика: реплика игрока — это попытка, и то, что игрок написал за других («препод признал», «он позвал меня»), не считается, пока рассказчик этого не показал. Не намерение, не мечта, не слух, не поступок одного персонажа карточки, к которому ${heroine} ${g('не причастна', 'не причастен')}. Одно достижение из списка на ответ. Не уверен — не пиши.`,
+      `- ach=id:reason: an achievement of ${heroine} from the list above; reason = a short Russian phrase from the text on what happened. Only what happened in the narrator's reply: the player's line is an attempt, and what the player wrote for others («препод признал», «он позвал меня») does not count until the narrator shows it. Not an intention, dream, rumor or a card character's deed ${heroine} had no part in. One listed achievement per reply.`,
     );
   }
   if (free) {
     rules.push(
-      `- Свободный момент: ach=момент:эмодзи:Название:Описание:редкость — сейчас можно: если в ответе рассказчика ${heroine} ${g('сделала', 'сделал')} что-то яркое, смешное, безумное, дерзкое или героическое (пранк, шоу, выходка, неожиданный ход), предложи момент, даже если в том же ответе есть достижение из списка — момент описывает другую деталь. Не пиши только за обычный ход и за то, что уже покрыло достижение. Название — глагол-задание из 2–5 слов с хулиганским тоном; описание — одна фраза в духе Steam о том, что сделал игрок, привязанная к реальной детали сцены; редкость common или rare (epic — только при крупном последствии). Хорошие названия: ${GOOD_MOMENTS.map((m) => `«${m}»`).join('; ')}. Плохие: ${BAD_MOMENTS.join('; ')}.`,
+      `- Free moment: ach=moment:emoji:Title:Description:rarity. Allowed now: if in the narrator's reply ${heroine} did something vivid, funny, wild, bold or heroic (prank, show, stunt, unexpected move), propose a moment, even if the same reply has a listed achievement (the moment describes another detail); not for an ordinary turn or what an achievement already covers. Title: a 2–5-word Russian verb phrase with a cheeky tone. Description: one Russian Steam-style sentence on what the player did, tied to a real scene detail. Rarity: common or rare (epic only for a major consequence). Good titles: ${GOOD_MOMENTS.map((m) => `«${m}»`).join('; ')}. Bad: ${BAD_MOMENTS.join('; ')}.`,
     );
   }
   return { context, rules };

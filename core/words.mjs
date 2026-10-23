@@ -17,3 +17,13 @@ export function subjectVars(preset) {
 }
 
 export const upFirst = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+export function periodPluralWord(preset) {
+  const own = preset && preset.vocab && preset.vocab.periodPlural;
+  return typeof own === 'string' && own.trim() ? own.trim() : 'пары';
+}
+
+export function periodWord(preset) {
+  const own = preset && preset.vocab && preset.vocab.period;
+  return typeof own === 'string' && own.trim() ? own.trim() : 'пара';
+}

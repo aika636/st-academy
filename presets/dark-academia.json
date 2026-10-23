@@ -19,7 +19,7 @@
     "gradebook": "книга отметок",
     "debt": "академический долг",
     "debtPlural": "академические долги",
-    "expelPaths": "остаются прошение совету колледжа, возвращение по милости попечителей или переход в другой колледж — что из этого, решает сцена",
+    "expelPaths": "a petition to the college council, return by the trustees' mercy or a move to another college remain; the scene decides which",
     "subject": "дисциплина",
     "subjectGen": "дисциплины",
     "subjectDat": "дисциплине",
@@ -34,15 +34,16 @@
     },
     "warning": "вызов к Мастеру колледжа",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали к Мастеру колледжа, и в кабинете при свечах ей сказали — ещё один проступок, и имя вычеркнут из списков колледжа. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали к Мастеру колледжа, и в кабинете при свечах ему сказали — ещё один проступок, и имя вычеркнут из списков колледжа. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the Master of the college, and in the candlelit study she was told — one more offense, and the name will be struck from the college rolls. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the Master of the college, and in the candlelit study he was told — one more offense, and the name will be struck from the college rolls. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: решение совета колледжа подписано, её исключили из колледжа, ключ от комнаты сдан, имя стёрто со списка у привратницкой. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: решение совета колледжа подписано, его исключили из колледжа, ключ от комнаты сдан, имя стёрто со списка у привратницкой. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the college council has signed its decision, she is expelled from the college, the room key is handed in, the name is wiped from the list at the porter's lodge. Play out the consequences in the next reply.",
+      "male": "It has already happened: the college council has signed its decision, he is expelled from the college, the room key is handed in, the name is wiped from the list at the porter's lodge. Play out the consequences in the next reply."
     },
     "score": "средний класс",
     "crowdIn": "среди сокурсников",
+    "crowdInEn": "the college",
     "someone": "кто-то из сокурсников"
   },
   "week": {
@@ -729,25 +730,20 @@
   },
   "phrases": {
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": {
-        "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
-        "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
-      },
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, без испытания можно получить «{auto}». Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": {
-        "female": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} спрашивает её наравне со всеми. Блестящую сдачу без испытания отыгрывать запрещено.",
-        "male": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} спрашивает его наравне со всеми. Блестящую сдачу без испытания отыгрывать запрещено."
-      },
-      "permissionRisk": {
-        "female": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить её на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
-        "male": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить его на пересдачу. Успешный исход отыгрывать запрещено, его считает система."
-      },
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" can be had without a trial. Do not play out a failure from nowhere.",
+      "permissionNoAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" cannot be had without a trial; {teacher} questions {hero} like everyone else. Do not play out a brilliant pass without a trial.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закончилась: {subject} — {kind} не сдан, {debt} остаётся."
+      "missed": "{examPeriod} закончилась: {subject} — {kind} не сдан, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": {
+          "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+          "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
+        },
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -790,40 +786,17 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "каникулы",
-      "break": "долгие каникулы",
+      "weekend": "weekend",
+      "vacation": "vacation",
+      "break": "the long vacation",
       "exams": "",
-      "preExams": "неделя затворничества над книгами"
+      "preExams": "неделя затворничества над книгами",
+      "preExamsEn": "a week of seclusion over the books"
     },
-    "day": "{weekday}, {week}-я неделя терма",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя терма, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the term",
+    "dayPhase": "{weekday}, week {week} of the term, {phase}"
   },
   "prompts": {
     "plan": {

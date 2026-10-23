@@ -16,6 +16,7 @@ export const INVITE_KEEP_DAYS = 30;
 export const INVITE_PHRASES = {
   core: '{who} зовёт {heroAcc} с собой: {event} ({when})',
   hook: 'В этом ответе {who} зовёт {heroAcc} с собой: {event} ({when}) — репликой в сцене, коротко, к месту. Решение — за {heroIns}; не решай за {heroAcc}. Если {who} сейчас не в сцене, пусть приглашение дойдёт через кого-то, запиской или при встрече.',
+  hookEn: 'In this reply {who} invites {hero} along: {event} ({when}) — one brief line, in place. Leave the decision to the player; do not make it. If {who} is not in the scene, let the invitation arrive via someone, a note or a meeting.',
   heard: 'приглашение прозвучало: {event}',
   goDone: 'Решено: идёте вместе — {event}, {who}',
   declineDone: 'Отказ: {event}',
@@ -180,8 +181,8 @@ export function inviteHookWords(state, preset, pending) {
   if (!p) return null;
   const person = personOf(state, p.personId);
   const W = heroWords(presetGender(preset));
-  const v = { who: shortName((person && person.name) || p.personId), heroAcc: W.heroAcc, heroIns: W.heroIns, event: p.eventName, when: p.when };
-  return { core: fill(P.core, v), text: fill(P.hook, v), plate: fill(P.heard, v) };
+  const v = { who: shortName((person && person.name) || p.personId), heroAcc: W.heroAcc, heroIns: W.heroIns, hero: W.heroEn, event: p.eventName, when: p.when };
+  return { core: fill(P.core, v), text: fill(P.hook, v), en: fill(P.hookEn, v), plate: fill(P.heard, v) };
 }
 
 export function inviteCard(state, preset, mark) {

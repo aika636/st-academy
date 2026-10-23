@@ -18,7 +18,7 @@
     "gradebook": "свиток успехов",
     "debt": "учебный долг",
     "debtPlural": "учебные долги",
-    "expelPaths": "остаются прошение совету, возвращение после испытательного срока или перевод в другую академию — что из этого, решает сцена",
+    "expelPaths": "a petition to the council, return after a probation period or transfer to another academy remain; the scene decides which",
     "subject": "дисциплина",
     "subjectGen": "дисциплины",
     "subjectDat": "дисциплине",
@@ -33,15 +33,16 @@
     },
     "warning": "вызов в Совет наставников",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали в Совет наставников и при свидетелях предупредили — ещё одно небрежение, и печать ученицы будет снята. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали в Совет наставников и при свидетелях предупредили — ещё одно небрежение, и ученик лишится печати. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the Council of Mentors and warned before witnesses — one more negligence, and the apprentice seal will be taken away. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the Council of Mentors and warned before witnesses — one more negligence, and the apprentice seal will be taken away. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: печать снята, доступ к Источнику для неё закрыт, имя вычеркнуто из свитков Академии. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: Совет снял печать, доступ к Источнику для него закрыт, имя вычеркнуто из свитков Академии. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the seal is taken away, her access to the Source is closed, the name is struck from the scrolls of the Academy. Play out the consequences in the next reply.",
+      "male": "It has already happened: the seal is taken away, his access to the Source is closed, the name is struck from the scrolls of the Academy. Play out the consequences in the next reply."
     },
     "score": "сила дара",
     "crowdIn": "среди сокурсников",
+    "crowdInEn": "the Academy",
     "someone": "кто-то из сокурсников"
   },
   "week": {
@@ -772,30 +773,34 @@
       }
     },
     "exams": {
-      "auto": "Свершилось: {subject} — {value}, испытания не потребовалось ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": "Свершилось: {subject} — {value} ({teacher}). Дозволена ещё одна попытка, осталось: {left}. Отыграй это как уже случившееся.",
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Больше попыток не дают, {debt} остаётся до конца круга. Отыграй это как уже случившееся.",
-      "announceLater": {
-        "female": "Свершилось: {subject} — испытание позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итоги огласят {date} на построении; до того исход не знает никто, включая её. Отыграй само испытание как уже случившееся.",
-        "male": "Свершилось: {subject} — испытание позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итоги огласят {date} на построении; до того исход не знает никто, включая его. Отыграй само испытание как уже случившееся."
-      },
-      "announced": {
-        "female": "Итоги оглашены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как она узнаёт итог.",
-        "male": "Итоги оглашены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как он узнаёт итог."
-      },
-      "resultExhausted": "{value}, больше попыток не дают, {debt} остаётся",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, без испытания можно получить «{auto}». Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": {
-        "female": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} испытывает её наравне со всеми. Блестящий исход без испытания отыгрывать запрещено.",
-        "male": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} испытывает его наравне со всеми. Блестящий исход без испытания отыгрывать запрещено."
-      },
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, чары могут не отозваться; {teacher} вправе оборвать испытание. Успешный исход отыгрывать запрещено, его считает система.",
+      "auto": "Already happened: {subject} — {value}, no trial was needed ({teacher}). Play it as past.",
+      "failed": "Already happened: {subject} — {value} ({teacher}). One more attempt is allowed, attempts left: {left}. Play it as past.",
+      "exhausted": "Already happened: {subject} — {value} ({teacher}). No more attempts are given, the debt stays until the end of the circle. Play it as past.",
+      "announceLater": "Already happened: {subject} — the trial is over ({teacher}). Closed simulation info, not character knowledge: {result}. Results will be announced {date} at the assembly; until then nobody knows the outcome, including {hero}. Play out only the trial itself as past.",
+      "resultExhausted": "{value}, no more attempts are given, the debt remains",
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" can be had without a trial. Do not play out a failure from nowhere.",
+      "permissionNoAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" cannot be had without a trial; {teacher} tests {hero} like everyone else. Do not play out a brilliant outcome without a trial.",
+      "permissionRisk": "{examPeriod}: {subject} — average grade {score}, the spells may not respond; {teacher} may cut the trial short. Do not play out a success, the system decides it.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
       "missed": {
         "female": "{examPeriod} окончены: {subject} — испытание не состоялось, {debt} остаётся за ней.",
         "male": "{examPeriod} окончены: {subject} — испытание не состоялось, {debt} остаётся за ним."
+      },
+      "journal": {
+        "auto": "Свершилось: {subject} — {value}, испытания не потребовалось ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": "Свершилось: {subject} — {value} ({teacher}). Дозволена ещё одна попытка, осталось: {left}. Отыграй это как уже случившееся.",
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Больше попыток не дают, {debt} остаётся до конца круга. Отыграй это как уже случившееся.",
+        "announceLater": {
+          "female": "Свершилось: {subject} — испытание позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итоги огласят {date} на построении; до того исход не знает никто, включая её. Отыграй само испытание как уже случившееся.",
+          "male": "Свершилось: {subject} — испытание позади ({teacher}). Закрытые сведения симуляции, не знание персонажей: {result}. Итоги огласят {date} на построении; до того исход не знает никто, включая его. Отыграй само испытание как уже случившееся."
+        },
+        "announced": {
+          "female": "Итоги оглашены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как она узнаёт итог.",
+          "male": "Итоги оглашены: {subject} — {result} ({teacher}). Теперь это знают все; отыграй, как он узнаёт итог."
+        },
+        "resultExhausted": "{value}, больше попыток не дают, {debt} остаётся"
       }
     },
     "lorebook": {
@@ -841,45 +846,23 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "день покоя",
-      "vacation": "перерыв между кругами",
-      "break": "перерыв между кругами",
+      "weekend": "rest day",
+      "vacation": "a break between circles",
+      "break": "a break between circles",
       "exams": "",
-      "preExams": "ночные бдения перед испытаниями"
+      "preExams": "ночные бдения перед испытаниями",
+      "preExamsEn": "night vigils before the trials"
     },
-    "day": "{weekday}, {week}-я седмица круга",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я седмица круга, {phase}",
-    "now": "идёт: {subject}{teacher}",
-    "next": "вот-вот: {subject}{teacher}",
-    "today": "нынче: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value} — среднее по дисциплинам",
-    "exams": "{examPeriod}: не пройдено {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не пройдено {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "слава: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the circle",
+    "dayPhase": "{weekday}, week {week} of the circle, {phase}",
+    "now": "in progress: {subject}{teacher}",
+    "next": "about to start: {subject}{teacher}",
+    "today": "on the schedule today: {list}",
+    "reputation": "fame: {label}"
   },
   "prompts": {
-    "marker": "Первой строкой ответа (если он открыт блоком состояния сцены — сразу после него) добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=id:оценка; rel={teacher}:minor+ или major- (:повод); skip=id; late=id. Только то, что случилось в ответе.",
-    "markerIds": "{subjectsTitle}: {subjects}.",
-    "markerTeachers": "{teacherPlural}: {teachers}.",
     "plan": {
       "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
       "original": " Имя наставника — в традиции выдуманного мира, с титулом («магистр», «архивариус»).",

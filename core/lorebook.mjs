@@ -57,6 +57,8 @@ export const DEFAULT_TEMPLATES = {
   classmateProblem: 'Что не ладится: {problem}.',
   classmateRelation: 'К героине: {relation}.',
   classmateMemory: 'Помнит: {memory}.',
+  classmateLast: 'Последнее: {last}.',
+  classmateChatFirst: 'Если в тексте чата видно иное, верь тексту чата, а не этой памяти.',
 };
 
 const MALE_TEMPLATES = {
@@ -118,10 +120,20 @@ function startOf(state, p, preset) {
   return isTeacherOf(state, p) ? numberOr(preset && preset.relations && preset.relations.start, 0) : classmateStart(preset);
 }
 
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+function dayWord(day) {
+  const m = /^\d{4}-(\d\d)-(\d\d)/.exec(String(day || ''));
+  return m && MONTHS_GEN[Number(m[1]) - 1] ? `${Number(m[2])} ${MONTHS_GEN[Number(m[1]) - 1]}` : '';
+}
+
 function storyOf(state, p, preset, vars) {
   const phrase = (tpl, extra) => fill(templateOf(preset, tpl), { ...vars, ...extra });
-  const memory = relationMemory(state, p.id, preset).map((m) => bare(m.reason)).filter(Boolean);
-  const moved = relationMemory(state, p.id, preset).length > 0
+  const rows = relationMemory(state, p.id, preset);
+  const memory = rows.map((m) => bare(m.reason)).filter(Boolean);
+  const newest = rows.find((m) => bare(m.reason));
+  const last = newest ? [bare(newest.reason), dayWord(newest.day)].filter(Boolean).join(', ') : '';
+  const moved = rows.length > 0
     || (personKind(p) === 'own' && relationOf(state, p.id) !== startOf(state, p, preset));
   const b = bullyingOf(state);
   const role = bullyRole(state, p.id);
@@ -136,6 +148,7 @@ function storyOf(state, p, preset, vars) {
   }).filter(Boolean);
   return {
     memory,
+    last,
     bully,
     deals,
     relation: moved ? relationLabel(state, p.id, preset) : '',
@@ -152,13 +165,14 @@ function personEntry(state, p, preset) {
   const subjectName = subject && subject.name ? subject.name : '';
   const story = storyOf(state, p, preset, vars);
   const relation = phrase('classmateRelation', 'relation', story.relation);
-  const memory = phrase('classmateMemory', 'memory', story.memory.join('; '));
+  const memory = [phrase('classmateMemory', 'memory', story.memory.join('; ')), phrase('classmateLast', 'last', story.last)].filter(Boolean).join(' ');
+  const chatFirst = memory ? fill(templateOf(preset, 'classmateChatFirst'), vars) : '';
   const uid = teacher ? `academy:teacher:${p.id}` : classmateUid(p.id);
   const base = { uid, category: 'people', title: p.name, spec: { type: 'person', name: p.name, aliases: p.aliases || [] }, order: teacher ? 50 : 45 };
 
   if (kind === 'lore') {
     const role = subjectName ? fill(templateOf(preset, 'addendumRole'), { ...vars, role: fill(templateOf(preset, 'addendumTeacher'), { ...vars, subject: subjectName }) }) : '';
-    const facts = [role, relation, memory, story.bully, ...story.deals].filter(Boolean);
+    const facts = [role, relation, memory, chatFirst, story.bully, ...story.deals].filter(Boolean);
     if (!facts.length) return null;
     const cpt = numberOr(limitsOf(preset).lorebookCharsPerToken, DEFAULTS.charsPerToken);
     const head = `[ACADEMY CONTINUITY ADDENDUM — ${p.name}]\n${templateOf(preset, 'addendumScope')}\n`;
@@ -189,7 +203,7 @@ function personEntry(state, p, preset) {
     ['NAME AND BASICS', [basics, post, club].filter(Boolean).join(' ')],
     ['APPEARANCE', looks],
     ['PERSONALITY', personality],
-    ['RELATIONSHIPS', [tie, relation, memory].filter(Boolean).join(' ')],
+    ['RELATIONSHIPS', [tie, relation, memory, chatFirst].filter(Boolean).join(' ')],
     ['BACKGROUND', teacher && !canon ? phrase('teacherSecret', 'secret', p.secret) : ''],
     ['CURRENT SITUATION', [phrase('classmateDesire', 'desire', p.desire), phrase('classmateProblem', 'problem', p.problem), story.bully, ...story.deals].filter(Boolean).join(' ')],
   ];

@@ -154,18 +154,21 @@ export function awaitingView(state, preset) {
     });
 }
 
+let sealSeq = 0;
+
 function sealMark(text) {
   const mark = svgIcon('tick', 'ad-doc-mark');
   if (typeof document.createElementNS !== 'function') return mark;
   const name = String(text || '').trim().toUpperCase();
   const size = name.length > 18 ? Math.max(5, (9 * 18) / name.length) : 9;
+  const id = `adSealArc${++sealSeq}`;
   mark.setAttribute('viewBox', '0 0 80 80');
   mark.setAttribute('stroke', 'none');
-  mark.innerHTML = '<defs><path id="adSealArc" d="M40 40 m-27 0 a27 27 0 1 1 54 0 a27 27 0 1 1 -54 0"/></defs>'
+  mark.innerHTML = `<defs><path id="${id}" d="M40 40 m-27 0 a27 27 0 1 1 54 0 a27 27 0 1 1 -54 0"/></defs>`
     + '<circle cx="40" cy="40" r="37" fill="none" stroke="currentColor" stroke-width="2"/>'
     + '<circle cx="40" cy="40" r="19" fill="none" stroke="currentColor" stroke-width="1.2"/>'
     + `<text font-size="${size.toFixed(2)}" font-weight="700" letter-spacing="1.2" fill="currentColor" font-family="inherit">`
-    + '<textPath href="#adSealArc" startOffset="2"></textPath></text>'
+    + `<textPath href="#${id}" startOffset="2"></textPath></text>`
     + '<g fill="currentColor" stroke="none" transform="translate(25 25) scale(.75)">'
     + '<path d="M3 8h9.5c.8 0 1.5.6 1.5 1.4V28c-2-1.4-5-1.8-11-1.8zM29 8h-9.5c-.8 0-1.5.6-1.5 1.4V28c2-1.4 5-1.8 11-1.8z" opacity=".85"/></g>';
   const path = mark.querySelector('textPath');

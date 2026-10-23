@@ -156,10 +156,13 @@ export function renderAchievements(host, view, preset) {
     ])),
   ]);
   const todo = (t) => el('li', { class: 'ad-todo-row', dataset: { kind: t.kind } }, [
-    row(`todo:${t.kind}`, [
-      el('span', { class: 'ad-award-title ad-tr-t', text: t.title }),
-      el('span', { class: 'ad-row-sub ad-tr-h', text: t.hint }),
-    ], null, []),
+    el('div', { class: 'ad-row ad-row-flat' }, [el('div', { class: 'ad-row-head' }, [
+      sign(),
+      el('span', { class: 'ad-row-main' }, [
+        el('span', { class: 'ad-award-title ad-tr-t', text: t.title }),
+        el('span', { class: 'ad-row-sub ad-tr-h', text: t.hint }),
+      ]),
+    ])]),
   ]);
   const shelf = (f) => el('section', { class: `ad-shelf ad-fam-${f.id}`, dataset: { family: f.id } }, [
     el('div', { class: 'ad-shelf-h' }, [

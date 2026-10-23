@@ -225,6 +225,15 @@ function checkCalendar(cal) {
     e.push(...checkTerm({ start: cal.termStart, studyWeeks: cal.studyWeeks, examWeeks: cal.examWeeks }, 'calendar'));
   }
   if (cal.vacations !== undefined && !Array.isArray(cal.vacations)) e.push('calendar.vacations: нужен список');
+  else if (Array.isArray(cal.vacations)) cal.vacations.forEach((v, i) => { if (isPlain(v)) e.push(...checkEaster(v, `calendar.vacations[${i + 1}]`)); });
+  return e;
+}
+
+function checkEaster(h, where) {
+  if (h.easter === undefined) return [];
+  const e = [];
+  if (!isInt(h.easter) || h.easter < -200 || h.easter > 200) e.push(`${where}.easter: сдвиг от православной Пасхи в днях — целое от -200 до 200`);
+  if (h.days !== undefined && (!isInt(h.days) || h.days < 1 || h.days > 60)) e.push(`${where}.days: сколько дней идёт — целое от 1 до 60`);
   return e;
 }
 
@@ -244,6 +253,7 @@ function checkHolidays(list) {
     if (h.lunar !== undefined && !(isMD(h.lunar) && Number(h.lunar.slice(0, 2)) <= 12 && Number(h.lunar.slice(3, 5)) <= 30)) {
       e.push(`${where}.lunar: лунная дата в виде ММ-ДД (месяц 01–12, день 01–30)`);
     }
+    e.push(...checkEaster(h, where));
     if (h.weekday !== undefined && !WEEKDAY_KEYS.includes(h.weekday)) e.push(`${where}.weekday: день недели — ${WEEKDAY_KEYS.join(', ')}`);
     if (h.days !== undefined && (!isInt(h.days) || h.days < 1 || h.days > 60)) e.push(`${where}.days: сколько дней идёт праздник — целое от 1 до 60`);
   });

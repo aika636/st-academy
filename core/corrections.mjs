@@ -1,4 +1,4 @@
-import { cloneState, findSubject, pushJournal } from './state.mjs';
+import { clamp, cloneState, findSubject, pushJournal } from './state.mjs';
 import { addGrade, debtMemo, restoreDebt } from './gradebook.mjs';
 import { mark } from './attendance.mjs';
 import { changeRelation, findPerson } from './relations.mjs';
@@ -134,6 +134,16 @@ export function revertCorrection(state, receipt, preset) {
   if (receipt.kind === 'rel') {
     const delta = Number.isFinite(receipt.applied) ? -receipt.applied : -Number(receipt.delta || 0);
     if (!delta) return next;
+    const journal = next.journal || [];
+    const at = journal.findLastIndex((e) => e && e.kind === 'rel' && e.data && e.data.teacherId === receipt.teacherId
+      && Number.isFinite(e.data.from) && Number.isFinite(e.data.to) && e.data.to - e.data.from === -delta);
+    const person = findPerson(next, receipt.teacherId);
+    if (at >= 0 && person) {
+      journal.splice(at, 1);
+      const scale = (preset && preset.relations) || {};
+      person.relation = clamp(person.relation + delta, scale.min, scale.max);
+      return next;
+    }
     return changeRelation(next, { teacherId: receipt.teacherId, delta, reason: null }, preset).state;
   }
 

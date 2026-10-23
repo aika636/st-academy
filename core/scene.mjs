@@ -10,7 +10,7 @@ import { placeFeat, revertFeat, revertFeatSource } from './feats.mjs';
 export { genderOfName };
 import {
   ensureFeed, addFeedItem, removeFeedItem, markSeen, restoreSeen,
-  openDeal, closeDeal, revertDeal, putReactions, unmarkPlayed, hash, postByRef,
+  openDeal, closeDeal, fulfilDeals, reopenDealsBy, revertDeal, putReactions, unmarkPlayed, hash, postByRef,
 } from './feed.mjs';
 
 export const SCENE_KINDS = ['met', 'clash', 'act', 'rumor', 'new', 'deal', 'feat', 'looks'];
@@ -27,10 +27,16 @@ export function personWord(id, people, heroine = '', gender = 'f') {
   if (isCardParty(id)) return cardPartyName(id);
   if (isWhoParty(id)) return whoPartyName(id);
   const p = (people || []).find((x) => x && x.id === id);
-  return (p && (p.name || p.id)) || String(id || 'кто-то');
+  return (p && p.name) || GONE_PERSON.nom;
 }
 
 export const GONE_PERSON = { nom: 'тот, кого уже нет в списке', dat: 'тому, кого уже нет в списке' };
+
+export function relPhrase(name, up, degree = '') {
+  const g = genderOfName(name);
+  const adj = `${degree ? `${degree} ` : ''}${up ? 'теплее' : 'холоднее'}`;
+  return g ? `${name} ${g === 'f' ? 'стала' : 'стал'} ${adj}` : `${name}: ${adj}`;
+}
 
 const ACT_ROLE = { близость: 'с кем', конфликт: 'против', помощь: 'кому', отказ: 'кому', достижение: 'против', провал: 'при ком', уход: 'от кого', появление: 'к кому' };
 const actRole = (ev, people) => {
@@ -183,6 +189,8 @@ export function actLoud(ev, loud = null) {
   return base === 2 && (ev.type === 'близость' || ev.type === 'конфликт') && loud === 3 ? 3 : base;
 }
 
+const DEED_KINDS = ['помощь', 'достижение', 'близость', 'появление'];
+
 function placeEvent(next, ev, preset, opts) {
   const src = opts.src || '';
   const token = opts.token || '';
@@ -216,6 +224,7 @@ function placeEvent(next, ev, preset, opts) {
       ...(ev.kind === 'act' ? { loud: actLoud(ev, opts.loud ?? null) } : {}),
       ...(act ? { act: { kind: act.type, access: act.access, reach: act.reach, say: act.say || '' } } : {}),
     });
+    if (ev.kind === 'act' && DEED_KINDS.includes(ev.type)) fulfilDeals(next, { a: ev.a, b: ev.b, what: ev.what, src, day: at.day });
     const cands = ev.kind === 'act' && typeof course.addCandidate === 'function'
       ? [ev.a, ev.b].filter(isWhoParty).map((p) => {
         const had = new Set((next.classmateCandidates || []).map((c) => c && c.id));
@@ -377,6 +386,7 @@ export function revertSceneSource(state, src, names = [], looks = []) {
     const feed = ensureFeed(next);
     feed.items = feed.items.filter((x) => x.src !== src);
     feed.deals = feed.deals.filter((d) => d.src !== src);
+    reopenDealsBy(next, src);
     unmarkPlayed(next, src);
   }
   for (const l of looks) unsetLooks(next, l.id ? { personId: l.id } : { name: l.name }, l.text);

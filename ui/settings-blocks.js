@@ -1,7 +1,7 @@
 import { PRESET_MAX_BYTES } from '../core/preset.mjs';
 import { personFromLine, personLine } from '../core/card-cast.mjs';
 import {
-  fill, PRESET_TEXT, extraLabels, uiLabels, mounted, el, clear, runAction, setStatus, section, sectionScope, sectionOpen, formatDate,
+  fill, KEY_NOTE, PRESET_TEXT, extraLabels, uiLabels, mounted, el, clear, runAction, setStatus, section, sectionScope, sectionOpen, formatDate,
   call, safe, renderPanel, renderSettingsBlock,
 } from './common.js';
 import { DEBUG_TEXT } from './debug.js';
@@ -152,8 +152,7 @@ export function renderApiBlock(host, view) {
     el('p', {
       class: 'academy-note',
       text: own
-        ? 'Ключ хранится только в этом браузере: в настройки таверны и их экспорт он не попадает, на другом устройстве его нужно ввести заново.'
-          + ' Надёжнее — «Подключение таверны» с профилем: там ключ держит сама таверна. Если адрес не пускает запросы из браузера, список моделей за вас спросит сервер самой таверны — тем же адресом и ключом.'
+        ? 'Если адрес не пускает запросы из браузера, список моделей за вас спросит сервер самой таверны — тем же адресом и ключом.'
         : 'Генерация пойдёт тем же подключением, которым таверна отвечает в чате. Ключ здесь вводить не нужно и никуда он не уезжает: запрос делает сама таверна.',
     }),
     sourceBox,
@@ -166,6 +165,7 @@ export function renderApiBlock(host, view) {
     profileRow,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Адрес' }), endpoint]) : null,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Ключ' }), key]) : null,
+    own ? el('p', { class: 'academy-note academy-key-note', text: KEY_NOTE }) : null,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Модель' }), model]) : null,
     own ? el('div', { class: 'academy-field' }, [models]) : null,
     !own ? el('p', { class: 'academy-note', text: 'Своего списка моделей у подключения таверны нет: модель задаёт сама таверна (или пресет выбранного профиля).' }) : null,
@@ -234,7 +234,7 @@ export function renderPaceBlock(host, view) {
     }))
     : el('p', { class: 'academy-note', text: 'Темп выбирается, когда в чате заведён семестр.' });
   return section('Темп отношений', [
-    el('p', { class: 'academy-note', text: 'Насколько быстро люди меняют отношение к героине (герою). Ссора может быть резкой, дружба копится.' }),
+    el('p', { class: 'academy-note', text: 'Насколько быстро люди меняют отношение к главному герою. Ссора может быть резкой, дружба копится.' }),
     paces,
     status,
   ]);
@@ -1015,6 +1015,7 @@ export function renderFeedBlock(host, preset, settings, extra = null) {
     el('label', { class: 'academy-check' }, [manual, el('span', { text: X.molvaManual })]),
     el('p', { class: 'academy-note', text: X.molvaManualNote }),
     el('label', { class: 'academy-field academy-field-inline' }, [el('span', { text: X.molvaSwear }), swear]),
+    el('p', { class: 'academy-note', text: X.molvaSwearNote }),
     molvaRefresh(host, preset),
     ...(Array.isArray(extra) ? extra : []),
   ]);
@@ -1119,7 +1120,7 @@ export function renderDrawBlock(host, preset, settings) {
   }
   children.push(
     el('p', { class: 'academy-note academy-draw-price', text: X.drawPrice }),
-    el('p', { class: custom ? 'academy-note academy-draw-custom-note' : 'academy-note', text: custom ? X.drawCustomNote : X.drawKeysNote }),
+    custom ? null : el('p', { class: 'academy-note', text: X.drawKeysNote }),
   );
   return section(X.drawSection, children);
 }
@@ -1170,6 +1171,7 @@ function renderCustomFields(host, X, c, select) {
     el('label', { class: 'academy-field' }, [el('span', { text: X.drawCustomEndpoint }), endpoint]),
     c.needsEndpoint ? null : el('p', { class: 'academy-note', text: X.drawCustomEndpointHint }),
     el('label', { class: 'academy-field' }, [el('span', { text: nai ? X.drawCustomNaiKey : X.drawCustomKey }), key]),
+    el('p', { class: 'academy-note academy-draw-custom-note', text: X.drawCustomNote }),
     el('label', { class: 'academy-field' }, [el('span', { text: X.drawCustomModel }), model, list]),
     loadBtn ? el('div', { class: 'academy-row academy-row-buttons' }, [loadBtn]) : null,
     status,

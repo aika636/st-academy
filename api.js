@@ -191,7 +191,7 @@ export async function tavernComplete(ctx, req = {}) {
 function tavernFailure(error, fallback) {
   const detail = (error && error.message) || '';
   if (isGatewayText(detail)) return classifyError({ gateway: true, status: 200, body: detail });
-  return { ok: false, code: 'tavern', status: null, detail, message: fallback(detail || 'без подробностей') };
+  return { ok: false, code: 'tavern', status: null, detail, message: fallback(safeReason(detail) || 'без подробностей') };
 }
 
 async function tavernCompleteOnce(ctx, req = {}) {
@@ -357,19 +357,19 @@ export function classifyError(info = {}) {
   const status = typeof info.status === 'number' ? info.status : null;
   const detail = errorDetail(info.body) || (info.error && info.error.message) || '';
   const err = info.error;
-  const where = info.url ? ` (${info.url})` : '';
+  const why = safeReason(detail) || 'без подробностей';
   const make = (code, message) => ({ ok: false, code, message, status, detail });
 
   if (err && (err.name === 'AbortError' || err.code === 'ABORT_ERR')) {
     return err.timeout
-      ? make('timeout', `Модель не ответила за отведённое время${where}.`)
+      ? make('timeout', 'Модель не ответила за отведённое время.')
       : make('aborted', 'Запрос отменён.');
   }
   if (info.gateway === true || status === 502 || status === 504 || (status !== null && isGatewayText(detail))) {
     return make('gateway', GATEWAY_MESSAGE);
   }
   if (status === null) {
-    return make('network', `Адрес не отвечает${where}: сервер недоступен, неверный адрес`
+    return make('network', 'Адрес не отвечает: сервер недоступен, неверный адрес'
       + ' или провайдер не разрешает запросы из браузера (CORS).');
   }
   if (status === 401 || status === 403) {
@@ -379,17 +379,46 @@ export function classifyError(info = {}) {
     if (/model/i.test(detail)) {
       return make('model', `Модель «${info.model || '?'}» не найдена (404). Возьмите её из списка моделей.`);
     }
-    return make('not-found', `Путь не найден (404)${where}. Скорее всего, в адресе лишний или недостающий /v1.`);
+    return make('not-found', `Путь не найден (404). Скорее всего, в адресе лишний или недостающий /v1.`);
   }
   if (status === 429) return make('rate', 'Слишком много запросов (429). Подождите и повторите.');
   if (status === 400 || status === 422) {
     if (/model/i.test(detail)) {
-      return make('model', `Модель «${info.model || '?'}» не подходит: ${detail || 'сервер отверг запрос'}.`);
+      return make('model', `Модель «${info.model || '?'}» не подходит: ${safeReason(detail) || 'сервер отверг запрос'}.`);
     }
-    return make('bad-request', `Сервер отверг запрос (${status}): ${detail || 'без подробностей'}.`);
+    return make('bad-request', `Сервер отверг запрос (${status}): ${why}.`);
   }
-  if (status >= 500) return make('server', `Ошибка на стороне сервера (${status}): ${detail || 'без подробностей'}.`);
-  return make('http', `Неожиданный ответ (${status}): ${detail || 'без подробностей'}.`);
+  if (status >= 500) return make('server', `Ошибка на стороне сервера (${status}): ${why}.`);
+  return make('http', `Неожиданный ответ (${status}): ${why}.`);
+}
+
+// Error text shown on screen: no addresses, keys or raw JSON.
+export function safeReason(text, max = 120) {
+  let t = String(text || '').trim();
+  if (/^[{[<]/.test(t)) return '';
+  t = t.replace(/\b(?:https?:\/\/|wss?:\/\/|www\.)\S+/gi, '').replace(/\bBearer\s+\S+/gi, '')
+    .replace(/\b(?:sk|pk|key|AIza|gsk|xai)[-_A-Za-z0-9]{12,}/g, '').replace(/\b[A-Za-z0-9_-]{28,}\b/g, '')
+    .replace(/\s+/g, ' ').replace(/\s+([.,;:])/g, '$1').trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+export function secretaryFailure(res = {}) {
+  const head = 'Секретарь не ответил';
+  const why = safeReason(res.detail);
+  const st = res.status ? ` (${res.status})` : '';
+  const retry = ' Нажмите «Разобрать заново».';
+  if (res.code === 'empty') return `${head}: пустой ответ.${retry}`;
+  if (res.code === 'timeout') return `${head}: время вышло.${retry}`;
+  if (res.code === 'network') return `${head}: нет связи с моделью. Проверьте сеть и адрес.${retry}`;
+  if (res.code === 'gateway') return `${head}: шлюз модели недоступен.${retry}`;
+  if (res.code === 'rate' || res.status === 402) return `${head}: квота исчерпана${st}. Подождите или смените ключ.${retry}`;
+  if (res.code === 'auth') return `${head}: ключ не принят${st}. Проверьте ключ в настройках.`;
+  if (res.code === 'server') return `${head}: ошибка на стороне сервера${st}${why ? `: ${why}` : ''}.${retry}`;
+  if (['tavern', 'bad-request', 'http', 'model', 'not-found'].includes(res.code)) {
+    return `${head}: провайдер отказал${st}${why ? `: ${why}` : ''}.${retry}`;
+  }
+  const own = safeReason(res.message);
+  return `${head}: ${own || 'причина не названа'}${/[.!?…]$/.test(own) ? '' : '.'}${retry}`;
 }
 
 export function errorDetail(body) {

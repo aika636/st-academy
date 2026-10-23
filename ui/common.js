@@ -35,6 +35,7 @@ export function sectionIcon(title) {
 
 export const WEEKDAYS = ['', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'];
 const WEEKDAYS_SHORT = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+const WEEKDAYS_FROM = ['', 'с понедельника', 'со вторника', 'со среды', 'с четверга', 'с пятницы', 'с субботы', 'с воскресенья'];
 const WEEKDAYS_GEN = ['', 'понедельника', 'вторника', 'среды', 'четверга', 'пятницы', 'субботы', 'воскресенья'];
 const MONTHS = ['', 'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -400,7 +401,7 @@ export function setDateShift(k) {
 export function formatDate(day, form = 'full', shift = dateShift) {
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return '';
   const { m, d } = parseDay(day);
-  const names = form === 'short' ? WEEKDAYS_SHORT : form === 'gen' ? WEEKDAYS_GEN : WEEKDAYS;
+  const names = form === 'short' ? WEEKDAYS_SHORT : form === 'gen' ? WEEKDAYS_GEN : form === 'from' ? WEEKDAYS_FROM : WEEKDAYS;
   return `${names[dayOfWeek(day, shift)]}, ${d} ${MONTHS[m] || ''}`.trim();
 }
 
@@ -490,6 +491,8 @@ export function historyCountText(U, n) {
 
 export const str = (v) => (v == null ? '' : String(v)).trim();
 
+export const KEY_NOTE = 'Ключ хранится только в этом браузере (localStorage): в чат, настройки таверны и их экспорт он не попадает, на другом устройстве его нужно ввести заново. Надёжнее — «Подключение таверны» с профилем: там ключ держит сама таверна.';
+
 export const capitalize = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
 export const EXTRA_UI = {
@@ -552,7 +555,7 @@ export const EXTRA_UI = {
   holidayTomorrow: 'завтра',
   holidayOwnMark: '✎',
   holidayOwnTitle: 'ваше событие',
-  holidayOffUntil: CORE_LABELS.holidayOffUntil,
+  holidayOffResume: CORE_LABELS.holidayOffResume,
   holidayOffMark: CORE_LABELS.holidayOffMark,
   eventsSummary: 'Своё событие',
   eventsNote: 'Событие вне календаря: вечеринка, концерт, свидание. За несколько дней до него в сцене слышен фон, в сам день модель получает повод. «Занятий нет» делает его каникулами.',
@@ -634,7 +637,8 @@ export const EXTRA_UI = {
   molvaEvery: 'Ответов между обновлениями слухов:',
   molvaManual: 'Только по кнопке «Обновить слухи»',
   molvaPrice: 'Каждое обновление — отдельный запрос к модели после ответа. Каждый ответ — вдвое больше запросов, раз в 3–5 ответов заметно дешевле, а ветки выходят полнее.',
-  molvaSwear: 'Ругань в чате:',
+  molvaSwear: 'Ругань в слухах:',
+  molvaSwearNote: 'Влияет только на ленту слухов: голоса в ней говорят мягче или резче. Обычные ответы в чате пишет сама модель.',
   molvaSwearOff: 'без мата',
   molvaSwearMild: 'мягко',
   molvaSwearFree: 'свободно',
@@ -665,7 +669,7 @@ export const EXTRA_UI = {
   mobWarn: 'Проверьте: {text}',
   mobThreadsTitle: 'Дела массовки',
   mobThreadsNone: 'Дел пока нет — они заведутся сами, когда слухи пойдут.',
-  mobThreadWant: 'хотят: {text}',
+  mobThreadWant: '{text}',
   mobThreadLast: 'последнее: {text}',
   mobThreadPaused: 'отложено',
   mobThreadSource: { calendar: 'из календаря', study: 'из учёбы', cast: 'из жизни статистов' },
@@ -742,7 +746,7 @@ export const EXTRA_UI = {
   drawCustomLoad: 'Загрузить список моделей',
   drawCustomLoaded: 'Моделей: {n}. Выберите в подсказках под полем «Модель».',
   drawCustomNone: 'Подходящих моделей в списке нет — впишите имя модели руками.',
-  drawCustomNote: 'Ключ хранится только в этом браузере: в настройки таверны и их экспорт он не попадает, на другом устройстве его нужно ввести заново. Надёжнее — профиль подключения таверны: там ключ держит сама таверна.',
+  drawCustomNote: KEY_NOTE,
   detailsTitle: 'Править',
   detailsSave: 'Сохранить',
   detailsSaved: 'Сохранено.',

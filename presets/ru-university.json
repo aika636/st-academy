@@ -27,16 +27,17 @@
     },
     "warning": "вызов в деканат",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали в деканат и предупредили, что следующий прогул означает отчисление. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали в деканат и предупредили, что следующий прогул означает отчисление. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the dean's office and warned that the next truancy means expulsion. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the dean's office and warned that the next truancy means expulsion. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: приказ об отчислении подписан, она больше не студентка. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: приказ об отчислении подписан, он больше не студент. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the expulsion order is signed, she is no longer a student. Play out the consequences in the next reply.",
+      "male": "It has already happened: the expulsion order is signed, he is no longer a student. Play out the consequences in the next reply."
     },
-    "expelPaths": "остаются апелляция в деканате, восстановление на следующий год или перевод в другой вуз — что из этого, решает сцена",
+    "expelPaths": "an appeal at the dean's office, reinstatement next year or transfer to another university remain; the scene decides which",
     "score": "средний балл",
     "crowdIn": "на курсе",
+    "crowdInEn": "the course",
     "someone": "кто-то с курса"
   },
   "week": {
@@ -173,7 +174,8 @@
       "id": "maslenitsa",
       "name": "Масленица",
       "from": "03-02",
-      "to": "03-06",
+      "easter": -55,
+      "days": 5,
       "lead": 3,
       "about": "Блины, чучело и гулянья на площади у корпуса.",
       "buzz": "На площади собирают чучело, в буфете блинная гонка.",
@@ -201,6 +203,18 @@
       "buzz": "Все готовят подставы, староста уже подозревает каждого.",
       "buzzNear": "Подставы готовы, стулья проверены, староста подозревает каждого и перепроверяет расписание.",
       "today": "Розыгрыши по всему корпусу, никто не верит расписанию."
+    },
+    {
+      "id": "easter",
+      "name": "Пасха",
+      "from": "04-20",
+      "easter": 0,
+      "days": 1,
+      "lead": 3,
+      "about": "Воскресный праздник: куличи и крашеные яйца, кто-то уезжает к родным на выходные.",
+      "buzz": "В буфете обещают куличи, в чатах групп делятся крашеными яйцами.",
+      "buzzNear": "Яйца красят в общежитии на кухне, полгруппы собирается к родным.",
+      "today": "Воскресенье: куличи у родных и в общежитии, в чатах групп фотографии крашеных яиц."
     },
     {
       "id": "kvn",
@@ -696,19 +710,18 @@
   },
   "phrases": {
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": {
-        "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
-        "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
-      },
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} возможен. Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} невозможен; {teacher} принимает на общих основаниях. Блестящую сдачу без испытания отыгрывать запрещено.",
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся."
+      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": {
+          "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+          "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
+        },
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -751,40 +764,15 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "каникулы",
-      "break": "каникулы",
+      "weekend": "weekend",
+      "vacation": "vacation",
+      "break": "vacation",
       "exams": "",
-      "preExams": "зачётная неделя"
-    },
-    "day": "{weekday}, {week}-я неделя",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+      "preExams": "зачётная неделя",
+      "preExamsEn": "credit week"
+    }
   },
   "prompts": {
     "plan": {

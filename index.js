@@ -121,6 +121,10 @@ const live = {
   ledger: [],
   analyzing: new Set(),
   analysisErrors: new Map(),
+  analysisCancel: new Map(),
+  analysisCtl: new Map(),
+  analysisNote: new Map(),
+  autoTried: new Set(),
   oneShot: '',
   plot: emptyPlot(),
   quiet: false,
@@ -330,6 +334,8 @@ function reloadState() {
   live.plot = storage.loadPlot(ctx());
   if (live.state) live.plot = syncBullyHook(live.plot, ...bullyHookArgs(live.state));
   live.analysisErrors.clear();
+  live.analysisCancel.clear();
+  live.autoTried.clear();
   primeCardCast();
   if (!live.castsPruned) live.castsPruned = pruneCardCasts();
   if (live.state && live.state.started) storage.dropDrafts(ctx(), String(currentChatId() || ''));
@@ -384,6 +390,7 @@ async function commit(state, { flush = false } = {}) {
   live.state = state;
   const c = ctx();
   storage.saveTurns(c, live.turns);
+  renderPanels();
   if (flush) return storage.flushState(c, state);
   return storage.saveState(c, state);
 }
@@ -393,6 +400,7 @@ function forgetTurns() {
   live.oneShot = '';
   live.ledger = [];
   live.analysisErrors.clear();
+  live.analysisCancel.clear();
   try {
     storage.saveLedger(ctx(), live.ledger);
   } catch (err) {
@@ -512,6 +520,8 @@ function setInjects({ oneShot = null } = {}) {
   writeInjects();
 }
 
+const wrapTag = (tag, text) => (text ? `<${tag}>\n${text}\n</${tag}>` : '');
+
 function writeInjects({ blank = false } = {}) {
   const c = ctx();
   const settings = storage.loadSettings(c);
@@ -529,11 +539,11 @@ function writeInjects({ blank = false } = {}) {
   const hook = started && !muted && plotOpts.enabled && !holidaySounding() ? hookPrompt(live.plot) : '';
   const status = settings.statusViaMacro === true ? '' : built.status;
   const bully = started && !muted && bullyingOn(live.state) ? bullyHookPrompt(live.plot) : '';
-  const oneShot = started ? [live.oneShot, hook, bully, live.skipWarning].filter(Boolean).join(' ') : '';
+  const oneShot = started ? [live.oneShot, hook, bully, live.skipWarning].filter(Boolean).join('\n') : '';
 
-  c.setExtensionPrompt(INJECT.status, status, types.IN_CHAT, depth, false, roles.SYSTEM);
-  c.setExtensionPrompt(INJECT.marker, built.instruction, types.IN_CHAT, depth + 1, false, roles.SYSTEM);
-  c.setExtensionPrompt(INJECT.oneShot, oneShot, types.IN_CHAT, 0, false, roles.SYSTEM);
+  c.setExtensionPrompt(INJECT.status, wrapTag('academy_scene', status), types.IN_CHAT, depth, false, roles.SYSTEM);
+  c.setExtensionPrompt(INJECT.marker, wrapTag('academy_marker', built.instruction), types.IN_CHAT, depth + 1, false, roles.SYSTEM);
+  c.setExtensionPrompt(INJECT.oneShot, wrapTag('academy_note', oneShot), types.IN_CHAT, 0, false, roles.SYSTEM);
 }
 
 function armedOneShot() {
@@ -623,8 +633,18 @@ async function syncLorebook({ force = false, immediately = false } = {}) {
     live.lorebook.report = null;
     live.lorebook.error = null;
     live.lorebook.status = null;
+    if (!extOn() && !live.lorebook.suspended) {
+      const op = captureOperation();
+      try {
+        const res = await lorebook.suspendBook(c, { settings, guard: () => isCurrent(op) });
+        if (res.ok && isCurrent(op)) live.lorebook.suspended = true;
+      } catch (err) {
+        console.warn(`[${MODULE}] лорбук не погашен:`, err);
+      }
+    }
     return null;
   }
+  live.lorebook.suspended = false;
 
   const names = loreNames(c);
   const retry = live.lorebook.retryAt && Date.now() >= live.lorebook.retryAt ? '|retry' : '';
@@ -881,7 +901,7 @@ function armPending(state) {
   if (!pending.length) return state;
   const latest = live.turns[live.turns.length - 1];
   if (latest && latest.stamp === null) return state;
-  const joined = [armedOneShot(), ...pending.map((i) => i && i.text)].filter(Boolean).join(' ');
+  const joined = [armedOneShot(), ...pending.map((i) => i && i.text)].filter(Boolean).join('\n');
   if (latest) {
     latest.oneShot = joined;
     const lines = holidayLinesOf(pending);
@@ -908,8 +928,14 @@ function eligible(message) {
   return !(typeof from === 'string' && from.trim() !== '');
 }
 
+function replyLike(message) {
+  if (!message || message.is_user) return false;
+  const from = message.extra && message.extra.from;
+  return !(typeof from === 'string' && from.trim() !== '');
+}
+
 function matchesTurn(message, turn) {
-  if (!eligible(message) || !turn.stamp) return false;
+  if (!replyLike(message) || !turn.stamp) return false;
   if (stamp(String(message.mes ?? '')) === turn.stamp) return true;
   return Array.isArray(message.swipes) && message.swipes.some((s) => stamp(String(s ?? '')) === turn.stamp);
 }
@@ -924,7 +950,7 @@ function sameTurn(turn, mesId, chat) {
 function findTurn(chat, turn, floor = -1) {
   const n = chat.length;
   const at = turn.mesId;
-  if (turn.stamp === null) return at > floor && at < n && eligible(chat[at]) ? at : -1;
+  if (turn.stamp === null) return at > floor && at < n && replyLike(chat[at]) ? at : -1;
   if (at > floor && at < n && matchesTurn(chat[at], turn)) return at;
   for (let d = 1; d < n; d += 1) {
     const lo = at - d;
@@ -1235,7 +1261,7 @@ ${text}`);
   savePlot();
   if (featsActive) state = syncFeats(state, { src: mark });
 
-  const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join(' ');
+  const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join('\n');
   turn.mesId = mesId;
   turn.stamp = mark;
   turn.analysis = analysisKey;
@@ -1249,13 +1275,25 @@ ${text}`);
   noticeChanges(before, state, { source, mesId });
   noticeJump(run.jump);
   recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
-  await syncLorebook();
+  renderPanels();
+  await lazyLore();
   refreshPanel();
   if (source === 'received' && text.trim()) {
+    if (secretaryAuto()) live.autoTried.add(mark);
     (secretaryAuto() ? autoAnalyze(mesId, mark) : autoMolva(mesId, mark)).catch((err) => console.error(`[${MODULE}] слухи не выпущены:`, err));
     ensureBullyPick().catch((err) => console.warn(`[${MODULE}] зачинщик не подобран:`, err));
   }
   return 'посчитан';
+}
+
+// Книга мира может ждать перевод у модели минутами: ход и разбор её дольше LORE_WAIT_MS не ждут.
+const LORE_WAIT_MS = 1500;
+
+async function lazyLore() {
+  let timer = null;
+  const job = syncLorebook().then(() => refreshPanel()).catch((err) => console.warn(`[${MODULE}] книга мира: ${(err && err.message) || err}`));
+  await Promise.race([job, new Promise((resolve) => { timer = setTimeout(resolve, LORE_WAIT_MS); })]);
+  clearTimeout(timer);
 }
 
 async function traced(event, mesId, run) {
@@ -1494,12 +1532,16 @@ function panelView(mesId) {
     summary: (draft ? draft.summary : entry && entry.summary) || '',
     tokens: panelTokens((draft ? draft.tokens : tokens) || [], lexicon, entry, Boolean(draft)),
     marker: entry ? entry.marker : null,
-    live: Boolean(turn) || uncounted,
+    live: Boolean(turn) || countable(mesId, chat),
     correction: Boolean(entry && entry.mode === 'late'),
     known: Boolean(entry),
     uncounted,
     busy: live.analyzing.has(mark),
+    progress: live.analysisNote.get(mark) || '',
+    cancellable: live.analysisCtl.has(mark),
     error: live.analysisErrors.get(mark) || '',
+    cancelled: live.analysisCancel.get(mark) || '',
+    wait: waitReason(mesId, mark, entry, chat),
     unparsed: unparsedLeft((draft ? draft.unparsed : tokens && entry.unparsed) || [], (draft ? draft.tokens : tokens) || [],
       [...(live.state.teachers || []), ...(live.state.classmates || []), ...listCandidates(live.state)]),
     partial: Boolean(draft && draft.partial),
@@ -1508,8 +1550,27 @@ function panelView(mesId) {
     decisions: doneLines(live.state, live.preset, mark),
     promises: promiseCards(live.state, live.preset, mark, ctx().name1),
     heldJump: Boolean(live.state.calendar && live.state.calendar.heldJump && (turn || uncounted)),
+    jumpAsk: heldAsk(turn || uncounted),
     canUndo: Boolean(turn && turn.stamp && live.turns[live.turns.length - 1] === turn && live.undoneAt !== live.turns.length),
   };
+}
+
+function heldAsk(on) {
+  if (!on || !live.state.calendar || !live.state.calendar.heldJump) return null;
+  const U = uiLabels(live.preset);
+  return {
+    text: PANEL_TEXT.jumpAsk.replace('{waiting}', heldWaiting(live.state, live.preset)).replace('{tab}', U.tabToday),
+    go: U.jumpAcceptNoDate,
+    decline: U.jumpDismiss,
+  };
+}
+
+function waitReason(mesId, mark, entry, chat) {
+  if (!secretaryAuto() || live.analyzing.has(mark) || mesId !== lastEligible(chat)) return '';
+  if (entry && (Array.isArray(entry.tokens) || entry.draft)) return '';
+  if (live.analysisErrors.has(mark) || live.analysisCancel.has(mark) || !liveTurnOf(mesId, chat)) return '';
+  if (live.generating) return PANEL_TEXT.waitGen;
+  return live.autoTried.has(mark) ? PANEL_TEXT.waitLost : PANEL_TEXT.waitStart;
 }
 
 function examsScheduledWords() {
@@ -1735,12 +1796,25 @@ async function analyzeMessage(mesId) {
   const epoch = live.epoch;
   const fail = (error) => {
     live.analysisErrors.set(mark, error);
-    return { ok: false, error };
+    toast('warning', error);
+    return { ok: false, error, shown: true };
   };
+  const ctl = new AbortController();
+  let settings = null;
   live.analyzing.add(mark);
+  live.analysisCtl.set(mark, ctl);
   live.analysisErrors.delete(mark);
-  renderPanels();
+  live.analysisCancel.delete(mark);
+  live.analysisNote.delete(mark);
+  const slow = setTimeout(() => {
+    if (!live.analyzing.has(mark) || live.analysisNote.has(mark)) return;
+    live.analysisNote.set(mark, PANEL_TEXT.slow);
+    renderPanels();
+  }, SLOW_MS);
   try {
+    settings = storage.apiSettings(c);
+    if (molvaRunning) live.analysisNote.set(mark, PANEL_TEXT.afterMolva);
+    renderPanels();
     const entry = entryOf(mark, turn);
     if (turn) turn.before = carryManual(live.state, turn.before);
     const base = turn ? turn.before : live.state;
@@ -1758,29 +1832,37 @@ async function analyzeMessage(mesId) {
       preps: prepList(base, c.name1),
       feats: featsOn() ? { ahead: turn ? 1 : 0 } : false,
     });
-    const ask = () => api.complete(storage.apiSettings(c), {
+    const ask = () => api.complete(settings, {
       system: prompt.system,
       user: prompt.user,
       ctx: c,
       temperature: 0.2,
       maxTokens: api.TOKEN_BUDGETS.analysis,
+      timeout: ANALYSIS_TIMEOUT,
+      signal: ctl.signal,
     });
     const read = (r) => parseAnalysis(r.text, { ...lexiconOf(base, c), featsKnow: { ...featsKnow(base, turn ? 1 : 0), off: !featsOn() } }, { posts: live.legacyPosts === true });
     let res = await ask();
     let parsed = res.ok ? read(res) : null;
-    if (res.ok && !parsed.found && !res.truncated && live.epoch === epoch) {
+    let attempts = 1;
+    if (res.ok && !parsed.found && !res.truncated && live.epoch === epoch && !ctl.signal.aborted) {
       console.warn(`[${MODULE}] секретарь ответил без метки, повтор:`, res.text);
+      attempts = ANALYSIS_ATTEMPTS;
+      live.analysisNote.set(mark, PANEL_TEXT.retrying.replace('{n}', attempts).replace('{max}', ANALYSIS_ATTEMPTS));
+      renderPanels();
       res = await ask();
       parsed = res.ok ? read(res) : null;
     }
     if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
-    if (res.code === 'gateway') return fail('Шлюз модели не ответил. Нажмите «Разобрать» ещё раз.');
-    if (!res.ok) return fail(`Разбор не удался: ${res.message || res.code}`);
+    if (ctl.signal.aborted || res.code === 'aborted') {
+      live.analysisCancel.set(mark, api.resolveSource(settings) === 'tavern' ? PANEL_TEXT.cancelledTavern : PANEL_TEXT.cancelled);
+      return { ok: false, cancelled: true, error: PANEL_TEXT.cancelled };
+    }
+    if (!res.ok) return fail(api.secretaryFailure(res));
     if (!parsed.found) {
       console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
-      return fail(res.truncated
-        ? 'Секретарь не договорил: ответ оборвался раньше метки. Попробуйте ещё раз.'
-        : 'Секретарь ответил не так, как нужно. Попробуйте ещё раз.');
+      if (res.truncated) return fail(PANEL_TEXT.failCut);
+      return fail(attempts > 1 ? PANEL_TEXT.failRefusedMany.replace('{n}', attempts) : PANEL_TEXT.failRefused);
     }
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
@@ -1794,11 +1876,23 @@ async function analyzeMessage(mesId) {
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
   } catch (err) {
     console.error(`[${MODULE}] разбор ответа упал:`, err);
-    return fail(`Разбор не удался: ${(err && err.message) || err}`);
+    return fail(`Разбор не удался: ${api.safeReason(err && err.message) || 'сбой расширения'}. Нажмите «Разобрать заново».`);
   } finally {
+    clearTimeout(slow);
     live.analyzing.delete(mark);
+    live.analysisCtl.delete(mark);
+    live.analysisNote.delete(mark);
     renderPanels();
   }
+}
+
+function cancelAnalysis(mesId) {
+  const message = chatOf()[mesId];
+  if (!eligible(message)) return { ok: false };
+  const ctl = live.analysisCtl.get(stamp(String(message.mes || '')));
+  if (!ctl) return { ok: false };
+  ctl.abort();
+  return { ok: true };
 }
 
 async function writeAnalysis(mesId, tokens, summary, { molva = true } = {}) {
@@ -1876,7 +1970,7 @@ async function writeAnalysis(mesId, tokens, summary, { molva = true } = {}) {
     summary: list ? words : '', at: Date.now(),
   });
   setInjects({});
-  await syncLorebook();
+  await lazyLore();
   refreshPanel();
   return { ok: true };
 }
@@ -1892,6 +1986,7 @@ async function saveAnalysis(mesId, opts = {}) {
   const previousAnalysis = { tokens: entry.tokens || null, summary: entry.summary || '' };
   const epoch = live.epoch;
   live.analyzing.add(mark);
+  live.analysisNote.set(mark, PANEL_TEXT.saving);
   renderPanels();
   try {
     if (!latestFor(mesId, chat) && countable(mesId, chat)) await handleMessage(mesId, { source: 'manual' });
@@ -1903,6 +1998,7 @@ async function saveAnalysis(mesId, opts = {}) {
     return result;
   } finally {
     live.analyzing.delete(mark);
+    live.analysisNote.delete(mark);
     renderPanels();
   }
 }
@@ -1982,6 +2078,7 @@ async function editAnalysis(mesId, change) {
   const mark = stamp(String(message.mes || ''));
   const entry = entryOf(mark, liveTurnOf(mesId, chat));
   live.analysisErrors.delete(mark);
+  live.analysisCancel.delete(mark);
   if (entry && entry.draft) {
     const tokens = change([...entry.draft.tokens]);
     putLedger({ ...entry, draft: tokens === null ? null : { ...entry.draft, tokens } });
@@ -2055,7 +2152,12 @@ async function answerPromiseNow(key, came) {
 const panelHost = {
   panelFor: (mesId) => panelView(mesId),
   lookFor: () => ensureLook(storage.loadSettings(ctx()), live.preset),
-  analyze: (mesId) => analyzeMessage(mesId),
+  analyze: async (mesId) => {
+    const res = await analyzeMessage(mesId).catch((err) => ({ ok: false, error: `Разбор не удался: ${api.safeReason(err && err.message) || 'сбой расширения'}.` }));
+    if (!res.ok && !res.cancelled && !res.shown && res.error) toast('info', res.error);
+    return res;
+  },
+  cancelAnalysis: (mesId) => cancelAnalysis(mesId),
   saveAnalysis: (mesId) => saveAnalysis(mesId),
   discardAnalysis: (mesId) => discardAnalysis(mesId),
   dropToken: (mesId, index) => editAnalysis(mesId, (list) => dropTokenAt(list || [], index)),
@@ -2063,6 +2165,7 @@ const panelHost = {
   answerInvite: (mesId, answer) => answerInviteNow(answer),
   answerPromise: (mesId, key, came) => answerPromiseNow(key, came),
   clearAnalysis: (mesId) => undoAnalysis(mesId),
+  resolveJump: (accept) => host.actions.resolveJump(accept),
   undoReply: async () => {
     const res = await undoLastReply();
     toast(res.ok ? 'success' : 'warning', res.ok ? res.text : res.error);
@@ -2206,6 +2309,8 @@ async function handleEdited(mesId) {
   }
   const older = live.turns.find((t) => t.mesId === mesId);
   if (older && older.stamp !== mark) {
+    const entry = ledgerEntry(older.stamp);
+    if (entry) putLedger({ ...entry, stamp: mark });
     older.stamp = mark;
     storage.saveTurns(ctx(), live.turns);
   }
@@ -2213,44 +2318,131 @@ async function handleEdited(mesId) {
 
 async function handleDeleted() {
   if (!extOn()) return;
-  if (!live.preset || !live.state || !live.turns.length) return;
+  await rewindToChat();
+}
+
+function chatMarks(m) {
+  return [m.mes, ...(Array.isArray(m.swipes) ? m.swipes : [])].map((t) => stamp(String(t ?? '')));
+}
+
+function lastReply(chat) {
+  for (let i = chat.length - 1; i >= 0; i -= 1) if (replyLike(chat[i])) return i;
+  return -1;
+}
+
+function ledgerCalendar(chat, loose = false) {
+  const m = chat[lastReply(chat)];
+  if (!m) return null;
+  const marks = chatMarks(m);
+  let entry = marks.map(ledgerEntry).find((e) => e && e.day);
+  if (!entry && loose) {
+    const sizes = new Set(marks.map((x) => x.split(':')[0]));
+    const same = live.ledger.filter((e) => e.day && sizes.has(e.stamp.split(':')[0]));
+    if (same.length && same.every((e) => e.day === same[0].day && e.time === same[0].time)) [entry] = same;
+  }
+  return entry ? { day: entry.day, time: entry.time || null } : null;
+}
+
+const REWIND_NOTE = {
+  branch: 'Точный откат ветки недоступен',
+  delete: 'Удалено глубже сохранённых ходов',
+};
+
+async function rewindToChat({ branch = false, chatId, epoch } = {}) {
+  if (!extOn() || !live.preset || !live.state || !live.turns.length) return false;
   const chat = chatOf();
+  if (branch && (!chat.length || lastReply(chat) < 0)) return false;
+  if (chatId !== undefined && chatId !== currentChatId()) return false;
+  const md = ctx().chatMetadata;
+  const here = () => (epoch === undefined || epoch === live.epoch)
+    && (chatId === undefined || chatId === currentChatId()) && ctx().chatMetadata === md;
+  const related = branch && Boolean(md && md.main_chat);
   const at = locateTurns(chat);
+  if (related) {
+    // a branch is a prefix of its main chat, so a turn whose text was changed later still sits at its own index
+    let floor = -1;
+    at.forEach((x, i) => {
+      const t = live.turns[i];
+      if (x < 0 && t.stamp !== null && t.mesId > floor && t.mesId < chat.length && replyLike(chat[t.mesId])) {
+        at[i] = t.mesId;
+        const mark = stamp(String(chat[t.mesId].mes || ''));
+        const entry = ledgerEntry(t.stamp);
+        if (entry) putLedger({ ...entry, stamp: mark });
+        t.stamp = mark;
+      }
+      if (at[i] >= 0) floor = at[i];
+    });
+  }
   const last = at.length - 1;
+  const save = () => (branch && here() ? storage.flushState(ctx(), live.state) : null);
+  const keep = (upTo) => {
+    const kept = [];
+    for (let i = 0; i < upTo; i += 1) {
+      if (at[i] < 0) continue;
+      live.turns[i].mesId = at[i];
+      kept.push(live.turns[i]);
+    }
+    live.turns = kept;
+  };
 
   if (at[last] >= 0) {
-    const kept = [];
-    live.turns.forEach((turn, i) => {
-      if (at[i] < 0) return;
-      turn.mesId = at[i];
-      kept.push(turn);
-    });
-    live.turns = kept;
+    keep(live.turns.length);
     storage.saveTurns(ctx(), live.turns);
-    return;
+    return false;
   }
+  if (branch && live.turns[last].mesId < chat.length) return false;
 
   let k = last;
   while (k > 0 && at[k - 1] < 0) k -= 1;
   const target = live.turns[k];
-  const kept = [];
-  for (let i = 0; i < k; i += 1) {
-    if (at[i] < 0) continue;
-    live.turns[i].mesId = at[i];
-    kept.push(live.turns[i]);
+  const anchor = lastReply(chat);
+  const exact = k > 0 ? at[k - 1] === anchor : live.turns.length < storage.TURN_HISTORY;
+
+  if (exact && target.before) {
+    keep(k);
+    live.oneShot = target.oneShotBefore;
+    if (target.inviteKey) { unsettleInvite(target.before, target.inviteKey); target.inviteKey = ''; }
+    await commit(carryManual(live.state, target.before));
+    if (branch) await save();
+    announceRollback(branch ? 'branch' : 'delete');
+    if (live.generating) refreshSkipWarning();
+    setInjects({});
+    refreshPanel();
+    return true;
   }
-  live.turns = kept;
-  live.oneShot = target.oneShotBefore;
-  if (target.inviteKey) { unsettleInvite(target.before, target.inviteKey); target.inviteKey = ''; }
-  await commit(carryManual(live.state, target.before));
-  announceRollback('delete');
-  if (live.generating) refreshSkipWarning();
+
+  keep(k);
+  if (exact) {
+    storage.saveTurns(ctx(), live.turns);
+    return false;
+  }
+  const cal = ledgerCalendar(chat, related);
+  const word = REWIND_NOTE[branch ? 'branch' : 'delete'];
+  if (!cal) {
+    storage.saveTurns(ctx(), live.turns);
+    if (branch) await save();
+    toast('warning', `${word}: дата и время не найдены, состояние не менялось.`);
+    return false;
+  }
+  const state = cloneState(live.state);
+  state.calendar = {
+    ...state.calendar, ...cal, precision: cal.time ? 'datetime' : 'date', daypart: null, periodIndex: null, heldJump: null,
+  };
+  live.oneShot = '';
+  await commit(state);
+  if (branch) await save();
+  announceRollback(branch ? 'branch' : 'delete');
+  toast('warning', `${word}: дата и время возвращены, а оценки, отношения и лента могли остаться — поправь вручную, если нужно.`);
   setInjects({});
   refreshPanel();
+  return true;
 }
 
 async function handleChatChanged() {
   const epoch = ++live.epoch;
+  for (const c of live.analysisCtl.values()) c.abort();
+  live.analysisCtl.clear();
+  const chatId = currentChatId();
   live.quiet = false;
   live.hookQueue = [];
   live.generating = null;
@@ -2267,9 +2459,12 @@ async function handleChatChanged() {
   await adoptChatPreset();
   if (live.epoch !== epoch) return;
   checkStatePreset();
+  await rewindToChat({ branch: true, chatId, epoch });
+  if (live.epoch !== epoch) return;
   setInjects({ oneShot: armedOneShot() });
   await syncLorebook();
   refreshPanel();
+  renderPanels();
 }
 
 function carryManual(live, before) {
@@ -2399,6 +2594,10 @@ async function autoMolva(mesId, mark) {
   if (!res.ok) console.warn(`[${MODULE}] слухи: ${res.error}`);
 }
 
+const ANALYSIS_TIMEOUT = 120000;
+const SLOW_MS = 25000;
+const ANALYSIS_ATTEMPTS = 2;
+
 function secretaryAuto() {
   try { return storage.loadSettings(ctx()).secretaryAuto !== false; } catch { return false; }
 }
@@ -2408,11 +2607,13 @@ async function autoAnalyze(mesId, mark) {
     const turn = live.turns[live.turns.length - 1];
     return Boolean(turn && turn.mesId === mesId && turn.stamp === mark);
   };
+  let cancelled = false;
   try {
     const res = await analyzeMessage(mesId);
+    cancelled = res.cancelled === true;
     if (res.ok && same()) await saveAnalysis(mesId, { molva: false });
   } finally {
-    if (same()) await autoMolva(mesId, mark);
+    if (same() && !cancelled) await autoMolva(mesId, mark);
   }
 }
 
@@ -2564,7 +2765,7 @@ function macroText() {
   if (live.quiet || !extOn()) return '';
   if (!live.preset || !live.state || !live.state.started) return '';
   try {
-    return buildPrompt(live.state, live.preset, { injects: [], withMarker: false, feed: { quiet: feedMuted() || !plotSettings().background } }).status || '';
+    return wrapTag('academy_scene', buildPrompt(live.state, live.preset, { injects: [], withMarker: false, feed: { quiet: feedMuted() || !plotSettings().background } }).status || '');
   } catch (err) {
     console.error(`[${MODULE}] {{${MACRO}}} не собран:`, err);
     return '';
@@ -2584,6 +2785,8 @@ async function setEnabled(on) {
     writeInjects();
     clearMessagePanels();
     refreshPanel();
+    live.lorebook.suspended = false;
+    await syncLorebook();
   }
   renderPanels();
 }
@@ -3184,7 +3387,7 @@ const host = {
       });
       const op = captureOperation();
       const res = await drawImage(ctx(), settings.draw, prompt, { personId, signal: opts.signal });
-      if (!res.ok) return res;
+      if (!res.ok) return { ...res, error: api.safeReason(res.error, 240) || 'портрет не нарисован' };
       if (!isCurrent(op)) return chatChanged('рисовался портрет');
       return { ok: true, path: res.path, route: res.route };
     },

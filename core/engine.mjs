@@ -101,7 +101,7 @@ function timeSkipOf(state, preset, cue) {
 }
 
 export const TIME_SKIP_PHRASES = {
-  examAhead: 'Промотка времени не может перешагнуть {date}: в этот день — {what}. Останови сцену накануне.',
+  examAhead: 'A time skip cannot cross {date}: that day — {what}. Stop the scene the day before.',
 };
 
 export function timeSkipWarning(state, preset, cue) {
@@ -463,8 +463,11 @@ function calendarEvents(state, preset) {
   if (phaseOf(preset, s, s.calendar.day) === 'exams') {
     const term = examTermIndex(preset, s, s.calendar.day);
     if (!s.exams.active || s.exams.term !== term) {
-      s = scheduleExams(s, preset, { day: s.calendar.day, term });
-      applied.push({ kind: 'exams-scheduled', day: s.calendar.day, term });
+      const sat = scheduleExams(s, preset, { day: s.calendar.day, term });
+      if (sat.exams.active) {
+        s = sat;
+        applied.push({ kind: 'exams-scheduled', day: s.calendar.day, term });
+      }
     }
   }
   const told = announceResults(s, preset, s.calendar.day);
@@ -526,7 +529,7 @@ export function manualTime(state, { day, time, shift, count = false } = {}, pres
     const at = {};
     if (day !== undefined) at.day = day;
     if (time !== undefined) at.time = time;
-    const r = setAbsolute(s, at, 'manual', preset, { force: true });
+    const r = setAbsolute(s, at, 'manual', preset, { force: true, eraOk: true });
     s = r.state;
     reasons.push(r.reason);
     applied = applied || r.applied;

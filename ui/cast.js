@@ -39,7 +39,7 @@ export function castView(state, preset) {
   const threads = live.map((t) => ({
     id: t.id,
     topic: t.topic,
-    want: t.want ? fill(X.mobThreadWant, { text: t.want }) : '',
+    want: t.want ? fill(X.mobThreadWant, { text: String(t.want).replace(/^хотят:\s*(?=.+? хочет:)/u, '') }) : '',
     last: t.last ? fill(X.mobThreadLast, { text: t.last }) : '',
     paused: t.state === 'paused',
     source: (X.mobThreadSource && X.mobThreadSource[t.source]) || '',

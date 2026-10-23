@@ -26,9 +26,9 @@ export function heroGender(state, name = '') {
 }
 
 const WORDS = {
-  f: { hero: 'героиня', heroAcc: 'героиню', heroGen: 'героини', heroDat: 'героине', heroIns: 'героиней',
+  f: { heroEn: 'the heroine', hero: 'героиня', heroAcc: 'героиню', heroGen: 'героини', heroDat: 'героине', heroIns: 'героиней',
     she: 'она', her: 'её', herDat: 'ей', herAcc: 'её', herIns: 'ею', herPrep: 'ней' },
-  m: { hero: 'герой', heroAcc: 'героя', heroGen: 'героя', heroDat: 'герою', heroIns: 'героем',
+  m: { heroEn: 'the hero', hero: 'герой', heroAcc: 'героя', heroGen: 'героя', heroDat: 'герою', heroIns: 'героем',
     she: 'он', her: 'его', herDat: 'ему', herAcc: 'его', herIns: 'им', herPrep: 'нём' },
 };
 

@@ -19,7 +19,7 @@
     "gradebook": "дневник",
     "debt": "долг",
     "debtPlural": "долги",
-    "expelPaths": "остаются обжалование у директора, восстановление через районный отдел образования или перевод в другую школу — что из этого, решает сцена",
+    "expelPaths": "an appeal to the principal, reinstatement through the district education department or transfer to another school remain; the scene decides which",
     "examPeriod": "итоговая неделя",
     "expulsion": "исключение из школы",
     "expelled": {
@@ -28,15 +28,16 @@
     },
     "warning": "вызов к директору и выговор",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали к директору, классный руководитель при завуче сказал — ещё один прогул, и вопрос об исключении или переводе в другую школу вынесут на педсовет. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали к директору, классный руководитель при завуче сказал — ещё один прогул, и вопрос об исключении или переводе в другую школу вынесут на педсовет. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the principal, the homeroom teacher said in the vice principal's presence — one more truancy, and the question of expulsion or transfer to another school goes to the teachers' council. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the principal, the homeroom teacher said in the vice principal's presence — one more truancy, and the question of expulsion or transfer to another school goes to the teachers' council. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: педсовет принял решение, приказ подписан, она больше не ученица этой школы — исключена или переведена. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: педсовет принял решение, приказ подписан, он больше не ученик этой школы — исключён или переведён. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the teachers' council has decided, the order is signed, she is no longer a pupil of this school — expelled or transferred. Play out the consequences in the next reply.",
+      "male": "It has already happened: the teachers' council has decided, the order is signed, he is no longer a pupil of this school — expelled or transferred. Play out the consequences in the next reply."
     },
     "score": "средний балл",
     "crowdIn": "в классе",
+    "crowdInEn": "the class",
     "someone": "кто-то из класса"
   },
   "week": {
@@ -213,7 +214,8 @@
       "id": "maslenitsa",
       "name": "Масленица",
       "from": "03-09",
-      "to": "03-15",
+      "easter": -55,
+      "days": 7,
       "lead": 3,
       "about": "блины в столовой, чучело на школьном дворе, игры на улице",
       "buzz": "в столовой пахнет блинами, на дворе мастерят чучело",
@@ -229,6 +231,18 @@
       "buzz": "класс шушукается о розыгрышах, у учителей настороженные лица",
       "buzzNear": "розыгрыши готовят с вечера, стулья проверяют на сюрпризы, учителя ходят настороженные",
       "today": "в классе розыгрыши, учителя подозрительно оглядывают стулья"
+    },
+    {
+      "id": "easter",
+      "name": "Пасха",
+      "from": "04-20",
+      "easter": 0,
+      "days": 1,
+      "lead": 3,
+      "about": "воскресный праздник: куличи и крашеные яйца дома, а в понедельник кто-то приносит яйца в класс и бьются ими на перемене",
+      "buzz": "в классе спорят, у кого яйца крепче, кто-то обещает принести кулич",
+      "buzzNear": "в рюкзаках крашеные яйца, на переменах устраивают битвы яйцами",
+      "today": "воскресенье: куличи и крашеные яйца дома, в чате класса хвастаются, у кого яйцо крепче"
     },
     {
       "id": "health-day",
@@ -819,16 +833,21 @@
       }
     },
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без работы, освобождение от работы — от {teacher}. Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": "Свершилось: {subject} — {value} ({teacher}). Назначена пересдача, попыток осталось: {left}. Отыграй это как уже случившееся.",
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Пересдача провалена, {debt} идёт в дневник. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, освобождение от работы возможно. Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, освобождения нет; {teacher} пишет работу со всем классом. Блестящую сдачу без испытания отыгрывать запрещено.",
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, дело идёт к долгу; {teacher} вправе назначить пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
+      "auto": "Already happened: {subject} — {value}, no test, waived by {teacher}. Play it as past.",
+      "failed": "Already happened: {subject} — {value} ({teacher}). Retake assigned, attempts left: {left}. Play it as past.",
+      "exhausted": "Already happened: {subject} — {value} ({teacher}). Retake failed, a debt goes into the diary. Play it as past.",
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, a waiver of the test is possible. Do not play out a failure from nowhere.",
+      "permissionNoAuto": "{examPeriod}: {subject} — average grade {score}, no waiver; {teacher} gives the test to the whole class. Do not play out a brilliant pass without a trial.",
+      "permissionRisk": "{examPeriod}: {subject} — average grade {score}, heading for a debt; {teacher} may assign a retake. Do not play out a success, the system decides it.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} прошла: {subject} — {kind} не сдавалась, {debt} идёт в дневник."
+      "missed": "{examPeriod} прошла: {subject} — {kind} не сдавалась, {debt} идёт в дневник.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без работы, освобождение от работы — от {teacher}. Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": "Свершилось: {subject} — {value} ({teacher}). Назначена пересдача, попыток осталось: {left}. Отыграй это как уже случившееся.",
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Пересдача провалена, {debt} идёт в дневник. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -871,40 +890,17 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "каникулы",
-      "break": "между четвертями",
+      "weekend": "weekend",
+      "vacation": "vacation",
+      "break": "between quarters",
       "exams": "",
-      "preExams": "неделя перед итоговой"
+      "preExams": "неделя перед итоговой",
+      "preExamsEn": "the week before the finals"
     },
-    "day": "{weekday}, {week}-я неделя четверти",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя четверти, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the quarter",
+    "dayPhase": "{weekday}, week {week} of the quarter, {phase}"
   },
   "prompts": {
     "plan": {

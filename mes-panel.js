@@ -1,5 +1,6 @@
 import { svgIcon } from './ui/common.js';
 import { plural } from './core/plural.mjs';
+import { relPhrase } from './core/scene.mjs';
 import { TAVERN_ID } from './materials/index.mjs';
 
 const DEFAULT_MAT = TAVERN_ID;
@@ -8,16 +9,31 @@ export const PANEL_TEXT = {
   analyze: 'Разобрать',
   reanalyze: 'Разобрать заново',
   analyzing: 'Секретарь читает ответ…',
-  undoAll: 'Отменить сохранение',
-  undoReply: 'Отменить ответ',
-  undoReplyHint: 'Вернуть состояние Академии к тому, что было до этого ответа. Заметки, роли и настройки не трогаются.',
-  undoAllHint: 'Вернуть предыдущий сохранённый разбор этого ответа. Если его не было — снять выводы секретаря.',
+  retrying: 'Секретарь не ответил по делу — пробую ещё раз ({n}/{max})…',
+  cancel: 'Отменить',
+  cancelled: 'Разбор отменён.',
+  cancelledTavern: 'Разбор отменён. Если запрос ушёл через подключение таверны, модель может дописать его до конца, но ответ будет отброшен.',
+  failCut: 'Секретарь не договорил: ответ оборвался раньше метки. Нажмите «Разобрать заново».',
+  failRefused: 'Секретарь ответил не так, как нужно. Нажмите «Разобрать заново».',
+  failRefusedMany: 'Секретарь два раза подряд отказался разбирать этот ответ или ответил не по форме (попыток: {n}). Нажмите «Разобрать заново» или попробуйте позже.',
+  slow: 'Секретарь ждёт ответа модели дольше обычного — запрос мог встать в очередь. Можно отменить и разобрать позже.',
+  afterMolva: 'Секретарь читает ответ… (слухи ещё пишутся, запрос может ждать своей очереди)',
+  saving: 'Записываю разбор…',
+  waitGen: 'Секретарь начнёт, когда закончится генерация.',
+  waitStart: 'Секретарь вот-вот начнёт читать этот ответ.',
+  waitLost: 'Автоматический разбор не дошёл до конца. Нажмите «Разобрать».',
+  undoAll: 'Снять разбор секретаря',
+  undoReply: 'Откатить ход целиком',
+  helpTitle: 'Что делают кнопки',
+  undoReplyHint: 'Откатывает дату, время и всё, что Академия посчитала по этому ответу. Сам текст остаётся; заметки, роли и настройки не трогаются.',
+  undoAllHint: 'Снимает только разбор секретаря по этому ответу (оценки, отношения, слухи). Дата и время хода остаются.',
   draft: 'Черновик — ещё не сохранён',
   save: 'Сохранить',
   discard: 'Не сохранять',
   drop: 'Вычеркнуть',
   nothing: 'без перемен',
-  jumpHeld: 'время прыгнуло — принять или оставить как было? Кнопки на «Сегодня»',
+  jumpHeld: 'скачок времени ждёт решения',
+  jumpAsk: 'Скачок времени {waiting}. Решите здесь или во вкладке «{tab}».',
   notAnalyzed: 'не разобрано',
   analyzed: 'разобрано',
   correction: 'поправка',
@@ -95,10 +111,12 @@ export function rowText(row, words = {}) {
     case 'attendance-jump':
       return row.missed ? fillText(W.rowJump, { count: row.missed }) : '';
     case 'relation': {
-      const how = row.changed ? `${row.from} → ${row.to}` : (row.direction === 'up' ? 'теплее' : row.direction === 'down' ? 'холоднее' : '');
-      if (!how) return '';
+      const up = row.direction === 'up';
+      if (row.direction !== 'up' && row.direction !== 'down') return row.changed ? `${row.teacher}: ${row.from} → ${row.to}` : '';
+      const now = row.changed && row.to ? ` (теперь ${row.to})` : '';
       const cap = row.capped ? ` ${fillText(W.rowRelCappedStep, { pace: row.capped })}` : '';
-      return `${row.teacher}: ${how}${row.reason ? ` — ${row.reason}` : ''}${cap}`;
+      const head = relPhrase(row.teacher, up);
+      return `${head}${now}${row.reason ? `${head.includes(': ') ? ' —' : ':'} ${row.reason}` : ''}${cap}`;
     }
     case 'relation-capped':
       return fillText(W.rowRelCapped, { teacher: row.teacher, how: row.direction === 'down' ? 'холоднее' : 'теплее', pace: row.pace });
@@ -170,7 +188,7 @@ export function summaryParts(view) {
   lines.splice(0, lines.length, ...mergeNewFaces(lines));
   const head = lines.slice(0, 2).map(briefLine);
   const rest = lines.length - head.length;
-  const quiet = view.heldJump ? PANEL_TEXT.jumpHeld : PANEL_TEXT.nothing;
+  const quiet = view.heldJump && !view.waiting ? PANEL_TEXT.jumpHeld : PANEL_TEXT.nothing;
   const empty = view.analyzed ? quiet : PANEL_TEXT.notAnalyzed;
   if (!when && !lines.length) return { what: empty, when };
   const what = lines.length
@@ -188,6 +206,7 @@ const PANEL_CLASS = 'ad-mpanel';
 
 const open = new Set();
 const saved = new Set();
+const jumpErrors = new Map();
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -272,7 +291,7 @@ function place(mes, panel) {
 }
 
 function buildPanel(host, mesId, view, look) {
-  const isOpen = open.has(mesId) || Boolean(view.draft) || Boolean(view.error) || Boolean(view.invite) || Boolean(view.promises && view.promises.length) || Boolean(view.decisions && view.decisions.length);
+  const isOpen = open.has(mesId) || Boolean(view.draft) || Boolean(view.error) || Boolean(view.invite) || Boolean(view.jumpAsk) || Boolean(view.promises && view.promises.length) || Boolean(view.decisions && view.decisions.length);
   if (view.draft || view.error) open.add(mesId);
   const busy = Boolean(view.busy);
   const content = el('div', { class: 'ad-mp-body' });
@@ -313,10 +332,16 @@ function buildPanel(host, mesId, view, look) {
   }, [
     el('span', { class: 'ad-mp-st', title: stateTitle }, [icon(stateKind)]),
     el('span', { class: 'ad-mp-sum', title: [parts.what, parts.when].filter(Boolean).join(' · ') }, [
-      busy ? PANEL_TEXT.analyzing : parts.what,
+      busy ? (view.progress || PANEL_TEXT.analyzing) : (view.error || view.cancelled || view.wait || parts.what),
     ]),
     el('span', { class: 'ad-mp-chev', 'aria-hidden': 'true' }, [icon('chev')]),
-    el('button', {
+    busy && view.cancellable && host.cancelAnalysis ? el('button', {
+      type: 'button',
+      class: 'ad-mp-go ad-mp-cancel',
+      title: PANEL_TEXT.cancel,
+      'aria-label': PANEL_TEXT.cancel,
+      onclick: (e) => { e.stopPropagation(); run(host.cancelAnalysis(mesId)); },
+    }, [icon('x'), el('span', { text: PANEL_TEXT.cancel })]) : el('button', {
       type: 'button',
       class: 'ad-mp-go',
       title: analyzedNow ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
@@ -405,6 +430,24 @@ function buildPanel(host, mesId, view, look) {
       ])]),
     ]));
   }
+  if (view.jumpAsk && host.resolveJump) {
+    const ask = (accept) => run(Promise.resolve(host.resolveJump(accept)).then((res) => {
+      if (res && res.ok === false && res.error) {
+        jumpErrors.set(mesId, res.error);
+        open.add(mesId);
+      } else jumpErrors.delete(mesId);
+      renderMessagePanels(host);
+    }));
+    content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
+      el('ul', {}, [el('li', { class: 'ad-mp-ask' }, [
+        el('span', { class: 'ad-t', text: view.jumpAsk.text }),
+        el('div', { class: 'ad-mp-ask-btns' }, [
+          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask(true) }, [el('span', { text: view.jumpAsk.go })]),
+          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask(false) }, [el('span', { text: view.jumpAsk.decline })]),
+        ]),
+      ])]),
+    ]));
+  }
   if (view.promises && view.promises.length && host.answerPromise) {
     content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
       el('ul', {}, view.promises.map((q) => el('li', { class: 'ad-mp-ask' }, [
@@ -476,11 +519,15 @@ function buildPanel(host, mesId, view, look) {
   if (view.uncounted) content.append(el('p', { class: 'ad-mp-note', text: PANEL_TEXT.uncounted }));
   else if (!justSaved) content.append(el('p', { class: 'ad-mp-note', text: view.live ? PANEL_TEXT.liveNote : PANEL_TEXT.correctionNote }));
 
-  if (view.error) content.append(el('p', { class: 'ad-mp-error', text: view.error }));
+  const problem = view.error || (view.jumpAsk && jumpErrors.get(mesId)) || '';
+  if (problem) content.append(el('p', { class: 'ad-mp-error', text: problem }));
+  if (view.cancelled) content.append(el('p', { class: 'ad-mp-note', text: view.cancelled }));
   if (justSaved) {
     content.append(el('p', { class: 'ad-mp-note ad-mp-saved' }, [icon('tick'), el('span', { text: PANEL_TEXT.saved })]));
   }
 
+  const showUndoAll = view.analyzed && !view.draft;
+  const showUndoReply = Boolean(view.canUndo && host.undoReply);
   const buttons = [
     view.draft ? el('button', {
       type: 'button', class: 'ad-mp-btn ad-main', disabled: busy,
@@ -496,7 +543,7 @@ function buildPanel(host, mesId, view, look) {
       type: 'button', class: 'ad-mp-btn', disabled: busy,
       onclick: () => { saved.delete(mesId); run(host.discardAnalysis(mesId)); },
     }, [PANEL_TEXT.discard]) : null,
-    view.analyzed && !view.draft
+    showUndoAll
       ? el('button', {
         type: 'button',
         class: 'ad-mp-btn',
@@ -505,16 +552,24 @@ function buildPanel(host, mesId, view, look) {
         onclick: () => { saved.delete(mesId); run(host.clearAnalysis(mesId)); },
       }, [PANEL_TEXT.undoAll])
       : null,
-    view.canUndo && host.undoReply
+    showUndoReply
       ? el('button', {
         type: 'button', class: 'ad-mp-btn', title: PANEL_TEXT.undoReplyHint, disabled: busy,
         onclick: () => run(host.undoReply()),
       }, [PANEL_TEXT.undoReply])
       : null,
   ].filter(Boolean);
-  if (buttons.length) footer.append(el('div', { class: 'ad-mp-btns' }, buttons));
-  else footer.hidden = true;
-  if (view.analyzed) content.append(el('p', { class: 'ad-mp-note', text: PANEL_TEXT.undoAllHint }));
+  if (buttons.length) {
+    footer.append(el('div', { class: 'ad-mp-btns' }, buttons));
+    const help = [
+      showUndoAll ? `${PANEL_TEXT.undoAll}: ${PANEL_TEXT.undoAllHint}` : null,
+      showUndoReply ? `${PANEL_TEXT.undoReply}: ${PANEL_TEXT.undoReplyHint}` : null,
+    ].filter(Boolean);
+    if (help.length) footer.append(el('details', { class: 'ad-mp-help' }, [
+      el('summary', { text: PANEL_TEXT.helpTitle }),
+      ...help.map((text) => el('p', { class: 'ad-mp-note', text })),
+    ]));
+  } else footer.hidden = true;
 
   const state = view.draft ? 'ad-draftp' : view.analyzed ? 'ad-done' : 'ad-undone';
   const mat = look && look.mat ? look.mat : DEFAULT_MAT;

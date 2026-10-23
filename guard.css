@@ -46,7 +46,7 @@
   .academy-portrait-frame { color: var(--academy-ink) !important; background-color: var(--academy-bg) !important; border: 1px solid var(--academy-line) !important; }
   .academy-doctor-ours { border-left: 2px solid var(--academy-accent) !important; }
   .academy-doctor-start { border-left: 2px solid var(--warning, rgba(255, 0, 0, 0.9)) !important; }
-  .academy-doctor-key { color: var(--academy-dim) !important; }
+  .academy-doctor-key { color: #e8e4d4 !important; background: #2a2d26 !important; }
   .academy-doctor-hint { color: var(--academy-dim) !important; }
   @media (max-width: 600px) {
     .academy-panel { border-left: none !important; border-right: none !important; border-top: none !important; }
@@ -72,7 +72,7 @@
   .academy-panel .academy-section-title:hover, .academy-ext-block .academy-section-title:hover { background: var(--ac-surface) !important; }
   .academy-panel .academy-section[open] > .academy-section-title, .academy-ext-block .academy-section[open] > .academy-section-title { border-bottom: 1px solid var(--ac-line) !important; }
   .academy-section-icon { color: var(--academy-accent) !important; }
-  .academy-section-chevron { color: var(--ac-mute) !important; }
+  .academy-section-title .academy-section-chevron { color: var(--ac-mute) !important; }
   .academy-panel .academy-btn-main, .academy-ext-block .academy-btn-main { color: var(--academy-ink) !important; border-color: var(--academy-accent) !important; background: color-mix(in srgb, var(--academy-accent) 18%, transparent) !important; }
   .academy-panel .academy-btn-main:hover, .academy-ext-block .academy-btn-main:hover { background: color-mix(in srgb, var(--academy-accent) 28%, transparent) !important; }
   .academy-panel .academy-input:focus { border-color: var(--academy-accent) !important; outline: none !important; }
@@ -137,10 +137,13 @@
   :is(.ad-diary, .ad-mat-scope) select, :is(.ad-diary, .ad-mat-scope) textarea { background-color: var(--ad-field) !important; color: var(--ad-ink) !important; border-color: var(--ad-field-line) !important; }
   :is(.ad-diary, .ad-mat-scope) select option:not([hidden]) { background-color: var(--ad-field) !important; color: var(--ad-ink) !important; }
   :is(.ad-diary, .ad-mat-scope) input::placeholder, :is(.ad-diary, .ad-mat-scope) textarea::placeholder { color: color-mix(in srgb, var(--ad-ink) 45%, transparent) !important; }
-  :is(.ad-diary, .ad-mat-scope) input:is([type=checkbox], [type=radio]) { appearance: auto !important; background-color: transparent !important; border-color: var(--ad-field-line) !important; accent-color: var(--ad-pen) !important; }
+  :is(.ad-diary, .ad-mat-scope) input[type=radio] { appearance: auto !important; background-color: transparent !important; border-color: var(--ad-field-line) !important; accent-color: var(--ad-pen) !important; }
+  :is(.ad-diary, .ad-mat-scope) input[type=checkbox] { appearance: none !important; border: 1.5px solid var(--ad-field-line) !important; background-color: var(--ad-field) !important; box-shadow: none !important; }
+  :is(.ad-diary, .ad-mat-scope) input[type=checkbox]:checked { background-color: var(--ad-pen) !important; border-color: var(--ad-pen) !important; }
+  :is(.ad-diary, .ad-mat-scope) input[type=checkbox]:checked::after { border: solid var(--ad-field) !important; border-width: 0 2px 2px 0 !important; background: none !important; }
   :is(.ad-diary, .ad-mat-scope) input[type=file] { color: var(--ad-ink) !important; background-color: transparent !important; border: 0 none !important; }
   :is(.ad-diary, .ad-mat-scope) :where(.fa-solid, .fa-regular, .fa-fw, .fa-xs) { color: inherit !important; }
-  .ad-diary { background: var(--ad-cover) !important; border: var(--ad-case-border, 0 solid transparent) !important; box-shadow: var(--ad-shadow-surface), var(--ad-case-glow, 0 0 0 0 transparent) !important; color: var(--ad-ink) !important; }
+  .ad-diary { background: var(--ad-cover) !important; background-image: var(--ad-cover-img, none) !important; border: var(--ad-case-border, 0 solid transparent) !important; box-shadow: var(--ad-shadow-surface), var(--ad-case-glow, 0 0 0 0 transparent) !important; color: var(--ad-ink) !important; }
   .ad-diary::before { background: var(--ad-cover-edge) !important; }
   .ad-head { color: var(--ad-head-ink, var(--ad-tab-on)) !important; }
   .ad-e1 { fill: var(--ad-emb-fg) !important; }
@@ -363,7 +366,7 @@
   .ad-emb svg { background: var(--ad-cover) !important; }
   .ad-preview-strip { background: var(--ad-cover) !important; color: var(--ad-head-ink, var(--ad-tab-on)) !important; }
   .ad-tabs::before { background: var(--ad-burn-img, none) center / 100% 100% no-repeat !important; }
-  .ad-tabs { background: var(--ad-cover) !important; }
+  .ad-tabs { background: var(--ad-cover) !important; background-image: var(--ad-cover-img, none) !important; }
   .ad-tab { border: 0 !important; background: var(--ad-tab) !important; color: var(--ad-tab-ink) !important; }
   .ad-tab[aria-current="page"] { background: var(--ad-tab-on) !important; color: var(--ad-tab-on-ink, var(--ad-ink)) !important; box-shadow: inset 0 -3px 0 var(--ad-tab-on-line) !important; }
   .ad-mpanel { color: var(--ad-ink) !important; background: var(--ad-page) !important; }
@@ -382,6 +385,7 @@
   .ad-mpanel .ad-mp-about { color: var(--ad-mp-soft) !important; }
   .ad-mpanel .ad-mp-nick { color: var(--ad-mp-soft) !important; }
   .ad-mpanel .ad-mp-note { color: var(--ad-mp-soft) !important; }
+  .ad-mpanel .ad-mp-help summary { color: var(--ad-mp-soft) !important; }
   .ad-mpanel .ad-mp-unparsed { border-left: 3px solid var(--ad-today) !important; background: var(--ad-now-bg) !important; }
   .ad-mpanel .ad-mp-btn { border: 1px solid var(--ad-mp-line) !important; background: transparent !important; color: var(--ad-mp-ink) !important; }
   .ad-mpanel .ad-mp-btn.ad-main { background: var(--ad-mp-accent) !important; color: var(--ad-page) !important; border-color: var(--ad-mp-accent) !important; }

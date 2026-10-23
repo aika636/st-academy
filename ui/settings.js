@@ -206,10 +206,10 @@ export function settingsView(state, settings, preset, extra = {}) {
     mode: TIME_MODES.some((m) => m.id === s.mode) ? s.mode : 'auto',
     modes: TIME_MODES.map((m) => ({ ...m, active: m.id === (s.mode || 'auto') })),
     secretaryAuto: s.secretaryAuto !== false,
-    examRules: state
+    examRules: started
       ? EXAM_RULE_VIEW.map((r) => ({ ...r, hint: r.id === 'story' ? U.examRuleStoryHint : r.hint, active: r.id === examRule(state) }))
       : [],
-    paces: state ? PACES.map((id) => ({ id, label: PACE_WORDS[id], hint: PACE_HINTS[id], active: id === paceOf(state) })) : [],
+    paces: started ? PACES.map((id) => ({ id, label: PACE_WORDS[id], hint: PACE_HINTS[id], active: id === paceOf(state) })) : [],
     bullying: state ? { ...bullyingView(state, preset), status: pickStatusWords(state) } : null,
     injectMarker: s.mode === 'context' ? false : s.injectMarker !== false,
     injectMarkerLocked: s.mode === 'context',

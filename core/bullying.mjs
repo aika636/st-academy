@@ -147,6 +147,44 @@ export const BULLY_PHRASES = {
   },
 };
 
+export const BULLY_PHRASES_EN = {
+  pressureHook: {
+    0: 'The pressure is light: mockery, a nickname, whispering behind the back.',
+    1: 'The pressure is open: rudeness and insults to the face, a boycott, being pushed out of the group.',
+    2: 'The pressure is serious: spoiling or stealing belongings, a frame-up in front of a mentor, public humiliation, a rumor, harassment in messages.',
+    3: 'The pressure is physical: shoves, tripping, cornering, locking in, taking a thing by force.',
+    4: 'The heaviest pressure: for one character a beating, for another a frame-up threatening expulsion; pick what suits the instigator.',
+  },
+  attemptHook: 'Today {by} will try to pressure {heroName}. {pressure}',
+  attemptHookEx: 'Today {by} will try to pressure {heroName}. {pressure} For the spirit, not verbatim: «{act}»',
+  hook: "Required in this reply (a director's note, do not quote it). {attempt}{motive}{methods}{limits}{response}{revenge}{avoid}{fresh}{crew} Choose the form yourself, by place and by who is nearby. Show the attempt directly and in detail, not in one summary line: in the scene if {by} and {heroName} are together, otherwise as a short episode, a message or witnesses' account. If the instigator cannot be around right now (punishment, infirmary, away), let the followers do it or let it happen later. Circumstances, others' intervention and {heroName}'s response decide whether it succeeds; leave {heroName}'s words and decisions to the player.{trace}{extra}",
+  motive: ' Motive: {motive}.',
+  methods: ' Methods (pick a fitting one, not all at once): {methods}.',
+  limits: ' Will not do: {limits}.',
+  avoid: ' Do not repeat past acts: {avoid}.',
+  fresh: ' {by} is a new person for {heroName}: introduce as a stranger, not an old acquaintance.',
+  crew: " Followers ({crew}) and nameless friends of the instigator may act on a cue.",
+  crewNone: ' Followers and nameless friends of the instigator may act on a cue.',
+  trace: ' Consequences of past acts remain and are remembered: {trace}.',
+  hidden: " It all happens quietly, out of the adults' sight.",
+  afterPeace: ' The truce does not count: {by} goes back to the old ways.',
+  response: ' The first push-back does not stop it: {by} goes on in the same style{style}. {by} backs off only under force of circumstance: lost the clash, feared the consequences, others stepped in.',
+  revenge: " After {heroName}'s revenge this attempt is no weaker than the previous heat, in {by}'s style.",
+  taboo: ' Do not use: {taboo}.',
+  status: {
+    0: '{by} picks on {heroName}: nicknames, mockery behind the back',
+    1: '{by} bullies {heroName}: insults, boycott',
+    2: '{by} bullies {heroName} seriously: spoils belongings, frames, spreads rumors',
+    3: '{by} bullies {heroName} physically: shoves, tripping, locked doors, things taken by force',
+    4: '{by} beats {heroName} and frames for expulsion',
+  },
+  statusCrew: 'backed by {crew}',
+  statusAlly: '{ally} stands up for {heroName}',
+  statusTrace: 'still visible: {trace}',
+  statusHidden: "now done quietly, out of the adults' sight",
+  statusTruce: 'a lull after the truce',
+};
+
 export const BULLY_MOVE_WORDS = {
   f: {
     fightback: '{hero} дала отпор: {by}', ignore: '{hero} сделала вид, что не замечает травли', complain: '{hero} пожаловалась наставнику',
@@ -179,11 +217,11 @@ export const BULLY_HEAT_HELP = [
 ];
 
 export const BULLY_LEVEL_HINTS = [
-  '0 — прозвище, насмешки за спиной, смешки при ответе',
-  '1 — оскорбления в лицо, бойкот, «место занято», вышвырнули из чата',
-  '2 — испорченные или украденные вещи, подстава перед наставником, публичное унижение, грязный слух, травля в переписке',
-  '3 — толчки, подножки, зажали в углу, заперли, отобрали вещь силой',
-  '4 — избиение, серьёзная подстава с угрозой отчисления',
+  '0 — nickname, mockery behind the back, snickering at an answer',
+  '1 — insults to the face, boycott, "the seat is taken", kicked out of a chat',
+  '2 — spoiled or stolen belongings, framing in front of a teacher, public humiliation, a dirty rumor, bullying in messages',
+  '3 — shoves, tripping, cornering, locking in, taking a thing by force',
+  '4 — a beating, a serious frame-up threatening expulsion',
 ];
 
 const fill = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => (k in v ? String(v[k]) : m));
@@ -211,7 +249,7 @@ const nameOf = (state, id) => { const p = personById(state, id); return p ? shor
 function varsOf(state, opts = {}, extra = {}) {
   const W = heroWords(heroGender(state, opts.heroine));
   return {
-    hero: String(opts.heroine || '').trim() || W.hero, heroNom: W.hero, heroAcc: W.heroAcc, heroDat: W.heroDat, heroGen: W.heroGen, heroIns: W.heroIns, her: W.her,
+    hero: String(opts.heroine || '').trim() || W.hero, heroName: String(opts.heroine || '').trim() || W.heroEn, heroNom: W.hero, heroAcc: W.heroAcc, heroDat: W.heroDat, heroGen: W.heroGen, heroIns: W.heroIns, her: W.her,
     ...extra,
   };
 }
@@ -467,32 +505,37 @@ export function bullyHookWords(state, preset, opts = {}) {
   if (!p) return null;
   const P = phrasesOf(preset);
   const v = varsOf(state, opts, { by: nameOf(state, p.by) });
-  const pressure = (P.pressure && P.pressure[p.level]) || '';
-  const attempt = p.att ? trim(fill(p.text, v)) : trim(fill(P.attemptEx, { ...v, pressure, act: trim(fill(p.text, v)) }));
   const pick = b.pick && b.pick.id === p.by ? b.pick : null;
   const names = namesOf(state, p.by);
   const avoid = [...new Set(b.acts.slice(-3).map((a) => clauseOf(fill(a.text, v), names).slice(0, 90)).filter(Boolean))];
   const list = (xs) => xs.map(trim).filter(Boolean).join('; ');
   const crew = p.crew.map((id) => nameOf(state, id));
-  const extra = (p.hidden ? P.hidden : '') + (p.afterPeace ? fill(P.afterPeace, v) : '');
   const style = pick && pick.responseStyle ? `: ${trim(pick.responseStyle)}` : '';
-  const taboo = b.taboo ? fill(P.taboo, { taboo: trim(b.taboo) }) : '';
-  const body = fill(P.hook, {
-    ...v, attempt: `${attempt}.`,
-    motive: pick ? fill(P.motive, { motive: trim(pick.motive) }) : '',
-    methods: pick && pick.methods.length ? fill(P.methods, { methods: list(pick.methods) }) : '',
-    limits: pick && pick.limits.length ? fill(P.limits, { limits: list(pick.limits) }) : '',
-    response: fill(P.response, { ...v, style }),
-    revenge: p.rev ? fill(P.revenge, v) : '',
-    avoid: avoid.length ? fill(P.avoid, { avoid: avoid.join('; ') }) : '',
-    fresh: pick && pick.fresh ? fill(P.fresh, v) : '',
-    crew: crew.length ? fill(P.crew, { ...v, crew: crew.join(', ') }) : fill(P.crewNone, v),
-    trace: p.trace ? fill(P.trace, { trace: p.trace }) : '', extra,
-  }).replace(/\s+/g, ' ').trim();
-  const text = body.slice(0, Math.max(0, HOOK_MAX - taboo.length)).trim() + taboo;
+  const compose = (L, attempt) => {
+    const taboo = b.taboo ? fill(L.taboo, { taboo: trim(b.taboo) }) : '';
+    const body = fill(L.hook, {
+      ...v, attempt: `${attempt}.`,
+      motive: pick ? fill(L.motive, { motive: trim(pick.motive) }) : '',
+      methods: pick && pick.methods.length ? fill(L.methods, { methods: list(pick.methods) }) : '',
+      limits: pick && pick.limits.length ? fill(L.limits, { limits: list(pick.limits) }) : '',
+      response: fill(L.response, { ...v, style }),
+      revenge: p.rev ? fill(L.revenge, v) : '',
+      avoid: avoid.length ? fill(L.avoid, { avoid: avoid.join('; ') }) : '',
+      fresh: pick && pick.fresh ? fill(L.fresh, v) : '',
+      crew: crew.length ? fill(L.crew, { ...v, crew: crew.join(', ') }) : fill(L.crewNone, v),
+      trace: p.trace ? fill(L.trace, { trace: p.trace }) : '',
+      extra: (p.hidden ? L.hidden : '') + (p.afterPeace ? fill(L.afterPeace, v) : ''),
+    }).replace(/\s+/g, ' ').trim();
+    return body.slice(0, Math.max(0, HOOK_MAX - taboo.length)).trim() + taboo;
+  };
+  const example = p.att ? p.act : trim(fill(p.text, v));
+  const E = BULLY_PHRASES_EN;
+  const attemptRu = p.att ? trim(fill(p.text, v)) : trim(fill(P.attemptEx, { ...v, pressure: (P.pressure && P.pressure[p.level]) || '', act: example }));
+  const attemptEn = trim(fill(example ? E.attemptHookEx : E.attemptHook, { ...v, pressure: E.pressureHook[p.level] || '', act: example }));
   return {
     core: fill(P.core, { ...v, act: tryWord(preset, p.level) }).slice(0, 320),
-    text,
+    text: compose(P, attemptRu),
+    en: compose(E, attemptEn),
     plate: fill(P.plate, { ...v, act: tryWord(preset, p.level) }).slice(0, 320),
   };
 }
@@ -821,11 +864,11 @@ export function bullyStatus(state, preset, opts = {}) {
   const b = bullyingOf(state);
   const day = state && state.calendar && state.calendar.day;
   if (!b.on || !b.lead || !(b.acts.length || b.pending)) return '';
-  const P = phrasesOf(preset);
+  const P = BULLY_PHRASES_EN;
   const v = varsOf(state, opts, { by: nameOf(state, b.lead) });
   const parts = [fill(P.status[Math.min(b.heat, 4)] || P.status[0], v)];
   const crew = b.crew.filter((id) => personById(state, id)).map((id) => nameOf(state, id));
-  if (crew.length) parts.push(fill(P.statusCrew, { crew: crew.join(' и ') }));
+  if (crew.length) parts.push(fill(P.statusCrew, { crew: crew.join(', ') }));
   if (b.ally && personById(state, b.ally)) parts.push(fill(P.statusAlly, { ...v, ally: nameOf(state, b.ally) }));
   if (b.hidden && day && day <= b.hidden) parts.push(P.statusHidden);
   if (b.truce && day && day <= b.truce) parts.push(P.statusTruce);

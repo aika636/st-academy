@@ -19,7 +19,7 @@
     "gradebook": "геройское досье",
     "debt": "незачёт",
     "debtPlural": "незачёты",
-    "expelPaths": "остаются апелляция в комиссию, восстановление по особому разрешению или перевод в другую академию — что из этого, решает сцена",
+    "expelPaths": "an appeal to the commission, reinstatement by special permission or transfer to another academy remain; the scene decides which",
     "examPeriod": "аттестация",
     "expulsion": "лишение права на геройскую лицензию",
     "expelled": {
@@ -28,15 +28,16 @@
     },
     "warning": "дисциплинарное взыскание и отстранение от полевых выходов",
     "warnInject": {
-      "female": "Это уже случилось: на неё наложено дисциплинарное взыскание, она отстранена от полевых выходов, и совет наставников предупредил — следующий серьёзный проступок означает лишение права на геройскую лицензию. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: на него наложено дисциплинарное взыскание, он отстранён от полевых выходов, и совет наставников предупредил — следующий серьёзный проступок означает лишение права на геройскую лицензию. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: a disciplinary penalty is imposed on her, she is suspended from field outings, and the council of mentors warned that the next serious offense means losing the right to a hero license. Play out the consequences in the next reply.",
+      "male": "It has already happened: a disciplinary penalty is imposed on him, he is suspended from field outings, and the council of mentors warned that the next serious offense means losing the right to a hero license. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: совет наставников лишил её права на геройскую лицензию, способность запечатана в личном деле, пропуск в академию аннулирован. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: совет наставников лишил его права на геройскую лицензию, способность запечатана в личном деле, пропуск в академию аннулирован. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the council of mentors stripped her of the right to a hero license, the quirk is sealed in the personal file, the academy pass is annulled. Play out the consequences in the next reply.",
+      "male": "It has already happened: the council of mentors stripped him of the right to a hero license, the quirk is sealed in the personal file, the academy pass is annulled. Play out the consequences in the next reply."
     },
     "score": "геройский рейтинг",
     "crowdIn": "в классе",
+    "crowdInEn": "the class",
     "someone": "кто-то из класса"
   },
   "week": {
@@ -727,19 +728,19 @@
   },
   "phrases": {
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без экзамена ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": {
-        "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
-        "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
-      },
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} возможен. Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} невозможен; {teacher} принимает на общих основаниях. Блестящую сдачу без испытания отыгрывать запрещено.",
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
+      "auto": "Already happened: {subject} — {value}, no exam ({teacher}). Play it as past.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся."
+      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без экзамена ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": {
+          "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+          "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
+        },
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -782,40 +783,15 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "каникулы",
-      "break": "каникулы",
+      "weekend": "weekend",
+      "vacation": "vacation",
+      "break": "vacation",
       "exams": "",
-      "preExams": "подготовка к аттестации"
-    },
-    "day": "{weekday}, {week}-я неделя",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+      "preExams": "подготовка к аттестации",
+      "preExamsEn": "preparation for the certification"
+    }
   },
   "prompts": {
     "plan": {

@@ -9,7 +9,7 @@ import {
 } from './common.js';
 import { feedView } from './feed.js';
 import { openExamList } from './gradebook.js';
-import { activePause } from '../core/holidays.mjs';
+import { activePause, eventsOf } from '../core/holidays.mjs';
 import { bullyToday } from '../core/bullying.mjs';
 import { holidaysView, ownEventsView, ownEventsBlock, pauseView, pauseBlock } from './holidays.js';
 
@@ -94,7 +94,8 @@ export function todayView(state, preset, opts = {}) {
   let silent = false;
   let silentReason = '';
   const pause = phase === 'vacation' ? activePause(state, cal.day) : null;
-  const pauseName = pause ? (String(pause.name || '').trim() || extraLabels(preset).pauseTitle) : '';
+  const dayOff = phase === 'vacation' && !pause ? eventsOf(state).find((e) => e.off && !e.pause && e.from <= cal.day && e.to >= cal.day) : null;
+  const pauseName = pause ? (String(pause.name || '').trim() || extraLabels(preset).pauseTitle) : dayOff ? dayOff.name : '';
   if (phase === 'vacation') { silent = true; silentReason = pauseName ? `${pauseName} — ${extraLabels(preset).holidayOffMark}.` : U.silentVacation; }
   else if (phase === 'break') { silent = true; silentReason = U.silentBreak; }
   else if (phase === 'weekend') { silent = true; silentReason = U.silentWeekend; }

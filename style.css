@@ -828,7 +828,10 @@
 
 .academy-doctor-key {
   font-size: 0.8em;
-  color: var(--academy-dim);
+  color: #e8e4d4;
+  background: #2a2d26;
+  padding: 0 4px;
+  border-radius: 4px;
   overflow-wrap: anywhere;
 }
 
@@ -1204,11 +1207,20 @@
   color: var(--academy-accent);
 }
 
-.academy-section-chevron {
+.academy-section-title .academy-section-chevron {
   order: 1;
   margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
   font-size: 0.75em;
+  line-height: 1;
+  text-align: center;
   color: var(--ac-mute);
+  transform-origin: 50% 50%;
   transition: transform 0.2s ease;
 }
 

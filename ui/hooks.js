@@ -1,4 +1,6 @@
 import { labelFor } from '../core/state.mjs';
+import { GONE_PERSON } from '../core/scene.mjs';
+import { subjectWord } from '../core/words.mjs';
 import { debts } from '../core/gradebook.mjs';
 import { reasonText } from '../core/relations.mjs';
 import { dayOfWeek, weekdayShiftOf } from '../core/time.mjs';
@@ -82,8 +84,8 @@ export function hookJournal(state, preset, n = 10) {
   const limit = Math.max(0, Math.min(HOOK_JOURNAL_MAX, Number.isFinite(Number(n)) ? Math.floor(Number(n)) : 10));
   if (!limit) return [];
   const findS = (id) => (state.subjects || []).find((s) => s.id === id);
-  const subjectName = (id) => (((state.subjects || []).find((s) => s.id === id)) || {}).name || id || '';
-  const teacherName = (id) => (([...(state.teachers || []), ...(state.classmates || [])].find((t) => t && t.id === id)) || {}).name || id || '';
+  const subjectName = (id) => (((state.subjects || []).find((s) => s.id === id)) || {}).name || subjectWord(preset);
+  const teacherName = (id) => (([...(state.teachers || []), ...(state.classmates || [])].find((t) => t && t.id === id)) || {}).name || GONE_PERSON.nom;
   const relLabels = (preset && preset.relations && preset.relations.labels) || [];
   const repLabels = (preset && preset.reputation && preset.reputation.labels) || [];
   const items = (state.exams && state.exams.items) || [];

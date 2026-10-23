@@ -296,6 +296,7 @@ export async function syncLorebook(ctx, state, preset, opts = {}) {
 
   const data = normalizeBook(await wi.load(book.name));
   if (!stillHere(opts)) return { ok: false, reason: CHAT_CHANGED };
+  const revived = switchEntries(data, true);
   const { snapshot, index, marks } = snapshotOf(data);
   const meta = loreMeta(ctx);
 
@@ -346,7 +347,7 @@ export async function syncLorebook(ctx, state, preset, opts = {}) {
   }
 
   const renamed = own ? renameQuietly(data, plan, index, marks) : 0;
-  if (wrote > 0 || migrated.size || renamed) await wi.save(book.name, data, opts.immediately || book.created);
+  if (wrote > 0 || migrated.size || renamed || revived) await wi.save(book.name, data, opts.immediately || book.created);
 
   return {
     ok: true,
@@ -362,6 +363,37 @@ export async function syncLorebook(ctx, state, preset, opts = {}) {
     migrated: migrated.size,
     backup: meta.copy,
   };
+}
+
+function switchEntries(data, on) {
+  let n = 0;
+  for (const e of Object.values(data.entries || {})) {
+    const mark = e && e[MARK];
+    if (!mark || typeof mark !== 'object') continue;
+    if (on && mark.off) {
+      e.disable = false;
+      delete mark.off;
+      n += 1;
+    } else if (!on && !e.disable) {
+      e.disable = true;
+      mark.off = true;
+      n += 1;
+    }
+  }
+  return n;
+}
+
+export async function suspendBook(ctx, opts = {}) {
+  const wi = worldInfo(ctx);
+  if (!wi) return { ok: false, reason: 'no-world-info' };
+  const md = (ctx && ctx.chatMetadata) || {};
+  const name = (typeof md[METADATA_KEY] === 'string' && md[METADATA_KEY].trim()) || settingsOf(opts.settings).book;
+  if (!name) return { ok: true, off: 0 };
+  const data = normalizeBook(await wi.load(name));
+  if (opts.guard && !opts.guard()) return { ok: false, reason: CHAT_CHANGED };
+  const off = switchEntries(data, false);
+  if (off) await wi.save(name, data, true);
+  return { ok: true, name, off };
 }
 
 function renameQuietly(data, plan, index, marks) {

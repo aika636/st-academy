@@ -1,6 +1,6 @@
 export const CANON_VOCAB_KEYS = [
   'period', 'periodPlural', 'term', 'teacher', 'teacherPlural', 'gradebook', 'debt', 'debtPlural',
-  'examPeriod', 'expulsion', 'warning', 'score', 'crowdIn', 'someone', 'expelled', 'warnInject', 'expelInject',
+  'examPeriod', 'expulsion', 'warning', 'score', 'crowdIn', 'crowdInEn', 'someone', 'expelled', 'warnInject', 'expelInject',
 ];
 const VOCAB_WORD_MAX = 60;
 const VOCAB_PHRASE_MAX = 240;

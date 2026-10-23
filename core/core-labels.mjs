@@ -1,7 +1,7 @@
 export const CORE_LABELS = {
   eventOff: 'Занятий нет (каникулы, карантин, выходной)',
   mesPauseSection: 'Занятия: каникулы, закрытие',
-  holidayOffUntil: 'занятий нет до {date}',
+  holidayOffResume: '{periods} снова {date}',
   holidayOffMark: 'занятий нет',
   eventHookPlaceholder: 'Староста при всех зовёт героиню танцевать',
   looksHint: 'рыжая, в очках, шрам над бровью',

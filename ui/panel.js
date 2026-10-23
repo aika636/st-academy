@@ -258,15 +258,35 @@ function fitPanel() {
     restoreGeometry(panel, mounted.host);
     return;
   }
-  for (const p of props) panel.style.removeProperty(p);
   const vv = window.visualViewport;
   const h = Math.round((vv && vv.height) || window.innerHeight);
   const w = Math.round((vv && vv.width) || window.innerWidth);
   const o = fixedOrigin(panel);
-  panel.style.setProperty('top', `${Math.round(-o.y + ((vv && vv.offsetTop) || 0))}px`, 'important');
-  panel.style.setProperty('left', `${Math.round(-o.x)}px`, 'important');
-  panel.style.setProperty('height', `${h}px`, 'important');
-  panel.style.setProperty('width', `${w}px`, 'important');
+  const typing = editingIn(panel) && panel.style.getPropertyValue('top');
+  const next = { height: h, width: w, left: Math.round(-o.x) };
+  if (!typing) next.top = Math.round(-o.y + ((vv && vv.offsetTop) || 0));
+  for (const [p, v] of Object.entries(next)) {
+    if (panel.style.getPropertyValue(p) !== `${v}px`) panel.style.setProperty(p, `${v}px`, 'important');
+  }
+  if (typing) keepFieldVisible(panel);
+}
+
+export function editingIn(panel) {
+  const a = typeof document !== 'undefined' && document.activeElement;
+  if (!a || !panel || !panel.contains(a)) return false;
+  const tag = String(a.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'select' || a.isContentEditable) return true;
+  return tag === 'input' && !/^(checkbox|radio|button|submit|range|color|file|image|reset)$/i.test(a.type || 'text');
+}
+
+export function keepFieldVisible(panel) {
+  const f = document.activeElement;
+  const body = panel.querySelector('.academy-body');
+  if (!f || !body || !f.getBoundingClientRect) return;
+  const fr = f.getBoundingClientRect();
+  const pr = panel.getBoundingClientRect();
+  if (fr.bottom > pr.bottom) body.scrollTop += fr.bottom - pr.bottom + 8;
+  else if (fr.top < pr.top) body.scrollTop -= pr.top - fr.top + 8;
 }
 
 function closePanel() {
@@ -486,6 +506,7 @@ function watchViewport(host) {
   };
   window.addEventListener('resize', again);
   window.addEventListener('orientationchange', again);
+  document.addEventListener('focusout', () => setTimeout(() => { if (!editingIn(mounted.panel)) again(); }, 50));
   if (window.visualViewport && window.visualViewport.addEventListener) window.visualViewport.addEventListener('resize', again);
   setTimeout(again, 1000);
 }

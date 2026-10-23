@@ -19,7 +19,7 @@
     "gradebook": "лётная книжка",
     "debt": "долг",
     "debtPlural": "долги",
-    "expelPaths": "остаются апелляция командованию, восстановление после переаттестации или перевод в другую академию — что из этого, решает сцена",
+    "expelPaths": "an appeal to the command, reinstatement after recertification or transfer to another academy remain; the scene decides which",
     "subject": "курс",
     "subjectGen": "курса",
     "subjectDat": "курсу",
@@ -34,15 +34,16 @@
     },
     "warning": "взыскание командования",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали к командованию и объявили взыскание — ещё один срыв вахты, и её спишут на грунт. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали к командованию и объявили взыскание — ещё один срыв вахты, и его спишут на грунт. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the command and given a reprimand — one more failed watch, and she will be sent down to the ground. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the command and given a reprimand — one more failed watch, and he will be sent down to the ground. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: приказ о списании на грунт подписан, она больше не курсантка флота и покидает станцию с ближайшим челноком. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: приказ о списании на грунт подписан, он больше не курсант флота и покидает станцию с ближайшим челноком. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the order of discharge to the ground is signed, she is no longer a fleet cadet and leaves the station on the nearest shuttle. Play out the consequences in the next reply.",
+      "male": "It has already happened: the order of discharge to the ground is signed, he is no longer a fleet cadet and leaves the station on the nearest shuttle. Play out the consequences in the next reply."
     },
     "score": "рейтинг",
     "crowdIn": "в экипаже",
+    "crowdInEn": "the crew",
     "someone": "кто-то из экипажа"
   },
   "week": {
@@ -773,22 +774,21 @@
       }
     },
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": {
-        "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
-        "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
-      },
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, без испытания можно получить «{auto}». Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": {
-        "female": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} проверяет её наравне со всеми. Блестящую сдачу без испытания отыгрывать запрещено.",
-        "male": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} проверяет его наравне со всеми. Блестящую сдачу без испытания отыгрывать запрещено."
-      },
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, допуск под вопросом; {teacher} вправе отправить на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" can be had without a trial. Do not play out a failure from nowhere.",
+      "permissionNoAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" cannot be had without a trial; {teacher} checks {hero} like everyone else. Do not play out a brilliant pass without a trial.",
+      "permissionRisk": "{examPeriod}: {subject} — average grade {score}, clearance in doubt; {teacher} may send to retake. Do not play out a success, the system decides it.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закрыты: {subject} — {kind} не пройден, {debt} остаётся."
+      "missed": "{examPeriod} закрыты: {subject} — {kind} не пройден, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": {
+          "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+          "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
+        },
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -834,40 +834,19 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "увольнение",
-      "break": "межцикловой дрейф",
+      "weekend": "weekend",
+      "vacation": "shore leave",
+      "break": "inter-cycle drift",
       "exams": "",
-      "preExams": "подготовительная вахта перед испытаниями"
+      "preExams": "подготовительная вахта перед испытаниями",
+      "preExamsEn": "a preparatory watch before the trials"
     },
-    "day": "{weekday}, {week}-я неделя цикла",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя цикла, {phase}",
-    "now": "на вахте: {subject}{teacher}",
-    "next": "следом: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не пройдено {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не пройдено {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the cycle",
+    "dayPhase": "{weekday}, week {week} of the cycle, {phase}",
+    "now": "on watch: {subject}{teacher}",
+    "next": "up next: {subject}{teacher}"
   },
   "prompts": {
     "plan": {

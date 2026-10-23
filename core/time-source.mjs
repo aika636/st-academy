@@ -33,8 +33,14 @@ export const TAGS = [
 const FOOTER_TIME_RE = /(?:^|\n)[ \t]*time[ \t]*[:：][ \t]*\[[ \t]*(\d{1,2}:\d{2}(?:[ \t]?[ap]\.?[ \t]?m\.?)?)[ \t]*\]/gi;
 const FOOTER_DATE_RE = /^[ \t]*date[ \t]*[:：][ \t]*\[([^\]\n]{1,40})\]/i;
 
+export function normalizeSpaces(text) {
+  return String(text || '')
+    .replace(/[\u00a0\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, ' ')
+    .replace(/[\uff10-\uff19]/g, (c) => String(c.charCodeAt(0) - 0xff10));
+}
+
 export function readMachineTags(text, opts = {}) {
-  const raw = dropThinking(typeof text === 'string' ? text : '');
+  const raw = dropThinking(normalizeSpaces(text));
   if (!raw) return null;
   const ref = numOr(opts.refYear, numOr(opts.year, undefined));
 
@@ -152,7 +158,7 @@ export function rollYear(hit, state) {
 
 export function readTime(text, opts = {}) {
   const mode = ['auto', 'context', 'marker'].includes(opts.mode) ? opts.mode : 'auto';
-  const src = typeof text === 'string' ? text : '';
+  const src = normalizeSpaces(text);
   const state = opts.state || null;
   const year = calendarYear(state);
   const refYear = referenceYear(state);
@@ -164,6 +170,11 @@ export function readTime(text, opts = {}) {
     const tag = readMachineTags(body, { year, refYear });
     if (tag) {
       context = rollYear(tag, state);
+      if (!context.time) {
+        const low = parseContext(body, { relative: false, year, refYear });
+        const lowHit = low && low.time ? rollYear(low, state) : null;
+        if (lowHit && lowHit.day === context.day) context = { ...context, time: lowHit.time, timeFrom: 'A' };
+      }
       candidates.push(context);
     } else {
       const hit = parseContext(body, { relative: Boolean(opts.relative), year, refYear });

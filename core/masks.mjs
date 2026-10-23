@@ -80,7 +80,7 @@ export function initialsOf(name) {
 }
 
 export function personColor(id) {
-  return `hsl(${hashOf(String(id == null ? '' : id)) % 360}, 45%, 40%)`;
+  return `hsl(${hashOf(String(id == null ? '' : id)) % 360}, 45%, 31%)`;
 }
 
 const HEROINE = '@heroine';

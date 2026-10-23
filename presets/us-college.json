@@ -19,7 +19,7 @@
     "gradebook": "транскрипт",
     "debt": "незакрытый предмет",
     "debtPlural": "незакрытые предметы",
-    "expelPaths": "остаются апелляция в деканат, восстановление после испытательного срока или перевод в другой колледж — что из этого, решает сцена",
+    "expelPaths": "an appeal to the dean's office, reinstatement after probation or transfer to another college remain; the scene decides which",
     "examPeriod": "неделя финалов",
     "expulsion": "исключение из колледжа",
     "expelled": {
@@ -28,15 +28,16 @@
     },
     "warning": "испытательный срок",
     "warnInject": {
-      "female": "Это уже случилось: декан вызвал её и поставил на испытательный срок: нужно подтянуть успеваемость — ещё один провал, и вопрос об исключении из колледжа решит комиссия. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: декан вызвал его и поставил на испытательный срок: нужно подтянуть успеваемость — ещё один провал, и вопрос об исключении из колледжа решит комиссия. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the dean summoned her and put her on probation: the grades must come up — one more failure, and a committee will decide on expulsion from the college. Play out the consequences in the next reply.",
+      "male": "It has already happened: the dean summoned him and put him on probation: the grades must come up — one more failure, and a committee will decide on expulsion from the college. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: комиссия приняла решение, её исключили из колледжа, регистратура закрыла ей запись. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: комиссия приняла решение, его исключили из колледжа, регистратура закрыла ему запись. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the committee has decided, she is expelled from the college, the registrar closed her record. Play out the consequences in the next reply.",
+      "male": "It has already happened: the committee has decided, he is expelled from the college, the registrar closed his record. Play out the consequences in the next reply."
     },
     "score": "средний балл",
     "crowdIn": "на курсе",
+    "crowdInEn": "the course",
     "someone": "кто-то с курса"
   },
   "week": {
@@ -755,16 +756,20 @@
   },
   "phrases": {
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без финала ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": "Свершилось: {subject} — {value} ({teacher}). Назначена пересдача, попыток осталось: {left}. Отыграй это как уже случившееся.",
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся в транскрипте. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, освобождение от финала возможно. Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, освобождения нет; {teacher} принимает на общих основаниях. Блестящую сдачу без испытания отыгрывать запрещено.",
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе назначить пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
+      "auto": "Already happened: {subject} — {value}, no final ({teacher}). Play it as past.",
+      "failed": "Already happened: {subject} — {value} ({teacher}). Retake assigned, attempts left: {left}. Play it as past.",
+      "exhausted": "Already happened: {subject} — {value} ({teacher}). Attempts exhausted, the debt stays on the transcript. Play it as past.",
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, a waiver of the final is possible. Do not play out a failure from nowhere.",
+      "permissionRisk": "{examPeriod}: {subject} — average grade {score}, the pass is in doubt; {teacher} may assign a retake. Do not play out a success, the system decides it.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закончилась: {subject} — {kind} не сдан, {debt} остаётся."
+      "missed": "{examPeriod} закончилась: {subject} — {kind} не сдан, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без финала ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": "Свершилось: {subject} — {value} ({teacher}). Назначена пересдача, попыток осталось: {left}. Отыграй это как уже случившееся.",
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся в транскрипте. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -806,40 +811,17 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "каникулы",
-      "break": "каникулы",
+      "weekend": "weekend",
+      "vacation": "vacation",
+      "break": "vacation",
       "exams": "",
-      "preExams": "мёртвая неделя"
+      "preExams": "мёртвая неделя",
+      "preExamsEn": "dead week"
     },
-    "day": "{weekday}, {week}-я неделя семестра",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя семестра, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the semester",
+    "dayPhase": "{weekday}, week {week} of the semester, {phase}"
   },
   "prompts": {
     "plan": {

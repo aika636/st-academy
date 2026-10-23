@@ -18,7 +18,7 @@
     "gradebook": "нефритовая табличка",
     "debt": "долг по испытанию",
     "debtPlural": "долги по испытаниям",
-    "expelPaths": "остаются просьба к старейшинам, возвращение через испытание или переход в другую секту — что из этого, решает сцена",
+    "expelPaths": "a plea to the elders, return through a trial or a move to another sect remain; the scene decides which",
     "subject": "дисциплина",
     "subjectGen": "дисциплины",
     "subjectDat": "дисциплине",
@@ -33,15 +33,16 @@
     },
     "warning": "наказание в Зале наказаний",
     "warnInject": {
-      "female": "Это уже случилось: её отвели в Зал наказаний, назначили розги и коленопреклонение и предупредили — ещё один проступок, и её изгонят из секты. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его отвели в Зал наказаний, назначили розги и коленопреклонение и предупредили — ещё один проступок, и его изгонят из секты. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was taken to the Hall of Punishment, given the rod and kneeling and warned — one more offense, and she will be driven out of the sect. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was taken to the Hall of Punishment, given the rod and kneeling and warned — one more offense, and he will be driven out of the sect. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: её имя стёрто со стелы учеников, нефритовый жетон разбит, перед воротами секты она больше не ученица. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его имя стёрто со стелы учеников, нефритовый жетон разбит, перед воротами секты он больше не ученик. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: her name is wiped from the stele of disciples, the jade token is broken, before the sect gates she is no longer a disciple. Play out the consequences in the next reply.",
+      "male": "It has already happened: his name is wiped from the stele of disciples, the jade token is broken, before the sect gates he is no longer a disciple. Play out the consequences in the next reply."
     },
     "score": "уровень культивации",
     "crowdIn": "среди учеников",
+    "crowdInEn": "the sect",
     "someone": "кто-то из учеников"
   },
   "week": {
@@ -772,21 +773,23 @@
       }
     },
     "exams": {
-      "auto": "Свершилось: {subject} — {value}, проверка не потребовалась ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": "Свершилось: {subject} — {value} ({teacher}). Дозволена ещё одна попытка, осталось: {left}. Отыграй это как уже случившееся.",
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся до конца сезона. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, без испытания можно получить «{auto}». Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": {
-        "female": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} проверяет её наравне со всеми. Блестящий исход без проверки отыгрывать запрещено.",
-        "male": "{examPeriod}: {subject} — {scoreName} {score}, без испытания «{auto}» не получить; {teacher} проверяет его наравне со всеми. Блестящий исход без проверки отыгрывать запрещено."
-      },
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, ци может не послушаться; {teacher} вправе прервать проверку. Успешный исход отыгрывать запрещено, его считает система.",
+      "auto": "Already happened: {subject} — {value}, no check was needed ({teacher}). Play it as past.",
+      "failed": "Already happened: {subject} — {value} ({teacher}). One more attempt is allowed, attempts left: {left}. Play it as past.",
+      "exhausted": "Already happened: {subject} — {value} ({teacher}). Attempts exhausted, the debt stays until the end of the season. Play it as past.",
+      "permissionAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" can be had without a trial. Do not play out a failure from nowhere.",
+      "permissionNoAuto": "{examPeriod}: {subject} — average grade {score}, \"{auto}\" cannot be had without a trial; {teacher} checks {hero} like everyone else. Do not play out a brilliant outcome without a check.",
+      "permissionRisk": "{examPeriod}: {subject} — average grade {score}, qi may not obey; {teacher} may interrupt the check. Do not play out a success, the system decides it.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
       "missed": {
         "female": "{examPeriod} завершено: {subject} — проверка не состоялась, {debt} остаётся за ней.",
         "male": "{examPeriod} завершено: {subject} — проверки так и не было, {debt} остаётся за ним."
+      },
+      "journal": {
+        "auto": "Свершилось: {subject} — {value}, проверка не потребовалась ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": "Свершилось: {subject} — {value} ({teacher}). Дозволена ещё одна попытка, осталось: {left}. Отыграй это как уже случившееся.",
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся до конца сезона. Отыграй это как уже случившееся."
       }
     },
     "lorebook": {
@@ -832,45 +835,23 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "день покоя",
-      "vacation": "затвор",
-      "break": "затвор между сезонами",
+      "weekend": "rest day",
+      "vacation": "seclusion",
+      "break": "seclusion between seasons",
       "exams": "",
-      "preExams": "затвор перед Великим испытанием"
+      "preExams": "затвор перед Великим испытанием",
+      "preExamsEn": "seclusion before the Great Trial"
     },
-    "day": "{weekday}, {week}-я неделя сезона",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя сезона, {phase}",
-    "now": "идёт: {subject}{teacher}",
-    "next": "вот-вот: {subject}{teacher}",
-    "today": "нынче: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value} — среднее по дисциплинам",
-    "exams": "{examPeriod}: не пройдено {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не пройдено {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "слава: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+    "day": "{weekday}, week {week} of the season",
+    "dayPhase": "{weekday}, week {week} of the season, {phase}",
+    "now": "in progress: {subject}{teacher}",
+    "next": "about to begin: {subject}{teacher}",
+    "today": "on the schedule today: {list}",
+    "reputation": "renown: {label}"
   },
   "prompts": {
-    "marker": "Первой строкой ответа (если он открыт блоком состояния сцены — сразу после него) добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade=id:оценка; rel={teacher}:minor+ или major- (:повод); skip=id; late=id. Только то, что случилось в ответе.",
-    "markerIds": "{subjectsTitle}: {subjects}.",
-    "markerTeachers": "{teacherPlural}: {teachers}.",
     "plan": {
       "system": "Ты составляешь учебный план для ролевой игры. Отвечай одним объектом JSON и ничем больше: без пояснений, без markdown, без комментариев.",
       "user": {

@@ -1,5 +1,4 @@
 import { labelFor } from './core/state.mjs';
-import { plural } from './core/plural.mjs';
 import { addDays, weekIndex, phaseOf, weekdayIn, termAt, preExamWeek, PRE_EXAMS_DEFAULT } from './core/time.mjs';
 import { dayPlan, currentPeriod } from './core/schedule.mjs';
 import { debts, overallScore, DEBT_RETAKE } from './core/gradebook.mjs';
@@ -8,84 +7,85 @@ import { reputationLabel } from './core/reputation.mjs';
 import { notableGrade } from './core/fame.mjs';
 import { examMode, publicView, retakeList, weekAheadKinds } from './core/exams.mjs';
 import { upcomingEvents } from './core/upcoming.mjs';
-import { holidayBackground, bare, buzzFor } from './core/holidays.mjs';
+import { holidayBackground, bare, buzzFor, dropName } from './core/holidays.mjs';
 import { feedBackground, BACKGROUND_MAX } from './core/feed.mjs';
 import { unsaid } from './core/plot.mjs';
 import { goingToday } from './core/invites.mjs';
 import { bullyStatus } from './core/bullying.mjs';
 import { heroWords, presetGender } from './core/gender.mjs';
-import { subjectVars, upFirst } from './core/words.mjs';
+import { subjectVars, upFirst, periodWord } from './core/words.mjs';
 
 export const DEFAULT_LABELS = {
-  weekdays: ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'],
+  weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
   phases: {
-    study: '', weekend: 'выходной', vacation: 'каникулы', break: 'каникулы', exams: '',
+    study: '', weekend: 'weekend', vacation: 'vacation', break: 'vacation', exams: '',
     preExams: PRE_EXAMS_DEFAULT,
+    preExamsEn: 'the last week before exams',
   },
 
-  day: '{weekday}, {week}-я неделя',
+  day: '{weekday}, week {week}',
   dayOutside: '{weekday}, {phase}',
-  dayPhase: '{weekday}, {week}-я неделя, {phase}',
+  dayPhase: '{weekday}, week {week}, {phase}',
 
-  now: 'сейчас: {subject}{teacher}',
-  next: 'скоро: {subject}{teacher}',
-  today: 'сегодня: {list}',
-  nowMark: '{subject} (сейчас)',
+  now: 'now: {subject}{teacher}',
+  next: 'next: {subject}{teacher}',
+  today: 'today: {list}',
+  nowMark: '{subject} (now)',
   teacherOf: ' ({teacher})',
 
-  debts: '{debtPlural}: {list}',
-  retakes: 'пересдача: {list}',
-  lastTry: '{subject} (последняя попытка)',
-  expelled: '{hero} {expelled}: {paths}',
-  expelPaths: 'остаются апелляция, восстановление или перевод в другое заведение — что из этого, решает сцена',
-  score: '{scoreName}: {value}',
-  exams: '{examPeriod}: не сдано {count}, до конца — {days} {daysWord}',
-  examsNoDays: '{examPeriod}: не сдано {count}',
-  relation: '{teacher}: {label}',
-  reputation: 'репутация: {label}',
-  study: 'заметные оценки: {list}',
+  debts: 'debts: {list}',
+  retakes: 'retake: {list}',
+  lastTry: '{subject} (last attempt)',
+  expelled: '{hero} is expelled: {paths}',
+  expelPaths: 'appeal, reinstatement or transfer to another institution remain; the scene decides which',
+  score: 'average grade: {value}',
+  exams: '{examPeriod}: {count} not passed, {days} {daysWord} left',
+  examsNoDays: '{examPeriod}: {count} not passed',
+  relation: '{teacher} toward {hero}: {label}',
+  reputation: 'reputation: {label}',
+  study: 'notable grades: {list}',
   studyItem: '{subject} — {grade} ({when})',
-  studyToday: 'сегодня',
-  studyYesterday: 'вчера',
+  studyToday: 'today',
+  studyYesterday: 'yesterday',
 
   glue: '. ',
   end: '.',
   listGlue: ', ',
 
-  nearToday: 'сегодня',
-  nearTomorrow: 'завтра',
-  weekdaysOn: ['в понедельник', 'во вторник', 'в среду', 'в четверг', 'в пятницу', 'в субботу', 'в воскресенье'],
+  nearToday: 'today',
+  nearTomorrow: 'tomorrow',
+  weekdaysOn: ['on Monday', 'on Tuesday', 'on Wednesday', 'on Thursday', 'on Friday', 'on Saturday', 'on Sunday'],
   nearExam: '{when} — {what}',
   nearExamSubject: '{when} — {what}: {subject}',
-  nearAnnounce: '{when} объявят итог: {subject}',
+  nearAnnounce: 'results announced {when}: {subject}',
   nearGlue: '; ',
-  weekAhead: 'через неделю — {what}: {subjects}',
-  weekAheadAll: 'через неделю — {what}',
+  weekAhead: 'in a week — {what}: {subjects}',
+  weekAheadAll: 'in a week — {what}',
 
-  holidayNow: 'сегодня {name} — {note}',
-  holidayNowBare: 'сегодня {name}',
+  holidayNow: 'today is {name} — {note}',
+  holidayNowBare: 'today is {name}',
   holidayAhead: '{when} {name} — {note}',
   holidayAheadBare: '{when} {name}',
-  holidayAlso: 'и {name} — {note}',
-  holidayAlsoBare: 'и {name}',
-  holidaySoon: 'скоро',
-  holidayGoing: '{hero} и {who} договорились пойти вместе: {name}',
+  holidayAlso: 'and {name} — {note}',
+  holidayAlsoBare: 'and {name}',
+  holidaySoon: 'soon',
+  holidayGoing: '{hero} and {who} agreed to go together: {name}',
 
-  feed: '{crowdIn} говорят: {list}',
-  feedFact: '{text} (факт)',
-  feedRumor: '{text} (слух)',
-  feedTalk: '{text} — обсуждают (факт)',
-  feedTalkQuote: 'обсуждают: «{text}» (факт)',
-  feedGossip: '«{text}» (слух — правда ли, неизвестно)',
+  feed: 'Talk in {crowdIn}: {list}',
+  feedFact: '{text} (fact)',
+  feedRumor: '{text} (rumor)',
+  feedTalk: '{text} — being discussed (fact)',
+  feedTalkQuote: 'being discussed: «{text}» (fact)',
+  feedGossip: '«{text}» (rumor — unknown if true)',
   feedGlue: '; ',
 };
 
 export const FEED_LINE_MAX = 220;
 
 export const DEFAULT_PROMPTS = {
-  marker: 'Первой строкой ответа (если он открыт блоком состояния сцены — сразу после него) добавь метку: <!-- [ACADEMY t=+1] -->. Ключи: t= сдвиг времени (+1 — {period}, +1 day, +1 week); grade={subject}:оценка; rel={teacher}:minor+ или major- (:повод); skip={subject}; late={subject}. Только то, что случилось в ответе.',
-  markerIds: '{subjectsTitle}: {subjects}.',
-  markerTeachers: '{teacherPlural}: {teachers}.',
+  marker: 'Start the reply (right after the scene-state block, if any) with a marker: <!-- [ACADEMY t=+1] -->. Keys: t= time shift (+1 = one {period}, +1 day, +1 week); grade=subject:grade; rel={teacher}:minor+ or major- (:reason); skip=subject; late=subject. Only what happened in the reply.',
+  markerIds: 'Subject ids: {subjects}.',
+  markerTeachers: 'Teacher ids: {teachers}.',
 };
 
 const vocabOf = (preset) => (preset && preset.vocab) || {};
@@ -100,7 +100,7 @@ export function statusLine(state, preset, opts = {}) {
   if (opts.feed) {
     if (opts.feed.muted !== true) segments.push({ id: 'bullying', text: bullyStatus(state, preset, { heroine: opts.heroine }) });
     const holiday = segments.some((s) => (s.id === 'holiday' || s.id === 'holidayAhead') && s.text);
-    const crowdIn = String(vocabOf(preset).crowdIn || '').trim() || 'на курсе';
+    const crowdIn = String(vocabOf(preset).crowdInEn || '').trim() || 'class';
     segments.push({ id: 'feed', text: feedSegment(state, L, { quiet: opts.feed.quiet === true, holiday, crowdIn }) });
   }
 
@@ -138,7 +138,7 @@ function segmentsOf(state, preset, L) {
         examPeriod: vocab.examPeriod || '',
         count: String(count),
         days: String(days),
-        daysWord: plural(days, 'день', 'дня', 'дней'),
+        daysWord: days === 1 ? 'day' : 'days',
       }),
     });
   }
@@ -189,7 +189,7 @@ function daySegment(state, preset, L) {
   const week = weekIndex(state, day, preset);
   const phase = phaseOf(preset, state, day);
   const phases = L.phases || {};
-  const word = (phase === 'study' && preExamWeek(preset, state, day) ? phases.preExams : phases[phase]) || '';
+  const word = (phase === 'study' && preExamWeek(preset, state, day) ? (phases.preExamsEn || DEFAULT_LABELS.phases.preExamsEn) : phases[phase]) || '';
 
   const at = termAt(preset, state, day);
   const declared = at.term ? at.term.declared : {};
@@ -213,15 +213,20 @@ function scheduleSegment(state, preset, L) {
     const item = plan.find((p) => p.index === cur.index);
     if (!item) return '';
     return fill(cur.status === 'now' ? L.now : L.next, {
-      subject: item.name,
+      subject: timed(item, cur.status === 'now'),
       teacher: teacherTail(state, item.teacherId, L),
     });
   }
 
-  const nowName = cur.status === 'now' ? (plan.find((p) => p.index === cur.index) || {}).name : null;
+  const nowItem = cur.status === 'now' ? plan.find((p) => p.index === cur.index) : null;
   const names = [...new Set(plan.map((p) => p.name))];
-  const list = names.map((name) => (name === nowName ? fill(L.nowMark, { subject: name }) : name));
+  const list = names.map((name) => (nowItem && name === nowItem.name ? fill(L.nowMark, { subject: timed(nowItem, true) }) : name));
   return fill(L.today, { list: list.join(L.listGlue) });
+}
+
+function timed(item, whole) {
+  if (!item.start) return item.name;
+  return `${whole && item.end ? `${item.start}–${item.end}` : item.start} ${item.name}`;
 }
 
 function relationSegment(state, preset, L, mode) {
@@ -230,7 +235,7 @@ function relationSegment(state, preset, L, mode) {
   const scale = (preset && preset.relations) || {};
   const label = relationLabel(state, teacher.id, preset);
   if (!label || label === labelFor(scale.labels || [], numberOr(scale.start, 0))) return '';
-  return fill(L.relation, { teacher: teacher.name || teacher.id, label });
+  return fill(L.relation, { teacher: teacher.name || teacher.id, hero: heroWords(presetGender(preset)).heroEn, label });
 }
 
 function nearSegment(state, preset, L) {
@@ -262,7 +267,7 @@ function holidaySegment(state, preset, L, part) {
   return holidayPhrase(bg.aheadAll.map((a) => ({ h: a.holiday, note: bare(buzzFor(a.holiday, a.days)) })), L, L.holidayAhead, L.holidayAheadBare, { when });
 }
 
-function feedSegment(state, L, { quiet = false, holiday = false, crowdIn = 'на курсе' } = {}) {
+function feedSegment(state, L, { quiet = false, holiday = false, crowdIn = 'class' } = {}) {
   if (quiet) return '';
   const points = feedBackground(state, { max: holiday ? 1 : BACKGROUND_MAX });
   if (!points.length) return '';
@@ -285,13 +290,14 @@ function feedSegment(state, L, { quiet = false, holiday = false, crowdIn = 'на
 function goingSegment(state, preset, L) {
   const gender = presetGender(preset);
   return goingToday(state, preset)
-    .map((g) => fill(L.holidayGoing, { hero: heroWords(gender).hero, a: gender === 'm' ? '' : 'а', name: g.eventName, who: g.who }))
+    .map((g) => fill(L.holidayGoing, { hero: heroWords(gender).heroEn, name: g.eventName, who: g.who }))
     .join(L.glue);
 }
 
 function holidayPhrase(items, L, full, short, vars) {
   let out = '';
-  items.forEach(({ h, note }, i) => {
+  items.forEach(({ h, note: raw }, i) => {
+    const note = dropName(raw, h.name);
     const text = i === 0
       ? fill(note ? full : short, { ...vars, name: h.name, note })
       : fill(note ? L.holidayAlso : L.holidayAlsoBare, { name: h.name, note });
@@ -321,9 +327,7 @@ function weekAheadSegment(state, preset, L) {
 function expelledSegment(state, preset, L) {
   if (!(state.reputation && state.reputation.expelled)) return '';
   const vocab = vocabOf(preset);
-  const gender = presetGender(preset);
-  const word = (typeof vocab.expelled === 'string' ? vocab.expelled.trim() : '') || (gender === 'm' ? 'отчислен' : 'отчислена');
-  return fill(L.expelled, { hero: heroWords(gender).hero, expelled: word, paths: (typeof vocab.expelPaths === 'string' && vocab.expelPaths.trim()) || L.expelPaths });
+  return fill(L.expelled, { hero: heroWords(presetGender(preset)).heroEn, paths: (typeof vocab.expelPaths === 'string' && vocab.expelPaths.trim()) || L.expelPaths });
 }
 
 function reputationSegment(state, preset, L) {
@@ -332,7 +336,10 @@ function reputationSegment(state, preset, L) {
   if (!label) return '';
   const start = labelFor(scale.labels || [], numberOr(scale.start, state.reputation.value));
   if (label === start) return '';
-  return fill(L.reputation, { label });
+  const en = (((preset && preset.phrases) || {}).lorebook || {}).reputationEn;
+  const found = (scale.labels || []).findIndex((l) => state.reputation.value <= l.upTo);
+  const at = found < 0 ? (scale.labels || []).length - 1 : found;
+  return fill(L.reputation, { label: (Array.isArray(en) && typeof en[at] === 'string' && en[at]) || label });
 }
 
 function teacherInFrame(state, preset, mode) {
@@ -361,7 +368,7 @@ export function markerInstruction(state, preset) {
   const P = promptsOf(preset);
   const vocab = vocabOf(preset);
   const parts = [fill(P.marker, {
-    period: vocab.period || '',
+    period: periodWord(preset),
     teacher: firstId(state && state.teachers) || vocab.teacher || '',
     ...subjectVars(preset),
   })];
@@ -402,7 +409,8 @@ export function buildPrompt(state, preset, { injects = [], withMarker = true, fe
 }
 
 export function countNumbers(text) {
-  return (String(text || '').match(/\d+(?:[.,:]\d+)*/g) || []).length;
+  const bare = String(text || '').replace(/\b\d{1,2}:\d{2}(?:–\d{1,2}:\d{2})?\b/g, '');
+  return (bare.match(/\d+(?:[.,:]\d+)*/g) || []).length;
 }
 
 export function fill(template, vars) {

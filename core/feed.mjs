@@ -288,6 +288,7 @@ function normalizeDeal(raw) {
     open: !closed,
     since: str(raw.since),
     closedOn: closed ? str(raw.closedOn) : '',
+    ...(closed && str(raw.closedBy) ? { closedBy: str(raw.closedBy) } : {}),
     ...(str(raw.on) ? { on: str(raw.on) } : {}),
     ...(day(raw.onDay) ? { onDay: day(raw.onDay) } : {}),
     ...(intent ? { intent } : {}),
@@ -971,6 +972,23 @@ export function closeDeal(state, { a, b, what, src = '', day = '' }) {
     deal.closedOn = day;
   }
   return { id: made.id, created: made.created, wasOpen: false };
+}
+
+/** An act by the debtor that matches an open deal (same side, shared keyword) closes it. */
+export function fulfilDeals(state, { a, b = '', what, src = '', day = '' }) {
+  const hit = [];
+  for (const d of ensureFeed(state).deals) {
+    if (!dealAlive(state, d) || d.intent || d.a !== a || (b && d.b !== b) || !near(d.what, what)) continue;
+    d.open = false;
+    d.closedOn = day;
+    if (src) d.closedBy = src;
+    hit.push(d.id);
+  }
+  return hit;
+}
+
+export function reopenDealsBy(state, src) {
+  for (const d of ensureFeed(state).deals) if (src && d.closedBy === src) { d.open = true; d.closedOn = ''; delete d.closedBy; }
 }
 
 export function finishDeal(state, id, { why, result = '', day = '' }) {

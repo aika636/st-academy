@@ -43,6 +43,13 @@ export const DEFAULT_PLOT_PHRASES = {
   threadGlue: '; ',
 };
 
+export const PLOT_FRAME_EN = {
+  frame: 'If it fits, weave into the scene (an optional find, not an order): {core}.',
+  rumor: 'This is a rumor; unknown if true.',
+  outward: "Show only the outward side; leave the player character's words and decisions to the player. Once it has come up, do not return to it.",
+  notAgain: 'Do not repeat: {last}.',
+};
+
 export const INVITE_KIND = 'invite';
 
 export const BULLY_KIND = 'bully';
@@ -115,6 +122,7 @@ function normalizeHook(h) {
     core: oneLine(h.core, CORE_MAX),
     plate: oneLine(h.plate, CORE_MAX),
     text,
+    en: oneLine(h.en, h.kind === BULLY_KIND ? BULLY_HOOK_MAX : HOOK_TEXT_MAX),
     rumor: h.rumor === true,
     auto: h.auto === true,
     armed,
@@ -216,10 +224,17 @@ export function hookCore(state, ref, opts = {}) {
   return null;
 }
 
-export function hookWording({ core, rumor }, opts = {}) {
-  const P = phrasesOf(opts.preset);
+export function hookWording(c, opts = {}) {
+  return wording(c, opts, phrasesOf(opts.preset));
+}
+
+export function hookWordingEn(c, opts = {}) {
+  return wording(c, opts, { ...phrasesOf(opts.preset), ...PLOT_FRAME_EN });
+}
+
+function wording({ core, rumor }, opts, P) {
   const parts = [fill(P.frame, { core: bare(core) })];
-  if (rumor && !/^слух(?![\p{L}])/iu.test(bare(core))) parts.push(P.rumor);
+  if (rumor && !/^(?:слух|rumou?r)(?![\p{L}])/iu.test(bare(core))) parts.push(P.rumor);
   parts.push(P.outward);
   const last = bare(opts.notAgain);
   if (last && last !== bare(core)) parts.push(fill(P.notAgain, { last }));
@@ -239,11 +254,13 @@ export function takeHook(plot, state, what = {}) {
   if (!c) return { ok: false, plot: p, state, error: 'этой записи больше нет' };
   if (p.queue.some((h) => h.ref === ref)) return { ok: false, plot: p, state, error: 'этот повод уже ждёт своего ответа' };
   if (p.queue.filter((h) => h.kind !== BULLY_KIND).length >= QUEUE_MAX) return { ok: false, plot: p, state, error: `в очереди уже ${QUEUE_MAX} — уберите лишний` };
-  const text = oneLine(what.text, HOOK_TEXT_MAX) || hookWording(c, what);
+  const draft = hookWording(c, what);
+  const text = oneLine(what.text, HOOK_TEXT_MAX) || draft;
+  const en = text === draft ? hookWordingEn(c, what) : '';
   p.seq += 1;
   const id = `p${p.seq}`;
   p.queue.push({
-    id, ref, kind: c.kind, core: c.core, text, rumor: c.rumor,
+    id, ref, kind: c.kind, core: c.core, text, en, rumor: c.rumor,
     auto: what.auto === true, armed: false, delivered: false, takenAt: p.replies,
   });
   let next = state;
@@ -276,7 +293,7 @@ export function armedHook(plot) {
 export function hookPrompt(plot) {
   const p = normalizePlot(plot);
   const h = p.queue.find((x) => x.armed);
-  return [h && h.text, ...p.queue.filter((x) => x.kind === INVITE_KIND).map((x) => x.text)].filter(Boolean).join(' ');
+  return [h && (h.en || h.text), ...p.queue.filter((x) => x.kind === INVITE_KIND).map((x) => x.en || x.text)].filter(Boolean).join('\n');
 }
 
 function arm(p) {
@@ -311,7 +328,7 @@ function yieldTo(p) {
 }
 
 export function bullyHookPrompt(plot) {
-  return normalizePlot(plot).queue.filter((x) => x.kind === BULLY_KIND).map((x) => x.text).filter(Boolean).join(' ');
+  return normalizePlot(plot).queue.filter((x) => x.kind === BULLY_KIND).map((x) => x.en || x.text).filter(Boolean).join('\n');
 }
 
 export function onPlayerSent(plot, { enabled = true, muted = false, yielded = false } = {}) {
@@ -426,7 +443,7 @@ export function syncInviteHook(plot, state, words) {
     p.log = p.log.filter((e) => e.id !== want);
     p.queue.push({
       id: want, ref: `invite:${str(pend.key)}`, kind: INVITE_KIND, core: oneLine(words.core, CORE_MAX),
-      plate: oneLine(words.plate, CORE_MAX), text: oneLine(words.text, HOOK_TEXT_MAX), rumor: false, auto: false, armed: false, delivered: false, takenAt: p.replies,
+      plate: oneLine(words.plate, CORE_MAX), text: oneLine(words.text, HOOK_TEXT_MAX), en: oneLine(words.en, HOOK_TEXT_MAX), rumor: false, auto: false, armed: false, delivered: false, takenAt: p.replies,
     });
   }
   return p;
@@ -441,7 +458,7 @@ export function syncBullyHook(plot, words, { hookId = '', resolved = '' } = {}) 
     p.log = p.log.filter((e) => e.id !== hookId);
     p.queue.push({
       id: hookId, ref: `bully:${hookId}`, kind: BULLY_KIND, core: oneLine(words.core, CORE_MAX), plate: oneLine(words.plate, CORE_MAX),
-      text: oneLine(words.text, BULLY_HOOK_MAX), rumor: false, auto: false, armed: false, delivered: false, takenAt: p.replies,
+      text: oneLine(words.text, BULLY_HOOK_MAX), en: oneLine(words.en, BULLY_HOOK_MAX), rumor: false, auto: false, armed: false, delivered: false, takenAt: p.replies,
     });
   }
   return p;

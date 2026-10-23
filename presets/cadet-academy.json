@@ -20,7 +20,7 @@
     "gradebook": "журнал успеваемости",
     "debt": "задолженность",
     "debtPlural": "задолженности",
-    "expelPaths": "остаются обжалование приказа, восстановление в училище или перевод в другое — что из этого, решает сцена",
+    "expelPaths": "an appeal of the order, reinstatement at the school or transfer to another one remain; the scene decides which",
     "examPeriod": "сессия",
     "expulsion": "отчисление из академии",
     "expelled": {
@@ -29,15 +29,16 @@
     },
     "warning": "взыскание",
     "warnInject": {
-      "female": "Это уже случилось: её вызвали к начальнику курса, объявили взыскание и предупредили, что следующая неявка на занятия означает рапорт об отчислении. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: его вызвали к начальнику курса, объявили взыскание и предупредили, что следующая неявка на занятия означает рапорт об отчислении. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: she was summoned to the course commander, a reprimand was announced, and she was warned that the next missed class means a report on expulsion. Play out the consequences in the next reply.",
+      "male": "It has already happened: he was summoned to the course commander, a reprimand was announced, and he was warned that the next missed class means a report on expulsion. Play out the consequences in the next reply."
     },
     "expelInject": {
-      "female": "Это уже случилось: приказ об отчислении из академии подписан, она больше не курсантка. Отыграй последствия в следующем ответе.",
-      "male": "Это уже случилось: приказ об отчислении из академии подписан, он больше не курсант. Отыграй последствия в следующем ответе."
+      "female": "It has already happened: the order expelling her from the academy is signed, she is no longer a cadet. Play out the consequences in the next reply.",
+      "male": "It has already happened: the order expelling him from the academy is signed, he is no longer a cadet. Play out the consequences in the next reply."
     },
     "score": "средний балл",
     "crowdIn": "во взводе",
+    "crowdInEn": "the platoon",
     "someone": "кто-то из взвода"
   },
   "week": {
@@ -194,7 +195,8 @@
       "id": "maslenitsa",
       "name": "Масленица в части",
       "from": "02-27",
-      "to": "03-01",
+      "easter": -51,
+      "days": 3,
       "lead": 3,
       "about": "блины, кулачные забавы и сожжение чучела на плацу",
       "buzz": "у столовой пахнет блинами, взводы спорят о забавах",
@@ -790,19 +792,18 @@
       }
     },
     "exams": {
-      "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
-      "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
-      "failed": {
-        "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
-        "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
-      },
-      "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся.",
-      "permissionAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} возможен. Провал на ровном месте отыгрывать запрещено.",
-      "permissionNoAuto": "{examPeriod}: {subject} — {scoreName} {score}, {auto} невозможен; {teacher} принимает на общих основаниях. Блестящую сдачу без испытания отыгрывать запрещено.",
-      "permissionRisk": "{examPeriod}: {subject} — {scoreName} {score}, сдача под вопросом; {teacher} вправе отправить на пересдачу. Успешный исход отыгрывать запрещено, его считает система.",
       "divergence": "Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.",
       "scheduled": "{examPeriod}: назначено {count}.",
-      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся."
+      "missed": "{examPeriod} закрыта: {subject} — {kind} не сдан, {debt} остаётся.",
+      "journal": {
+        "auto": "Свершилось: {subject} — {value} без испытания ({teacher}). Отыграй это как уже случившееся.",
+        "passed": "Свершилось: {subject} — {value} ({teacher}). Отыграй это как уже случившееся.",
+        "failed": {
+          "female": "Свершилось: {subject} — {value} ({teacher}). Отправлена на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся.",
+          "male": "Свершилось: {subject} — {value} ({teacher}). Отправлен на пересдачу, попыток осталось: {left}. Отыграй это как уже случившееся."
+        },
+        "exhausted": "Свершилось: {subject} — {value} ({teacher}). Попытки исчерпаны, {debt} остаётся. Отыграй это как уже случившееся."
+      }
     },
     "lorebook": {
       "teacher": {
@@ -840,40 +841,15 @@
     }
   },
   "labels": {
-    "weekdays": [
-      "понедельник",
-      "вторник",
-      "среда",
-      "четверг",
-      "пятница",
-      "суббота",
-      "воскресенье"
-    ],
     "phases": {
       "study": "",
-      "weekend": "выходной",
-      "vacation": "отпуск",
-      "break": "между семестрами",
+      "weekend": "weekend",
+      "vacation": "leave",
+      "break": "between semesters",
       "exams": "",
-      "preExams": "предсессионная неделя"
-    },
-    "day": "{weekday}, {week}-я неделя",
-    "dayOutside": "{weekday}, {phase}",
-    "dayPhase": "{weekday}, {week}-я неделя, {phase}",
-    "now": "сейчас: {subject}{teacher}",
-    "next": "скоро: {subject}{teacher}",
-    "today": "сегодня: {list}",
-    "nowMark": "{subject} (сейчас)",
-    "teacherOf": " ({teacher})",
-    "debts": "{debtPlural}: {list}",
-    "score": "{scoreName}: {value}",
-    "exams": "{examPeriod}: не сдано {count}, до конца — {days} {daysWord}",
-    "examsNoDays": "{examPeriod}: не сдано {count}",
-    "relation": "{teacher}: {label}",
-    "reputation": "репутация: {label}",
-    "glue": ". ",
-    "end": ".",
-    "listGlue": ", "
+      "preExams": "предсессионная неделя",
+      "preExamsEn": "the pre-session week"
+    }
   },
   "prompts": {
     "plan": {

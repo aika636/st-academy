@@ -1,5 +1,6 @@
 import { cloneState, isDay, isTime, pushJournal } from './state.mjs';
 import { lunarToSolar } from './lunar.mjs';
+import { orthodoxEaster } from './easter.mjs';
 
 const STUDY_DAY_LOOKAHEAD = 31;
 
@@ -165,7 +166,7 @@ export function termAt(preset, state, day = state.calendar.day) {
 export function weekIndex(state, day = state.calendar.day, preset = null) {
   if (preset) {
     const at = termAt(preset, state, day);
-    if (at.term) return at.week;
+    if (at.term) return at.terms[at.index] && day < at.terms[at.index].start ? 0 : at.week;
   }
   const base = mondayOf(state.calendar.termStart);
   return Math.floor(diffDays(base, day) / 7) + 1;
@@ -628,7 +629,7 @@ const WEEKDAY_NUMBERS = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 7
 export const WEEKDAY_KEYS = Object.keys(WEEKDAY_NUMBERS);
 
 export function isFloating(h) {
-  return Boolean(h) && (mdToNumber(h.lunar) !== null || WEEKDAY_NUMBERS[h.weekday] !== undefined
+  return Boolean(h) && (mdToNumber(h.lunar) !== null || Number.isInteger(h.easter) || WEEKDAY_NUMBERS[h.weekday] !== undefined
     || (Number.isInteger(h.days) && h.days >= 1));
 }
 
@@ -637,6 +638,10 @@ export function holidaySpan(h, year, state = null) {
   const y4 = (n) => String(n).padStart(4, '0');
   let from = null;
   if (mdToNumber(h.lunar) !== null) from = lunarToSolar(year, Number(h.lunar.slice(0, 2)), Number(h.lunar.slice(3, 5)));
+  if (Number.isInteger(h.easter)) {
+    const easter = orthodoxEaster(year);
+    from = easter && addDays(easter, h.easter);
+  }
   const solved = from !== null;
   if (!solved) from = `${y4(year)}-${h.from}`;
   if (!isDay(from)) return null;

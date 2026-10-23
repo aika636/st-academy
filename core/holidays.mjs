@@ -18,9 +18,9 @@ export const MAX_PAUSE_DAYS = 366;
 export const HOOKS_KEPT = 80;
 
 export const DEFAULT_HOOK_PHRASES = {
-  hook: 'Сегодня {name}. Если уместно, можно вплести в сцену: {hook}',
-  hookBare: 'Сегодня {name}{note}. Если уместно, пусть праздник мелькнёт в сцене — фоном, без нажима.',
-  hookOff: 'Сейчас {name}{note}; занятий нет. Если уместно, пусть это почувствуется в сцене — без нажима.',
+  hook: 'Today is {name}. If it fits, weave in: {hook}',
+  hookBare: 'Today is {name}{note}. If it fits, let the holiday flicker in the scene as background, without pressure.',
+  hookOff: 'Now it is {name}{note}; no classes. If it fits, let it be felt in the scene, without pressure.',
 };
 
 const isMD = (v) => typeof v === 'string' && /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(v);
@@ -29,6 +29,12 @@ const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const capFirst = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
 
 export const bare = (v) => str(v).replace(/[\s.,;:!?…]+$/u, '');
+
+export function dropName(note, name) {
+  const n = String(name || '').toLowerCase().replace(/ё/g, 'е');
+  const head = /^([^:]{1,60}):\s*/u.exec(note || '');
+  return head && n && head[1].toLowerCase().replace(/ё/g, 'е').trim() === n ? note.slice(head[0].length) : note;
+}
 
 export const buzzFor = (h, days) => (days <= 1 && h.buzzNear ? h.buzzNear : h.buzz);
 
@@ -55,6 +61,7 @@ function floating(h, state) {
   if (!isFloating(h)) return {};
   const out = { shift: weekdayShiftOf(state) };
   if (isMD(h.lunar)) out.lunar = h.lunar;
+  if (Number.isInteger(h.easter)) out.easter = h.easter;
   if (typeof h.weekday === 'string') out.weekday = h.weekday;
   if (Number.isInteger(h.days) && h.days >= 1) out.days = h.days;
   return out;
@@ -121,9 +128,16 @@ export function mergeVacations(holidays, vacations) {
   const rest = [];
   const pairs = [];
   for (const v of vacations) {
-    const i = v.shift !== undefined ? -1 : out.findIndex((h) => !h.dated && h.shift === undefined && sameName(h.name, v.name) && (coversMD(h, v.from) || coversMD(v, h.from)));
+    const i = v.shift !== undefined
+      ? out.findIndex((h) => !h.dated && v.easter !== undefined && h.easter === v.easter && h.days === v.days && sameName(h.name, v.name))
+      : out.findIndex((h) => !h.dated && h.shift === undefined && sameName(h.name, v.name) && (coversMD(h, v.from) || coversMD(v, h.from)));
     if (i < 0) { rest.push(v); continue; }
     const h = out[i];
+    if (v.shift !== undefined) {
+      pairs.push({ holiday: holidays[i], vacation: v });
+      out[i] = { ...h, about: h.about || v.about, buzz: h.buzz || v.buzz, buzzNear: h.buzzNear || v.buzzNear, today: h.today || v.today, hook: h.hook || v.hook, off: true };
+      continue;
+    }
     pairs.push({ holiday: holidays[i], vacation: v });
     out[i] = {
       ...h,
@@ -221,7 +235,8 @@ export function holidayEnd(h, day) {
 export function hookText(h, preset) {
   const own = (preset && preset.phrases && preset.phrases.holidays) || {};
   const P = { ...DEFAULT_HOOK_PHRASES, ...own };
-  const vars = { name: h.name, hook: h.hook, note: bare(h.today) ? ` — ${bare(h.today)}` : '' };
+  const today = dropName(bare(h.today), h.name);
+  const vars = { name: h.name, hook: h.hook, note: today ? ` — ${today}` : '' };
   const template = h.hook ? P.hook : h.off ? P.hookOff : P.hookBare;
   return String(template).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
