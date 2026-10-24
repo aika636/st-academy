@@ -425,7 +425,9 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   }
   let rebased = false;
   if (payload.day !== undefined && payload.day !== null) {
-    const era = eraDrift(next, day);
+    const dy = parseDay(day).y - parseDay(cal.day).y;
+    const yearFix = source === 'manual' && dy !== 0 && Math.abs(diffDays(cal.day, shiftYears(day, -dy))) <= MANUAL_YEAR_FIX;
+    const era = yearFix ? { dy } : eraDrift(next, day);
     if (era && !opts.eraOk && !isFreshCalendar(next) && !opts.force) {
       const reason = `год в ответе (${parseDay(day).y}) далёк от календаря (${parseDay(cal.day).y}): перенос ждёт решения`;
       pushJournal(next, { kind: 'debug', text: reason, data: { at, source } }, preset);
@@ -539,6 +541,9 @@ function sameDayOtherYear(calDay, textDay) {
   }
   return null;
 }
+
+// Manual date with another year and nearly the same day and month fixes the year, not the time passed.
+const MANUAL_YEAR_FIX = 31;
 
 function eraDrift(state, textDay) {
   const dy = parseDay(textDay).y - parseDay(state.calendar.day).y;
