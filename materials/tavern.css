@@ -1,4 +1,4 @@
-.ad-diary[data-mat="tavern"], .ad-mat-scope[data-mat="tavern"] {
+.dia-diary[data-mat="tavern"], .dia-mat-scope[data-mat="tavern"] {
   --ad-tint: var(--SmartThemeBlurTintColor, #171717);
   --ad-cover: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 7%, var(--ad-tint));
   --ad-cover-edge: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, var(--ad-tint));
@@ -50,7 +50,7 @@
   --ad-doc-mark-display: none;
   --ad-gutter-w: 2px; --ad-gutter-bg: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, transparent);
 }
-.ad-mat-scope[data-mat="tavern"] .ad-bookmark { display: none; }
+.dia-mat-scope[data-mat="tavern"] .dia-bookmark { display: none; }
 @supports (color: rgb(from red r g b / 1)) {
-  .ad-diary[data-mat="tavern"], .ad-mat-scope[data-mat="tavern"] { --ad-tint: rgb(from var(--SmartThemeBlurTintColor, #171717) r g b / 1); }
+  .dia-diary[data-mat="tavern"], .dia-mat-scope[data-mat="tavern"] { --ad-tint: rgb(from var(--SmartThemeBlurTintColor, #171717) r g b / 1); }
 }

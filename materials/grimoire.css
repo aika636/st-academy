@@ -1,4 +1,4 @@
-.ad-diary[data-mat="grimoire"], .ad-mat-scope[data-mat="grimoire"] {
+.dia-diary[data-mat="grimoire"], .dia-mat-scope[data-mat="grimoire"] {
   --ad-cover: #211522; --ad-cover-edge: #170e18;
   --ad-page: #302735; --ad-grid: transparent; --ad-margin: #BDA46B;
   --ad-ink: #E8DECB; --ad-ink-soft: #BBAFC0;
@@ -88,31 +88,31 @@
 
   --ad-sign-c: #91445D; --ad-sign-line: #B39BCF; --ad-sign-c2: #E6CF8E;
 }
-.ad-diary[data-mat="grimoire"] .ad-hand { text-shadow: 0 0 7px rgba(170, 145, 198, .3); }
-.ad-diary[data-mat="grimoire"] input::placeholder, .ad-diary[data-mat="grimoire"] textarea::placeholder,
-.ad-mat-scope[data-mat="grimoire"] input::placeholder, .ad-mat-scope[data-mat="grimoire"] textarea::placeholder { color: color-mix(in srgb, var(--ad-ink) 62%, transparent) !important; }
-.ad-diary[data-mat="grimoire"] .ad-doc { border: 0 none; padding: 0; background-color: transparent; }
-.ad-diary[data-mat="grimoire"] .ad-doc-mark {
+.dia-diary[data-mat="grimoire"] .dia-hand { text-shadow: 0 0 7px rgba(170, 145, 198, .3); }
+.dia-diary[data-mat="grimoire"] input::placeholder, .dia-diary[data-mat="grimoire"] textarea::placeholder,
+.dia-mat-scope[data-mat="grimoire"] input::placeholder, .dia-mat-scope[data-mat="grimoire"] textarea::placeholder { color: color-mix(in srgb, var(--ad-ink) 62%, transparent) !important; }
+.dia-diary[data-mat="grimoire"] .dia-doc { border: 0 none; padding: 0; background-color: transparent; }
+.dia-diary[data-mat="grimoire"] .dia-doc-mark {
   width: 28px; height: 28px; padding: 4px; border-radius: 50%; color: #E6CF8E; transform: rotate(-8deg);
   background: radial-gradient(circle at 36% 30%, #A95770, #91445D 55%, #6C2F44); box-shadow: inset 0 0 0 2px rgba(108, 47, 68, .5);
 }
-.ad-diary[data-mat="grimoire"] .ad-doc:not([data-graded]) .ad-doc-mark { display: none; }
-.ad-diary[data-mat="grimoire"] [data-deal] > span, .ad-diary[data-mat="grimoire"] [data-deal] > div:first-child, .ad-diary[data-mat="grimoire"] textarea[data-for="note"] {
+.dia-diary[data-mat="grimoire"] .dia-doc:not([data-graded]) .dia-doc-mark { display: none; }
+.dia-diary[data-mat="grimoire"] [data-deal] > span, .dia-diary[data-mat="grimoire"] [data-deal] > div:first-child, .dia-diary[data-mat="grimoire"] textarea[data-for="note"] {
   font-family: var(--ad-f-pers); font-size: var(--ad-pers-size); line-height: 1.3; color: #B8A0D4;
 }
-.ad-diary[data-mat="grimoire"] div:has(> aside[data-holiday]) { gap: 0; }
-.ad-diary[data-mat="grimoire"] aside[data-holiday] + aside[data-holiday] { border-top: 1px solid rgba(48, 39, 53, .28); }
-.ad-diary[data-mat="grimoire"] .ad-marker { background: #AA91C6; border: 0; box-shadow: 0 0 6px rgba(170, 145, 198, .5); }
-.ad-diary[data-mat="grimoire"] .ad-marker[data-kind="today"] { background: #BDA46B; box-shadow: none; }
-.ad-diary[data-mat="grimoire"] .ad-tab {
+.dia-diary[data-mat="grimoire"] div:has(> aside[data-holiday]) { gap: 0; }
+.dia-diary[data-mat="grimoire"] aside[data-holiday] + aside[data-holiday] { border-top: 1px solid rgba(48, 39, 53, .28); }
+.dia-diary[data-mat="grimoire"] .dia-marker { background: #AA91C6; border: 0; box-shadow: 0 0 6px rgba(170, 145, 198, .5); }
+.dia-diary[data-mat="grimoire"] .dia-marker[data-kind="today"] { background: #BDA46B; box-shadow: none; }
+.dia-diary[data-mat="grimoire"] .dia-tab {
   padding-bottom: 12px; border: 0 none; border-top: 3px solid var(--ad-tc, #BDA46B);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 7px), 0 100%);
 }
-.ad-diary[data-mat="grimoire"] .ad-tab[aria-current="page"] { filter: brightness(1.12); }
-.ad-diary[data-mat="grimoire"] .ad-ribbon { display: block; width: 11px; height: 38px; }
-.ad-mat-scope[data-mat="grimoire"] .ad-bookmark { display: block; top: -5px; left: 7px; width: 12px; height: 12px; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); background: #91445D; }
+.dia-diary[data-mat="grimoire"] .dia-tab[aria-current="page"] { filter: brightness(1.12); }
+.dia-diary[data-mat="grimoire"] .dia-ribbon { display: block; width: 11px; height: 38px; }
+.dia-mat-scope[data-mat="grimoire"] .dia-bookmark { display: block; top: -5px; left: 7px; width: 12px; height: 12px; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); background: #91445D; }
 
-.ad-diary[data-mat="grimoire"], .ad-mat-scope[data-mat="grimoire"] {
+.dia-diary[data-mat="grimoire"], .dia-mat-scope[data-mat="grimoire"] {
   --ad-mg-crystals: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20120%20160%22%20opacity%3D%22.85%22%3E%3Cdefs%3E%3CradialGradient%20id%3D%22g%22%3E%3Cstop%20stop-color%3D%22%239ACFE3%22%20stop-opacity%3D%220.5%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239ACFE3%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3C%2Fdefs%3E%3Cellipse%20cx%3D%2262%22%20cy%3D%2286%22%20rx%3D%2262%22%20ry%3D%2274%22%20fill%3D%22url(%23g)%22%2F%3E%3Cg%20stroke%3D%22%23DDCEE8%22%20stroke-width%3D%221%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20fill%3D%22%239ACFE3%22%20d%3D%22M58%208l21%2024-5%2086-22%2025-16-34%207-80z%22%2F%3E%3Cpath%20fill%3D%22%23D2B8F2%22%20d%3D%22M58%208l3%2034-9%20101-16-34%207-80z%22%2F%3E%3Cpath%20fill%3D%22%236A82B2%22%20d%3D%22M61%2042l18-10-5%2086-22%2025z%22%2F%3E%3Cpath%20fill%3D%22%23DDCEE8%22%20d%3D%22M58%208l21%2024-18%2010-18-13z%22%2F%3E%3Cpath%20fill%3D%22%239ACFE3%22%20d%3D%22M92%2055l17%2016-16%2060-24%2015%205-31z%22%2F%3E%3Cpath%20fill%3D%22%23788CB8%22%20d%3D%22M96%2082l13-11-16%2060-24%2015z%22%2F%3E%3Cpath%20fill%3D%22%23D2B8F2%22%20d%3D%22M25%2070l18%2012%206%2054-15%2014-17-21z%22%2F%3E%3Cpath%20fill%3D%22%238F75B4%22%20d%3D%22M30%2093l13-11%206%2054-15%2014z%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22%23D5B875%22%3E%3Cpath%20d%3D%22M95%2023l2%207%207%202-7%202-2%207-2-7-7-2%207-2z%22%2F%3E%3Cpath%20d%3D%22M17%2048l1%204%204%201-4%201-1%204-1-4-4-1%204-1z%22%2F%3E%3Cpath%20d%3D%22M110%20108l1.5%205%205%201.5-5%201.5-1.5%205-1.5-5-5-1.5%205-1.5z%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");
   --ad-mg-crystalsR: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20120%20160%22%20opacity%3D%22.85%22%3E%3Cg%20transform%3D%22translate(120%200)%20scale(-1%201)%22%3E%3Cdefs%3E%3CradialGradient%20id%3D%22g%22%3E%3Cstop%20stop-color%3D%22%239ACFE3%22%20stop-opacity%3D%220.5%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%239ACFE3%22%20stop-opacity%3D%220%22%2F%3E%3C%2FradialGradient%3E%3C%2Fdefs%3E%3Cellipse%20cx%3D%2262%22%20cy%3D%2286%22%20rx%3D%2262%22%20ry%3D%2274%22%20fill%3D%22url(%23g)%22%2F%3E%3Cg%20stroke%3D%22%23DDCEE8%22%20stroke-width%3D%221%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20fill%3D%22%239ACFE3%22%20d%3D%22M58%208l21%2024-5%2086-22%2025-16-34%207-80z%22%2F%3E%3Cpath%20fill%3D%22%23D2B8F2%22%20d%3D%22M58%208l3%2034-9%20101-16-34%207-80z%22%2F%3E%3Cpath%20fill%3D%22%236A82B2%22%20d%3D%22M61%2042l18-10-5%2086-22%2025z%22%2F%3E%3Cpath%20fill%3D%22%23DDCEE8%22%20d%3D%22M58%208l21%2024-18%2010-18-13z%22%2F%3E%3Cpath%20fill%3D%22%239ACFE3%22%20d%3D%22M92%2055l17%2016-16%2060-24%2015%205-31z%22%2F%3E%3Cpath%20fill%3D%22%23788CB8%22%20d%3D%22M96%2082l13-11-16%2060-24%2015z%22%2F%3E%3Cpath%20fill%3D%22%23D2B8F2%22%20d%3D%22M25%2070l18%2012%206%2054-15%2014-17-21z%22%2F%3E%3Cpath%20fill%3D%22%238F75B4%22%20d%3D%22M30%2093l13-11%206%2054-15%2014z%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22%23D5B875%22%3E%3Cpath%20d%3D%22M95%2023l2%207%207%202-7%202-2%207-2-7-7-2%207-2z%22%2F%3E%3Cpath%20d%3D%22M17%2048l1%204%204%201-4%201-1%204-1-4-4-1%204-1z%22%2F%3E%3Cpath%20d%3D%22M110%20108l1.5%205%205%201.5-5%201.5-1.5%205-1.5-5-5-1.5%205-1.5z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
   --ad-mg-circle: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20200%20200%22%20opacity%3D%22.09%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23D5B875%22%20stroke-width%3D%221.6%22%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%22100%22%20r%3D%2291%22%2F%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%22100%22%20r%3D%2277%22%2F%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%22100%22%20r%3D%2242%22%2F%3E%3Cpath%20d%3D%22M100%2023l67%20116H33z%22%2F%3E%3Cpath%20d%3D%22M100%20177L33%2061h134z%22%2F%3E%3Cpath%20d%3D%22M100%209v14M100%20177v14M9%20100h14M177%20100h14%22%2F%3E%3Cpath%20d%3D%22M36%2036l10%2010M154%20154l10%2010M36%20164l10-10M154%2046l10-10%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23D2B8F2%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M94%2048l6-8%206%208M100%2040v15%22%2F%3E%3Cpath%20d%3D%22M150%2093l8%207-8%207M158%20100h-15%22%2F%3E%3Cpath%20d%3D%22M94%20152l6%208%206-8M100%20145v15%22%2F%3E%3Cpath%20d%3D%22M50%2093l-8%207%208%207M42%20100h15%22%2F%3E%3C%2Fg%3E%3Cg%20fill%3D%22%23D5B875%22%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%229%22%20r%3D%222.4%22%2F%3E%3Ccircle%20cx%3D%22100%22%20cy%3D%22191%22%20r%3D%222.4%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%22100%22%20r%3D%222.4%22%2F%3E%3Ccircle%20cx%3D%22191%22%20cy%3D%22100%22%20r%3D%222.4%22%2F%3E%3C%2Fg%3E%3Cpath%20fill%3D%22%239ACFE3%22%20d%3D%22M100%2083l10%2017-10%2017-10-17z%22%2F%3E%3C%2Fsvg%3E");
@@ -132,24 +132,24 @@
   --ad-sign-mark: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201%201%22%2F%3E");
 }
 
-.ad-diary[data-mat="grimoire"] .ad-page { --ad-mg-base: var(--ad-surface-img); --ad-mg-q: none; }
-.ad-diary[data-mat="grimoire"] .ad-page:is(.ad-plain, .ad-inner) { --ad-mg-base: var(--ad-plain-img, none); }
-.ad-diary[data-mat="grimoire"] [data-tab="today"] .ad-page[data-side="left"] { --ad-mg-q: var(--ad-mg-quill); }
-.ad-diary[data-mat="grimoire"] .ad-page {
+.dia-diary[data-mat="grimoire"] .dia-page { --ad-mg-base: var(--ad-surface-img); --ad-mg-q: none; }
+.dia-diary[data-mat="grimoire"] .dia-page:is(.dia-plain, .dia-inner) { --ad-mg-base: var(--ad-plain-img, none); }
+.dia-diary[data-mat="grimoire"] [data-tab="today"] .dia-page[data-side="left"] { --ad-mg-q: var(--ad-mg-quill); }
+.dia-diary[data-mat="grimoire"] .dia-page {
   background-image: var(--ad-mg-q), var(--ad-mg-crystals), var(--ad-mg-circle), var(--ad-mg-starL),
     radial-gradient(ellipse 260px 220px at 0 0, rgba(154, 207, 227, .12), transparent 70%), radial-gradient(ellipse 70% 38% at 50% 100%, rgba(150, 110, 200, .12), transparent 75%), var(--ad-mg-base);
   background-size: 24px 72px, 64px 88px, 280px 280px, 96px 1000px, auto, auto, var(--ad-surface-size);
   background-position: left 20px top 108px, left 2px top 2px, right -140px top 430px, left 0 top 0, 0 0, 0 0, 0 0;
   background-repeat: no-repeat, no-repeat, no-repeat, repeat-y, no-repeat, no-repeat, repeat;
 }
-.ad-diary[data-mat="grimoire"] .ad-page[data-side="right"] {
+.dia-diary[data-mat="grimoire"] .dia-page[data-side="right"] {
   background-image: var(--ad-mg-spk), var(--ad-mg-circle), var(--ad-mg-starR),
     radial-gradient(ellipse 280px 240px at 100% 0, rgba(154, 207, 227, .1), transparent 70%), radial-gradient(ellipse 70% 38% at 50% 100%, rgba(150, 110, 200, .12), transparent 75%), var(--ad-mg-base);
   background-size: 22px 22px, 280px 280px, 96px 1000px, auto, auto, var(--ad-surface-size);
   background-position: right 14px top 10px, left -140px top 430px, right 0 top 0, 0 0, 0 0, 0 0;
   background-repeat: no-repeat, no-repeat, repeat-y, no-repeat, no-repeat, repeat;
 }
-.ad-diary[data-mat="grimoire"] .ad-page:is(.ad-full, .ad-plain, .ad-inner)[data-side="left"] {
+.dia-diary[data-mat="grimoire"] .dia-page:is(.dia-full, .dia-plain, .dia-inner)[data-side="left"] {
   background-image: var(--ad-mg-crystalsR), var(--ad-mg-circle), var(--ad-mg-starR),
     radial-gradient(ellipse 280px 240px at 100% 0, rgba(154, 207, 227, .1), transparent 70%), var(--ad-mg-base);
   background-size: 64px 88px, 280px 280px, 96px 1000px, auto, var(--ad-surface-size);
@@ -157,13 +157,13 @@
   background-repeat: no-repeat, no-repeat, repeat-y, no-repeat, repeat;
 }
 @container academy-panel (max-width: 759px) {
-  .ad-diary[data-mat="grimoire"] .ad-page {
+  .dia-diary[data-mat="grimoire"] .dia-page {
     background-size: 24px 72px, 40px 55px, 140px 140px, 64px 800px, auto, auto, var(--ad-surface-size);
     background-position: left 12px top 66px, left 2px top 2px, right -70px top 540px, left 0 top 0, 0 0, 0 0, 0 0;
     background-image: var(--ad-mg-q), var(--ad-mg-crystals), var(--ad-mg-circleS), var(--ad-mg-starPL),
       radial-gradient(ellipse 260px 220px at 0 0, rgba(154, 207, 227, .12), transparent 70%), radial-gradient(ellipse 70% 38% at 50% 100%, rgba(150, 110, 200, .12), transparent 75%), var(--ad-mg-base);
   }
-  .ad-diary[data-mat="grimoire"] .ad-page[data-side="right"], .ad-diary[data-mat="grimoire"] .ad-page:is(.ad-full, .ad-plain, .ad-inner)[data-side="left"] {
+  .dia-diary[data-mat="grimoire"] .dia-page[data-side="right"], .dia-diary[data-mat="grimoire"] .dia-page:is(.dia-full, .dia-plain, .dia-inner)[data-side="left"] {
     background-image: var(--ad-mg-crystalsR), var(--ad-mg-circleS), var(--ad-mg-starPR),
       radial-gradient(ellipse 260px 220px at 100% 0, rgba(154, 207, 227, .12), transparent 70%), var(--ad-mg-base);
     background-size: 40px 55px, 140px 140px, 64px 800px, auto, var(--ad-surface-size);
@@ -171,17 +171,17 @@
     background-repeat: no-repeat, no-repeat, repeat-y, no-repeat, repeat;
   }
 }
-.ad-diary[data-mat="grimoire"] { --ad-h2-pad: 28px; --ad-h2-rule-w: 126px; --ad-h2-rule-h: 29px; --ad-h2-rule-bottom: -3px; --ad-h2-rule: var(--ad-mg-spark) left center / 100% 100% no-repeat; }
-.ad-diary[data-mat="grimoire"] { --ad-sticker-bg-even: #E9DDC4; --ad-sticker-bg-3n: #E9DDC4; --ad-sticker-pad: 13px 14px; }
-.ad-diary[data-mat="grimoire"] aside[data-holiday] + aside[data-holiday] { border-top-color: #B8A581; }
-.ad-diary[data-mat="grimoire"] .ad-tab { position: relative; padding-top: 16px; border-top-color: color-mix(in srgb, var(--ad-tc, #BDA46B) 50%, transparent); }
-.ad-diary[data-mat="grimoire"] .ad-tab::before {
+.dia-diary[data-mat="grimoire"] { --ad-h2-pad: 28px; --ad-h2-rule-w: 126px; --ad-h2-rule-h: 29px; --ad-h2-rule-bottom: -3px; --ad-h2-rule: var(--ad-mg-spark) left center / 100% 100% no-repeat; }
+.dia-diary[data-mat="grimoire"] { --ad-sticker-bg-even: #E9DDC4; --ad-sticker-bg-3n: #E9DDC4; --ad-sticker-pad: 13px 14px; }
+.dia-diary[data-mat="grimoire"] aside[data-holiday] + aside[data-holiday] { border-top-color: #B8A581; }
+.dia-diary[data-mat="grimoire"] .dia-tab { position: relative; padding-top: 16px; border-top-color: color-mix(in srgb, var(--ad-tc, #BDA46B) 50%, transparent); }
+.dia-diary[data-mat="grimoire"] .dia-tab::before {
   content: ""; position: absolute; top: 4px; left: 50%; width: 8px; height: 12px; margin-left: -4px; pointer-events: none;
   background: var(--ad-tc, #BDA46B); -webkit-mask: var(--ad-mg-gem) center / contain no-repeat; mask: var(--ad-mg-gem) center / contain no-repeat;
 }
-.ad-diary[data-mat="grimoire"] .ad-tab[aria-current="page"]::after {
+.dia-diary[data-mat="grimoire"] .dia-tab[aria-current="page"]::after {
   content: ""; position: absolute; top: 4px; left: 50%; width: 62px; height: 14px; margin-left: -31px; pointer-events: none; background: var(--ad-mg-flank) center / 100% 100% no-repeat, radial-gradient(circle at 50% 50%, rgba(154, 207, 227, .3), transparent 42%);
 }
-.ad-diary[data-mat="grimoire"] { --ad-sign-line: #AA91C6; --ad-sign-c: #86405F; --ad-sign-c3: #9ACFE3; }
-.ad-diary[data-mat="grimoire"] .ad-award .ad-sign::before { filter: drop-shadow(0 0 3px rgba(154, 207, 227, .55)); }
-@media (forced-colors: active) { .ad-diary[data-mat="grimoire"] .ad-page { background-image: none !important; } .ad-diary[data-mat="grimoire"] .ad-tab::before, .ad-diary[data-mat="grimoire"] .ad-tab::after { display: none; } }
+.dia-diary[data-mat="grimoire"] { --ad-sign-line: #AA91C6; --ad-sign-c: #86405F; --ad-sign-c3: #9ACFE3; }
+.dia-diary[data-mat="grimoire"] .dia-award .dia-sign::before { filter: drop-shadow(0 0 3px rgba(154, 207, 227, .55)); }
+@media (forced-colors: active) { .dia-diary[data-mat="grimoire"] .dia-page { background-image: none !important; } .dia-diary[data-mat="grimoire"] .dia-tab::before, .dia-diary[data-mat="grimoire"] .dia-tab::after { display: none; } }

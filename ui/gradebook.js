@@ -158,7 +158,7 @@ export function awaitingView(state, preset) {
 let sealSeq = 0;
 
 function sealMark(text) {
-  const mark = svgIcon('tick', 'ad-doc-mark');
+  const mark = svgIcon('tick', 'dia-doc-mark');
   if (typeof document.createElementNS !== 'function') return mark;
   const name = String(text || '').trim().toUpperCase();
   const size = name.length > 18 ? Math.max(5, (9 * 18) / name.length) : 9;
@@ -183,41 +183,41 @@ function closedSubject(state, preset, subjectId) {
 
 function subjectRow(s, U, X, noGradesAtAll) {
   const tags = [
-    s.debt ? el('span', { class: 'ad-st ad-debt', text: U.debtTag }) : null,
-    s.passed ? el('span', { class: 'ad-st ad-ok', text: U.passedTag }) : null,
-    s.going ? el('span', { class: 'ad-st ad-going', text: U.ongoingTag, title: X.ongoingHint }) : null,
+    s.debt ? el('span', { class: 'dia-st dia-debt', text: U.debtTag }) : null,
+    s.passed ? el('span', { class: 'dia-st dia-ok', text: U.passedTag }) : null,
+    s.going ? el('span', { class: 'dia-st dia-going', text: U.ongoingTag, title: X.ongoingHint }) : null,
   ];
   const marks = s.marks.length
-    ? el('span', { class: 'ad-marks' }, s.marks.map((m) => el('span', {
-      class: 'ad-mark', dataset: m.bad ? { bad: '1' } : {}, text: m.value,
+    ? el('span', { class: 'dia-marks' }, s.marks.map((m) => el('span', {
+      class: 'dia-mark', dataset: m.bad ? { bad: '1' } : {}, text: m.value,
     })))
-    : (noGradesAtAll ? null : el('span', { class: 'ad-none', text: U.noGrades }));
+    : (noGradesAtAll ? null : el('span', { class: 'dia-none', text: U.noGrades }));
   const rel = s.relation ? (s.score ? `${s.relation} · ${s.score}` : s.relation) : '';
   const extra = [
-    s.attendanceText ? el('span', { class: 'ad-gr-att', text: s.attendanceText }) : null,
-    s.reason ? el('span', { class: 'ad-gr-reason', text: s.reason }) : null,
-    s.debtReason ? el('span', { class: 'ad-gr-reason', text: s.debtReason }) : null,
+    s.attendanceText ? el('span', { class: 'dia-gr-att', text: s.attendanceText }) : null,
+    s.reason ? el('span', { class: 'dia-gr-reason', text: s.reason }) : null,
+    s.debtReason ? el('span', { class: 'dia-gr-reason', text: s.debtReason }) : null,
   ].filter(Boolean);
-  return el('div', { class: s.debt ? 'ad-gr-row ad-gr-debt' : 'ad-gr-row', dataset: { subject: s.id } }, [
-    el('div', { class: 'ad-gr-subj', text: s.name }),
+  return el('div', { class: s.debt ? 'dia-gr-row dia-gr-debt' : 'dia-gr-row', dataset: { subject: s.id } }, [
+    el('div', { class: 'dia-gr-subj', text: s.name }),
     el('div', {
-      class: 'ad-gr-avg',
+      class: 'dia-gr-avg',
       text: s.marks.length && s.average != null ? s.averageText : '',
       title: s.marks.length && s.average != null ? fill(U.cmdAverage, { value: s.averageText }) : null,
     }),
-    el('div', { class: 'ad-gr-marks' }, [marks, ...tags]),
-    el('div', { class: 'ad-gr-teacher' }, [
-      el('span', { class: 'ad-t', text: s.teacher || '—' }),
-      rel ? el('span', { class: 'ad-r', text: rel }) : null,
+    el('div', { class: 'dia-gr-marks' }, [marks, ...tags]),
+    el('div', { class: 'dia-gr-teacher' }, [
+      el('span', { class: 'dia-t', text: s.teacher || '—' }),
+      rel ? el('span', { class: 'dia-r', text: rel }) : null,
     ]),
-    extra.length ? el('div', { class: 'ad-gr-extra' }, extra) : null,
+    extra.length ? el('div', { class: 'dia-gr-extra' }, extra) : null,
   ]);
 }
 
 function warnBox(title, items, { info = false, sub = '', cls = '' } = {}) {
-  return el('div', { class: `ad-box-warn${info ? ' ad-info' : ''}${cls ? ` ${cls}` : ''}` }, [
-    el('div', { class: 'ad-bw-h', text: title }),
-    sub ? el('div', { class: 'ad-small ad-soft', text: sub }) : null,
+  return el('div', { class: `dia-box-warn${info ? ' dia-info' : ''}${cls ? ` ${cls}` : ''}` }, [
+    el('div', { class: 'dia-bw-h', text: title }),
+    sub ? el('div', { class: 'dia-small dia-soft', text: sub }) : null,
     el('ul', {}, items.map((t) => el('li', { text: t }))),
   ]);
 }
@@ -236,16 +236,16 @@ export function renderGradebook(host, view, preset) {
   const rows = view.subjects.filter((s) => !folded.has(s.id));
 
   const body = [];
-  if (!view.subjects.length) body.push(el('div', { class: 'ad-silent', text: U.noSubjects }));
+  if (!view.subjects.length) body.push(el('div', { class: 'dia-silent', text: U.noSubjects }));
   else {
-    if (noGradesAtAll) body.push(el('div', { class: 'ad-silent', text: U.noGradesAll }));
-    body.push(el('div', { class: 'ad-gr' }, [
-      el('div', { class: 'ad-gr-head', 'aria-hidden': 'true' }, [el('span', { text: upFirst(subjectWord(preset)) }), el('span', { text: X.gradeColumn })]),
+    if (noGradesAtAll) body.push(el('div', { class: 'dia-silent', text: U.noGradesAll }));
+    body.push(el('div', { class: 'dia-gr' }, [
+      el('div', { class: 'dia-gr-head', 'aria-hidden': 'true' }, [el('span', { text: upFirst(subjectWord(preset)) }), el('span', { text: X.gradeColumn })]),
       ...rows.map((s) => subjectRow(s, U, X, noGradesAtAll)),
     ]));
     if (folded.size) {
       body.push(el('div', {
-        class: 'ad-silent ad-gr-rest',
+        class: 'dia-silent dia-gr-rest',
         text: fill(X.noGradesRest, { names: bareList.map((s) => s.name).join(', ') }),
       }));
     }
@@ -253,28 +253,28 @@ export function renderGradebook(host, view, preset) {
 
   const alarm0 = view.expelled ? U.expelledTag : view.warned ? U.warnedTag : '';
   const alarm = alarm0 && !String(view.reputation || '').toLowerCase().includes(String(alarm0).toLowerCase()) ? alarm0 : '';
-  const doc = el('div', { class: 'ad-doc', dataset: view.subjects.some((s) => s.grades.length) ? { graded: '1' } : {} }, [
-    el('i', { class: 'ad-attach', dataset: { for: 'doc', pos: 'l' } }),
-    el('i', { class: 'ad-attach', dataset: { for: 'doc', pos: 'r' } }),
-    el('div', { class: 'ad-doc-head' }, [
-      el('div', {}, [el('div', { class: 'ad-doc-title', text: U.tabGradebook })]),
+  const doc = el('div', { class: 'dia-doc', dataset: view.subjects.some((s) => s.grades.length) ? { graded: '1' } : {} }, [
+    el('i', { class: 'dia-attach', dataset: { for: 'doc', pos: 'l' } }),
+    el('i', { class: 'dia-attach', dataset: { for: 'doc', pos: 'r' } }),
+    el('div', { class: 'dia-doc-head' }, [
+      el('div', {}, [el('div', { class: 'dia-doc-title', text: U.tabGradebook })]),
       sealMark(view.seal),
     ]),
-    el('div', { class: 'ad-doc-sum' }, [
+    el('div', { class: 'dia-doc-sum' }, [
       el('div', {
-        class: Number.isFinite(view.overall) ? 'ad-big' : 'ad-big ad-big-none',
+        class: Number.isFinite(view.overall) ? 'dia-big' : 'dia-big dia-big-none',
         title: Number.isFinite(view.overall) ? U.scoreHint : null,
         text: Number.isFinite(view.overall) ? view.overallText : '—',
       }),
-      el('div', { class: 'ad-lab', title: Number.isFinite(view.overall) ? U.scoreHint : null, text: Number.isFinite(view.overall) ? view.scoreName : U.scoreNoneLine }),
-      el('div', { class: 'ad-rep' }, [
+      el('div', { class: 'dia-lab', title: Number.isFinite(view.overall) ? U.scoreHint : null, text: Number.isFinite(view.overall) ? view.scoreName : U.scoreNoneLine }),
+      el('div', { class: 'dia-rep' }, [
         `${U.reputationTitle}: ${view.reputation}`,
         alarm ? ' ' : null,
-        alarm ? el('span', { class: 'ad-alarm', text: alarm }) : null,
+        alarm ? el('span', { class: 'dia-alarm', text: alarm }) : null,
       ]),
     ]),
     ...body,
-    view.legend ? el('details', { class: 'ad-doc-legend' }, [el('summary', { text: view.legendTitle }), el('div', { text: `${view.legend}.` })]) : null,
+    view.legend ? el('details', { class: 'dia-doc-legend' }, [el('summary', { text: view.legendTitle }), el('div', { text: `${view.legend}.` })]) : null,
   ]);
 
   const boxes = [];
@@ -291,7 +291,7 @@ export function renderGradebook(host, view, preset) {
   const common = { marginDate: view.marginDate };
   if (spread) return { ...common, l: doc, r: boxes.length ? boxes : null, blankRight: !boxes.length };
   const strip = view.strip.length
-    ? el('div', { class: 'ad-strip' }, view.strip.map((t) => el('span', { text: t })))
+    ? el('div', { class: 'dia-strip' }, view.strip.map((t) => el('span', { text: t })))
     : null;
   return { ...common, l: [strip, doc, ...boxes], r: null, blankRight: true };
 }

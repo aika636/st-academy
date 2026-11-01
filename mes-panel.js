@@ -204,7 +204,7 @@ export function summaryText(view) {
   return when ? `${when} | ${what}` : what;
 }
 
-const PANEL_CLASS = 'ad-mpanel';
+const PANEL_CLASS = 'dia-mpanel';
 
 const open = new Set();
 const saved = new Set();
@@ -302,9 +302,9 @@ function buildPanel(host, mesId, view, look) {
   const isOpen = open.has(mesId) || Boolean(view.draft) || Boolean(view.error) || Boolean(view.invite) || Boolean(view.jumpAsk) || Boolean(view.promises && view.promises.length) || Boolean(view.decisions && view.decisions.length);
   if (view.draft || view.error) open.add(mesId);
   const busy = Boolean(view.busy);
-  const content = el('div', { class: 'ad-mp-body' });
+  const content = el('div', { class: 'dia-mp-body' });
   if (!isOpen) content.hidden = true;
-  const footer = el('div', { class: 'ad-mp-footer' });
+  const footer = el('div', { class: 'dia-mp-footer' });
   footer.hidden = !isOpen;
 
   const analyze = (e) => {
@@ -318,7 +318,7 @@ function buildPanel(host, mesId, view, look) {
     else open.delete(mesId);
     content.hidden = !open.has(mesId);
     footer.hidden = !open.has(mesId) || !footer.children.length;
-    panelNode.classList.toggle('ad-open', open.has(mesId));
+    panelNode.classList.toggle('dia-open', open.has(mesId));
     toggle.setAttribute('aria-expanded', open.has(mesId) ? 'true' : 'false');
   };
 
@@ -328,7 +328,7 @@ function buildPanel(host, mesId, view, look) {
   const analyzedNow = view.analyzed || view.draft;
 
   const toggle = el('div', {
-    class: 'ad-mp-top',
+    class: 'dia-mp-top',
     role: 'button',
     tabindex: '0',
     'aria-expanded': isOpen ? 'true' : 'false',
@@ -338,38 +338,38 @@ function buildPanel(host, mesId, view, look) {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); }
     },
   }, [
-    el('span', { class: 'ad-mp-st', title: stateTitle }, [icon(stateKind)]),
-    el('span', { class: 'ad-mp-sum', title: [parts.what, parts.when].filter(Boolean).join(' · ') }, [
+    el('span', { class: 'dia-mp-st', title: stateTitle }, [icon(stateKind)]),
+    el('span', { class: 'dia-mp-sum', title: [parts.what, parts.when].filter(Boolean).join(' · ') }, [
       busy ? (view.progress || PANEL_TEXT.analyzing) : (view.error || view.cancelled || view.wait || parts.what),
     ]),
-    el('span', { class: 'ad-mp-chev', 'aria-hidden': 'true' }, [icon('chev')]),
+    el('span', { class: 'dia-mp-chev', 'aria-hidden': 'true' }, [icon('chev')]),
     busy && view.cancellable && host.cancelAnalysis ? el('button', {
       type: 'button',
-      class: 'ad-mp-go ad-mp-cancel',
+      class: 'dia-mp-go dia-mp-cancel',
       title: PANEL_TEXT.cancel,
       'aria-label': PANEL_TEXT.cancel,
       onclick: (e) => { e.stopPropagation(); run(host.cancelAnalysis(mesId)); },
     }, [icon('x'), el('span', { text: PANEL_TEXT.cancel })]) : el('button', {
       type: 'button',
-      class: 'ad-mp-go',
+      class: 'dia-mp-go',
       title: analyzedNow ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
       'aria-label': analyzedNow ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
       disabled: busy,
       onclick: analyze,
     }, [
-      icon(busy ? 'dash' : 'wand', busy ? 'ad-spin' : ''),
+      icon(busy ? 'dash' : 'wand', busy ? 'dia-spin' : ''),
       !analyzedNow && !busy ? el('span', { text: PANEL_TEXT.analyze }) : null,
     ]),
   ]);
 
-  if (parts.when) content.append(el('div', { class: 'ad-mp-meta', text: parts.when }));
-  if (view.summary) content.append(el('div', { class: 'ad-mp-quote', text: view.summary }));
+  if (parts.when) content.append(el('div', { class: 'dia-mp-meta', text: parts.when }));
+  if (view.summary) content.append(el('div', { class: 'dia-mp-quote', text: view.summary }));
 
   const labels = { ...LABELS, ...(view.labels || {}) };
   if (!view.analyzed && !view.draft) {
-    content.append(el('div', { class: 'ad-mp-sec' }, [
+    content.append(el('div', { class: 'dia-mp-sec' }, [
       el('h4', {}, [icon('search'), el('span', { text: PANEL_TEXT.lookingFor })]),
-      el('p', { class: 'ad-mp-note', text: PANEL_TEXT.lookingForHint.replace('{heroIns}', labels.heroIns || 'героем') }),
+      el('p', { class: 'dia-mp-note', text: PANEL_TEXT.lookingForHint.replace('{heroIns}', labels.heroIns || 'героем') }),
     ]));
   }
 
@@ -379,47 +379,47 @@ function buildPanel(host, mesId, view, look) {
     if (!p) return [t.text];
     const who = p.style === 'person'
       ? el('b', { text: p.who })
-      : el('span', { class: 'ad-mp-nick', text: p.who, ...(p.style === 'mask' ? { title: PANEL_TEXT.nickHint } : {}) });
+      : el('span', { class: 'dia-mp-nick', text: p.who, ...(p.style === 'mask' ? { title: PANEL_TEXT.nickHint } : {}) });
     return [who, `: «${p.say}»`];
   };
   const candidateButtons = (t) => (Array.isArray(t.targets) && t.targets.length
     ? t.targets.map((g) => el('button', {
       type: 'button',
-      class: 'ad-mp-add',
+      class: 'dia-mp-add',
       title: fillText(PANEL_TEXT.toCourseHint, { course: g.hint || labels.course }),
       disabled: busy,
       onclick: () => run(host.confirmCandidate(mesId, t.candidate, g.as)),
     }, [el('span', { text: g.label })]))
     : [el('button', {
       type: 'button',
-      class: 'ad-mp-add',
+      class: 'dia-mp-add',
       title: fillText(PANEL_TEXT.toCourseHint, labels),
       disabled: busy,
       onclick: () => run(host.confirmCandidate(mesId, t.candidate)),
     }, [el('span', { text: PANEL_TEXT.toCourse })])]);
   const rowActions = (t, rest) => (t.candidate && host.confirmCandidate
-    ? [el('div', { class: 'ad-mp-acts' }, [...candidateButtons(t), ...rest])]
+    ? [el('div', { class: 'dia-mp-acts' }, [...candidateButtons(t), ...rest])]
     : rest);
   const tokenRow = (t) => {
-    const li = el('li', t.nick ? { class: 'ad-nick', title: PANEL_TEXT.nickHint } : {}, [
+    const li = el('li', t.nick ? { class: 'dia-nick', title: PANEL_TEXT.nickHint } : {}, [
       t.avatar ? miniAvatar(t.avatar) : null,
-      el('span', { class: 'ad-t' }, [
+      el('span', { class: 'dia-t' }, [
         ...textNode(t),
-        t.about ? el('span', { class: 'ad-mp-about', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
+        t.about ? el('span', { class: 'dia-mp-about', text: fillText(PANEL_TEXT.onFact, { fact: t.about }) }) : null,
       ]),
       ...rowActions(t, [
       el('button', {
         type: 'button',
-        class: 'ad-mp-x',
+        class: 'dia-mp-x',
         title: PANEL_TEXT.drop,
         'aria-label': PANEL_TEXT.drop,
         disabled: busy,
         onclick: () => {
-          li.classList.add('ad-struck');
+          li.classList.add('dia-struck');
           Promise.resolve(host.dropToken(mesId, t.index)).then((res) => {
-            if (res && res.ok === false) li.classList.remove('ad-struck');
+            if (res && res.ok === false) li.classList.remove('dia-struck');
           }).catch((err) => {
-            li.classList.remove('ad-struck');
+            li.classList.remove('dia-struck');
             console.warn('[academy] действие плашки не удалось:', err);
           });
         },
@@ -430,12 +430,12 @@ function buildPanel(host, mesId, view, look) {
   };
   if (view.invite && host.answerInvite) {
     const ask = (answer) => run(host.answerInvite(mesId, answer));
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
-      el('ul', {}, [el('li', { class: 'ad-mp-ask' }, [
-        el('span', { class: 'ad-t', text: view.invite.text }),
-        el('div', { class: 'ad-mp-ask-btns' }, [
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask('yes') }, [el('span', { text: view.invite.go })]),
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask('no') }, [el('span', { text: view.invite.decline })]),
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-invite' }, [
+      el('ul', {}, [el('li', { class: 'dia-mp-ask' }, [
+        el('span', { class: 'dia-t', text: view.invite.text }),
+        el('div', { class: 'dia-mp-ask-btns' }, [
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => ask('yes') }, [el('span', { text: view.invite.go })]),
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => ask('no') }, [el('span', { text: view.invite.decline })]),
         ]),
       ])]),
     ]));
@@ -448,37 +448,37 @@ function buildPanel(host, mesId, view, look) {
       } else jumpErrors.delete(mesId);
       renderMessagePanels(host);
     }));
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
-      el('ul', {}, [el('li', { class: 'ad-mp-ask' }, [
-        el('span', { class: 'ad-t', text: view.jumpAsk.text }),
-        el('div', { class: 'ad-mp-ask-btns' }, [
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask(true) }, [el('span', { text: view.jumpAsk.go })]),
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => ask(false) }, [el('span', { text: view.jumpAsk.decline })]),
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-invite' }, [
+      el('ul', {}, [el('li', { class: 'dia-mp-ask' }, [
+        el('span', { class: 'dia-t', text: view.jumpAsk.text }),
+        el('div', { class: 'dia-mp-ask-btns' }, [
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => ask(true) }, [el('span', { text: view.jumpAsk.go })]),
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => ask(false) }, [el('span', { text: view.jumpAsk.decline })]),
         ]),
       ])]),
     ]));
   }
   if (view.promises && view.promises.length && host.answerPromise) {
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
-      el('ul', {}, view.promises.map((q) => el('li', { class: 'ad-mp-ask' }, [
-        el('span', { class: 'ad-t', text: q.text }),
-        el('div', { class: 'ad-mp-ask-btns' }, [
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => run(host.answerPromise(mesId, q.key, true)) }, [el('span', { text: q.yes })]),
-          el('button', { type: 'button', class: 'ad-mp-add', disabled: busy, onclick: () => run(host.answerPromise(mesId, q.key, false)) }, [el('span', { text: q.no })]),
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-invite' }, [
+      el('ul', {}, view.promises.map((q) => el('li', { class: 'dia-mp-ask' }, [
+        el('span', { class: 'dia-t', text: q.text }),
+        el('div', { class: 'dia-mp-ask-btns' }, [
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => run(host.answerPromise(mesId, q.key, true)) }, [el('span', { text: q.yes })]),
+          el('button', { type: 'button', class: 'dia-mp-add', disabled: busy, onclick: () => run(host.answerPromise(mesId, q.key, false)) }, [el('span', { text: q.no })]),
         ]),
       ]))),
     ]));
   }
   if (view.decisions && view.decisions.length) {
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-invite' }, [
-      el('ul', {}, view.decisions.map((t) => el('li', {}, [el('span', { class: 'ad-t', text: t })]))),
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-invite' }, [
+      el('ul', {}, view.decisions.map((t) => el('li', {}, [el('span', { class: 'dia-t', text: t })]))),
     ]));
   }
   const searching = !view.analyzed && !view.draft;
   for (const s of SECTIONS) {
     const mine = tokens.filter((t) => t.kind === s.kind);
     if (!mine.length && !searching) continue;
-    content.append(el('div', { class: 'ad-mp-sec', 'data-kind': s.kind }, [
+    content.append(el('div', { class: 'dia-mp-sec', 'data-kind': s.kind }, [
       el('h4', {}, [icon(SECTION_ICON[s.kind] || 'scroll'), el('span', { text: sectionLabel(s, labels) })]),
       mine.length ? el('ul', {}, mine.map(tokenRow)) : null,
     ]));
@@ -491,56 +491,56 @@ function buildPanel(host, mesId, view, look) {
   const postRows = (t) => {
     const row = tokenRow(t);
     if (!t.replies.length) return [row];
-    return [row, el('li', { class: 'ad-thr' }, [el('ul', { class: 'ad-mp-thread' }, t.replies.map(tokenRow))])];
+    return [row, el('li', { class: 'dia-thr' }, [el('ul', { class: 'dia-mp-thread' }, t.replies.map(tokenRow))])];
   };
   if (talk.length || elsewhere.length) {
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-talk' }, [
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-talk' }, [
       el('h4', {}, [
-        icon('chat'), el('span', {}, [PANEL_TEXT.talk, loudRows.length ? el('span', { class: 'ad-mp-about ad-mp-loud', text: ` · ${loudText}` }) : null]),
+        icon('chat'), el('span', {}, [PANEL_TEXT.talk, loudRows.length ? el('span', { class: 'dia-mp-about dia-mp-loud', text: ` · ${loudText}` }) : null]),
       ]),
       el('ul', {}, [...talk.flatMap(postRows), ...elsewhere.map(tokenRow)]),
       el('p', {
-        class: 'ad-mp-note',
+        class: 'dia-mp-note',
         text: fillText(view.analyzed && !view.draft ? PANEL_TEXT.talkHintSaved : PANEL_TEXT.talkHint, { crowdIn: labels.crowdIn, tab: labels.feedTab }),
       }),
     ]));
   } else if (loudRows.length) {
-    content.append(el('div', { class: 'ad-mp-sec ad-mp-talk' }, [
+    content.append(el('div', { class: 'dia-mp-sec dia-mp-talk' }, [
       el('h4', {}, [
-        icon('chat'), alone ? el('span', { class: 'ad-mp-about ad-mp-loud', text: alone }) : el('span', {}, [fillText(PANEL_TEXT.heard, { crowdIn: labels.crowdIn }), el('span', { class: 'ad-mp-about ad-mp-loud', text: ` · ${loudText}` })]),
+        icon('chat'), alone ? el('span', { class: 'dia-mp-about dia-mp-loud', text: alone }) : el('span', {}, [fillText(PANEL_TEXT.heard, { crowdIn: labels.crowdIn }), el('span', { class: 'dia-mp-about dia-mp-loud', text: ` · ${loudText}` })]),
       ]),
-      alone ? null : el('p', { class: 'ad-mp-note', text: fillText(PANEL_TEXT.heardHint, { tab: labels.feedTab }) }),
+      alone ? null : el('p', { class: 'dia-mp-note', text: fillText(PANEL_TEXT.heardHint, { tab: labels.feedTab }) }),
     ]));
   }
 
-  if (view.partial) content.append(el('p', { class: 'ad-mp-unparsed', text: PANEL_TEXT.partial }));
+  if (view.partial) content.append(el('p', { class: 'dia-mp-unparsed', text: PANEL_TEXT.partial }));
   const unparsed = (view.unparsed || []).filter(Boolean);
-  if (unparsed.length) content.append(el('p', { class: 'ad-mp-unparsed', text: unparsedText(unparsed) }));
+  if (unparsed.length) content.append(el('p', { class: 'dia-mp-unparsed', text: unparsedText(unparsed) }));
 
   const rows = (view.rows || []).filter(Boolean);
   if (rows.length) {
-    content.append(el('div', { class: 'ad-mp-sec' }, [
+    content.append(el('div', { class: 'dia-mp-sec' }, [
       el('h4', {}, [icon('scroll'), el('span', { text: PANEL_TEXT.events })]),
-      el('ul', {}, rows.map((r) => el('li', {}, [el('span', { class: 'ad-t', text: r })]))),
+      el('ul', {}, rows.map((r) => el('li', {}, [el('span', { class: 'dia-t', text: r })]))),
     ]));
   }
 
   const justSaved = saved.has(mesId) && view.analyzed && !view.draft && !view.error;
-  if (view.uncounted) content.append(el('p', { class: 'ad-mp-note', text: PANEL_TEXT.uncounted }));
-  else if (!justSaved) content.append(el('p', { class: 'ad-mp-note', text: view.live ? PANEL_TEXT.liveNote : PANEL_TEXT.correctionNote }));
+  if (view.uncounted) content.append(el('p', { class: 'dia-mp-note', text: PANEL_TEXT.uncounted }));
+  else if (!justSaved) content.append(el('p', { class: 'dia-mp-note', text: view.live ? PANEL_TEXT.liveNote : PANEL_TEXT.correctionNote }));
 
   const problem = view.error || (view.jumpAsk && jumpErrors.get(mesId)) || '';
-  if (problem) content.append(el('p', { class: 'ad-mp-error', text: problem }));
-  if (view.cancelled) content.append(el('p', { class: 'ad-mp-note', text: view.cancelled }));
+  if (problem) content.append(el('p', { class: 'dia-mp-error', text: problem }));
+  if (view.cancelled) content.append(el('p', { class: 'dia-mp-note', text: view.cancelled }));
   if (justSaved) {
-    content.append(el('p', { class: 'ad-mp-note ad-mp-saved' }, [icon('tick'), el('span', { text: PANEL_TEXT.saved })]));
+    content.append(el('p', { class: 'dia-mp-note dia-mp-saved' }, [icon('tick'), el('span', { text: PANEL_TEXT.saved })]));
   }
 
   const showUndoAll = view.analyzed && !view.draft;
   const showUndoReply = Boolean(view.canUndo && host.undoReply);
   const buttons = [
     view.draft ? el('button', {
-      type: 'button', class: 'ad-mp-btn ad-main', disabled: busy,
+      type: 'button', class: 'dia-mp-btn dia-main', disabled: busy,
       onclick: () => run(Promise.resolve(host.saveAnalysis(mesId)).then((res) => {
         if (res && res.ok) {
           saved.add(mesId);
@@ -550,13 +550,13 @@ function buildPanel(host, mesId, view, look) {
       })),
     }, [PANEL_TEXT.save]) : null,
     view.draft ? el('button', {
-      type: 'button', class: 'ad-mp-btn', disabled: busy,
+      type: 'button', class: 'dia-mp-btn', disabled: busy,
       onclick: () => { saved.delete(mesId); run(host.discardAnalysis(mesId)); },
     }, [PANEL_TEXT.discard]) : null,
     showUndoAll
       ? el('button', {
         type: 'button',
-        class: 'ad-mp-btn',
+        class: 'dia-mp-btn',
         title: PANEL_TEXT.undoAllHint,
         disabled: busy,
         onclick: () => { saved.delete(mesId); run(host.clearAnalysis(mesId)); },
@@ -564,32 +564,32 @@ function buildPanel(host, mesId, view, look) {
       : null,
     showUndoReply
       ? el('button', {
-        type: 'button', class: 'ad-mp-btn', title: PANEL_TEXT.undoReplyHint, disabled: busy,
+        type: 'button', class: 'dia-mp-btn', title: PANEL_TEXT.undoReplyHint, disabled: busy,
         onclick: () => run(host.undoReply()),
       }, [PANEL_TEXT.undoReply])
       : null,
   ].filter(Boolean);
   if (buttons.length) {
-    footer.append(el('div', { class: 'ad-mp-btns' }, buttons));
+    footer.append(el('div', { class: 'dia-mp-btns' }, buttons));
     const help = [
       showUndoAll ? `${PANEL_TEXT.undoAll}: ${PANEL_TEXT.undoAllHint}` : null,
       showUndoReply ? `${PANEL_TEXT.undoReply}: ${PANEL_TEXT.undoReplyHint}` : null,
     ].filter(Boolean);
-    if (help.length) footer.append(el('details', { class: 'ad-mp-help' }, [
+    if (help.length) footer.append(el('details', { class: 'dia-mp-help' }, [
       el('summary', { text: PANEL_TEXT.helpTitle }),
-      ...help.map((text) => el('p', { class: 'ad-mp-note', text })),
+      ...help.map((text) => el('p', { class: 'dia-mp-note', text })),
     ]));
   } else footer.hidden = true;
 
-  const state = view.draft ? 'ad-draftp' : view.analyzed ? 'ad-done' : 'ad-undone';
+  const state = view.draft ? 'dia-draftp' : view.analyzed ? 'dia-done' : 'dia-undone';
   const mat = look && look.mat ? look.mat : DEFAULT_MAT;
   const panelNode = el('div', {
-    class: `${PANEL_CLASS} ad-mat-scope ${state}${isOpen ? ' ad-open' : ''}`,
+    class: `${PANEL_CLASS} dia-mat-scope ${state}${isOpen ? ' dia-open' : ''}`,
     lang: 'ru',
     'data-mat': mat,
     'data-look': look && look.look ? look.look : 'diary',
     'data-mesid': String(mesId),
-  }, [el('i', { class: 'ad-bookmark', 'aria-hidden': 'true' }), toggle, content, footer]);
+  }, [el('i', { class: 'dia-bookmark', 'aria-hidden': 'true' }), toggle, content, footer]);
   return panelNode;
 }
 

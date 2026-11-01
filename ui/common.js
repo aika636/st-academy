@@ -1110,7 +1110,7 @@ export function avatarNode(av, opts = {}) {
     });
   }
   const node = el('span', {
-    class: `academy-ava academy-ava-${size} academy-ava-person ad-av`,
+    class: `academy-ava academy-ava-${size} academy-ava-person dia-av`,
     style: `background-color: ${av.color}; background-color: var(--ad-av-bg, ${av.color})`,
     title: opts.title || av.name || null,
     role: opts.onclick ? 'button' : null,

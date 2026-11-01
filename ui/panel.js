@@ -67,16 +67,16 @@ export function mountPanel(host) {
   }
 
   const panel = el('div', {
-    id: ID.panel, class: 'academy-panel ad-diary draggable', role: 'dialog', 'aria-label': 'Академия',
+    id: ID.panel, class: 'academy-panel dia-diary draggable', role: 'dialog', 'aria-label': 'Академия',
     lang: 'ru',
   }, [
-    el('div', { class: 'ad-resize', title: 'Потянуть, чтобы изменить ширину' }),
-    el('div', { class: 'academy-bar ad-head panelControlBar', title: 'Перетащить · двойной щелчок — в центр' }, [
+    el('div', { class: 'dia-resize', title: 'Потянуть, чтобы изменить ширину' }),
+    el('div', { class: 'academy-bar dia-head panelControlBar', title: 'Перетащить · двойной щелчок — в центр' }, [
       el('div', { class: 'academy-grab drag-grabber fa-solid fa-grip-vertical', title: 'Перетащить · двойной щелчок — в центр' }),
-      el('span', { class: 'ad-emblem-box', html: emblemSvg(null) }),
-      el('div', { class: 'academy-titles ad-head-text' }, [
-        el('div', { class: 'academy-title ad-head-title', text: 'Академия' }),
-        el('div', { class: 'academy-subtitle ad-head-sub' }),
+      el('span', { class: 'dia-emblem-box', html: emblemSvg(null) }),
+      el('div', { class: 'academy-titles dia-head-text' }, [
+        el('div', { class: 'academy-title dia-head-title', text: 'Академия' }),
+        el('div', { class: 'academy-subtitle dia-head-sub' }),
       ]),
       el('div', {
         class: 'academy-close dragClose fa-solid fa-xmark',
@@ -84,8 +84,8 @@ export function mountPanel(host) {
         onclick: () => closePanel(),
       }),
     ]),
-    el('div', { class: 'academy-body ad-body' }),
-    el('nav', { class: 'ad-tabs', 'aria-label': 'Разделы' }),
+    el('div', { class: 'academy-body dia-body' }),
+    el('nav', { class: 'dia-tabs', 'aria-label': 'Разделы' }),
   ]);
 
   const holder = document.getElementById('movingDivs') || document.body;
@@ -97,7 +97,7 @@ export function mountPanel(host) {
   const bar = panel.querySelector('.academy-bar');
   dragBy(bar, panel, host, 'panel');
   recenterOnDblClick(bar, panel, host);
-  resizeBy(panel.querySelector('.ad-resize'), panel, host);
+  resizeBy(panel.querySelector('.dia-resize'), panel, host);
   watchSpread(panel);
   swipeToClose(panel);
   outsideToClose(panel);
@@ -181,15 +181,15 @@ function watchSpread(panel) {
 }
 
 function fitTabs(panel) {
-  const tabs = panel && panel.querySelector ? panel.querySelector('.ad-tabs') : null;
+  const tabs = panel && panel.querySelector ? panel.querySelector('.dia-tabs') : null;
   if (!tabs || typeof tabs.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
   tabs.removeAttribute('data-wrap');
   if (mounted.spread) { tabs.style.removeProperty('--ad-tab-fs'); return; }
   const max = parseFloat(getComputedStyle(tabs).getPropertyValue('--ad-tab-fs-max')) || 13.5;
   const min = 11;
-  const labels = [...tabs.querySelectorAll('.ad-tab')];
+  const labels = [...tabs.querySelectorAll('.dia-tab')];
   const over = () => labels.some((b) => {
-    const l = b.querySelector('.ad-lab');
+    const l = b.querySelector('.dia-lab');
     if (!l) return false;
     let tw = l.scrollWidth;
     if (typeof document.createRange === 'function') {
@@ -309,7 +309,7 @@ export function renderPanel(host) {
   applyLook(mounted.panel, settings, preset);
   if (mounted.button) setLauncherIcon(mounted.button, settings.ui);
 
-  const tabsBox = clear(mounted.panel.querySelector('.ad-tabs'));
+  const tabsBox = clear(mounted.panel.querySelector('.dia-tabs'));
   const unread = safe(() => unreadCount(h.getState()), 0);
   for (const t of list) {
     const on = t.id === mounted.tab;
@@ -324,7 +324,7 @@ export function renderPanel(host) {
       renderPanel(h);
     };
     const tab = el('div', {
-      class: 'ad-tab',
+      class: 'dia-tab',
       dataset: { tab: t.id },
       role: 'tab',
       tabindex: '0',
@@ -333,10 +333,10 @@ export function renderPanel(host) {
       title: t.label,
       onclick: go,
     }, [
-      el('i', { class: `fa-solid ${TAB_ICONS[t.id] || 'fa-circle'} ad-tab-icon`, 'aria-hidden': 'true' }),
-      el('span', { class: 'ad-lab', text: t.label }),
+      el('i', { class: `fa-solid ${TAB_ICONS[t.id] || 'fa-circle'} dia-tab-icon`, 'aria-hidden': 'true' }),
+      el('span', { class: 'dia-lab', text: t.label }),
       hintIcon(preset, t.label),
-      t.id === 'feed' && unread > 0 ? el('span', { class: 'ad-badge ad-tab-badge', text: unread > 99 ? '99+' : String(unread) }) : null,
+      t.id === 'feed' && unread > 0 ? el('span', { class: 'dia-badge dia-tab-badge', text: unread > 99 ? '99+' : String(unread) }) : null,
     ]);
     tab.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
@@ -344,7 +344,7 @@ export function renderPanel(host) {
     tabsBox.append(tab);
   }
 
-  const embBox = mounted.panel.querySelector('.ad-emblem-box');
+  const embBox = mounted.panel.querySelector('.dia-emblem-box');
   const embKey = emblemKeyOf(preset);
   if (embBox && embBox.dataset.emblem !== embKey) { embBox.innerHTML = emblemSvg(preset); embBox.dataset.emblem = embKey; }
   const title = mounted.panel.querySelector('.academy-title');
@@ -358,9 +358,9 @@ export function renderPanel(host) {
 
   const spreadBox = clear(mounted.panel.querySelector('.academy-body'));
   const viewing = safe(() => (h.getPresetView ? h.getPresetView() : null), null);
-  let bar = mounted.panel.querySelector('.ad-viewbar');
+  let bar = mounted.panel.querySelector('.dia-viewbar');
   if (!bar && viewing && spreadBox.parentNode) {
-    bar = el('div', { class: 'ad-viewbar' });
+    bar = el('div', { class: 'dia-viewbar' });
     spreadBox.parentNode.insertBefore(bar, spreadBox);
   }
   if (bar) {
@@ -368,7 +368,7 @@ export function renderPanel(host) {
     bar.hidden = !viewing;
     if (viewing) {
       bar.append(
-        el('span', { class: 'ad-viewbar-text', text: fill(PRESET_TEXT.viewBar, { to: viewing.name }) }),
+        el('span', { class: 'dia-viewbar-text', text: fill(PRESET_TEXT.viewBar, { to: viewing.name }) }),
         el('div', {
           class: 'menu_button academy-btn academy-btn-main',
           text: PRESET_TEXT.viewBack,
@@ -639,7 +639,7 @@ function resizeBy(handle, panel, host) {
 function swipeToClose(panel) {
   let from = null;
   panel.addEventListener('touchstart', (e) => {
-    if (!(e.target && e.target.closest && e.target.closest('.academy-bar, .ad-tabs'))) {
+    if (!(e.target && e.target.closest && e.target.closest('.academy-bar, .dia-tabs'))) {
       from = null;
       return;
     }

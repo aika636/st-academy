@@ -204,11 +204,11 @@ export function renderFeed(host, view, preset) {
     safe(() => call(host, 'feedRead', view.unreadIds), null);
   }
 
-  const title = el('div', { class: 'ad-p-title' }, [el('h2', { text: U.tabFeed })]);
+  const title = el('div', { class: 'dia-p-title' }, [el('h2', { text: U.tabFeed })]);
   const queue = view.queue.length ? queueBlock(host, view, X) : null;
   const refresh = molvaRefresh(host, preset);
 
-  const chans = el('div', { class: 'ad-chans', role: 'tablist' }, view.channels.map((c) => el('button', {
+  const chans = el('div', { class: 'dia-chans', role: 'tablist' }, view.channels.map((c) => el('button', {
     type: 'button',
     role: 'tab',
     'aria-selected': c.on ? 'true' : 'false',
@@ -216,51 +216,51 @@ export function renderFeed(host, view, preset) {
     onclick: () => { mounted.feedChan = c.id; mounted.feedPreview = null; renderPanel(host); },
   }, [
     el('span', { text: c.label }),
-    c.unread ? el('span', { class: 'ad-badge', text: String(c.unread) }) : null,
+    c.unread ? el('span', { class: 'dia-badge', text: String(c.unread) }) : null,
   ])));
 
   let posts;
-  if (view.empty) posts = el('div', { class: 'ad-silent', text: view.emptyText });
-  else if (!view.items.length) posts = el('div', { class: 'ad-silent', text: view.chanEmptyText });
-  else posts = el('div', { class: 'ad-feed-list' }, view.items.map((it) => feedCard(host, it, X)));
+  if (view.empty) posts = el('div', { class: 'dia-silent', text: view.emptyText });
+  else if (!view.items.length) posts = el('div', { class: 'dia-silent', text: view.chanEmptyText });
+  else posts = el('div', { class: 'dia-feed-list' }, view.items.map((it) => feedCard(host, it, X)));
 
   const deals = view.deals.length ? [
-    el('h3', { class: 'ad-sec-h', text: X.feedDealsTitle }),
-    ...view.deals.map((d) => el('div', { class: 'ad-post ad-deal-row', dataset: { deal: d.id } }, [
-      el('div', { class: 'ad-post-text', text: d.text }),
+    el('h3', { class: 'dia-sec-h', text: X.feedDealsTitle }),
+    ...view.deals.map((d) => el('div', { class: 'dia-post dia-deal-row', dataset: { deal: d.id } }, [
+      el('div', { class: 'dia-post-text', text: d.text }),
       d.canTake ? takeButton(host, d.id, X) : null,
       previewFor(host, d.id, X),
     ])),
   ] : [];
-  const note = el('p', { class: 'ad-hint-note', text: view.note });
-  const lore = view.loreHint ? el('p', { class: 'ad-hint-note ad-lore-hint', text: view.loreHint }) : null;
+  const note = el('p', { class: 'dia-hint-note', text: view.note });
+  const lore = view.loreHint ? el('p', { class: 'dia-hint-note dia-lore-hint', text: view.loreHint }) : null;
   focusPost(view);
 
-  if (desk) return { l: [title, chans, posts], r: el('div', { class: 'ad-side' }, [queue, refresh, ...deals, lore, note]) };
+  if (desk) return { l: [title, chans, posts], r: el('div', { class: 'dia-side' }, [queue, refresh, ...deals, lore, note]) };
   return { l: [title, queue, chans, posts, ...deals, refresh, lore, note], r: null, blankRight: true };
 }
 
 function whoNode(it, X) {
-  if (it.nick) return el('span', { class: 'ad-nick', text: it.who, title: X.feedNickHint });
-  if (it.anon || it.scene) return el('span', { class: 'ad-anon-who', text: it.who });
-  return el('span', { class: 'ad-who', text: it.who });
+  if (it.nick) return el('span', { class: 'dia-nick', text: it.who, title: X.feedNickHint });
+  if (it.anon || it.scene) return el('span', { class: 'dia-anon-who', text: it.who });
+  return el('span', { class: 'dia-who', text: it.who });
 }
 
 function feedCard(host, it, X) {
-  return el('article', { class: it.unread ? 'ad-post ad-unread' : 'ad-post', dataset: { id: it.id } }, [
-    it.unread ? el('i', { class: 'ad-marker', dataset: { kind: 'feed' } }) : null,
-    el('div', { class: 'ad-post-head' }, [
+  return el('article', { class: it.unread ? 'dia-post dia-unread' : 'dia-post', dataset: { id: it.id } }, [
+    it.unread ? el('i', { class: 'dia-marker', dataset: { kind: 'feed' } }) : null,
+    el('div', { class: 'dia-post-head' }, [
       it.avatar ? avatarNode(it.avatar, { size: 'feed' }) : null,
       whoNode(it, X),
-      it.tag ? el('span', { class: it.rumor ? 'ad-ptag ad-rumor' : 'ad-ptag', text: it.tag }) : null,
-      it.dayLine ? el('span', { class: 'ad-pday', text: it.dayLine }) : null,
+      it.tag ? el('span', { class: it.rumor ? 'dia-ptag dia-rumor' : 'dia-ptag', text: it.tag }) : null,
+      it.dayLine ? el('span', { class: 'dia-pday', text: it.dayLine }) : null,
     ]),
-    el('div', { class: 'ad-post-text', text: it.text }),
-    it.about ? el('details', { class: 'ad-post-about' }, [
+    el('div', { class: 'dia-post-text', text: it.text }),
+    it.about ? el('details', { class: 'dia-post-about' }, [
       el('summary', { text: X.feedAboutSummary }),
-      el('div', { class: 'ad-post-about-text', text: it.about }),
+      el('div', { class: 'dia-post-about-text', text: it.about }),
     ]) : null,
-    it.statusText ? el('div', { class: `ad-post-status${it.status === 'taken' ? ' ad-taken' : ''}`, dataset: { status: it.status }, text: it.statusText }) : null,
+    it.statusText ? el('div', { class: `dia-post-status${it.status === 'taken' ? ' dia-taken' : ''}`, dataset: { status: it.status }, text: it.statusText }) : null,
     reactRow(host, it, X),
     threadBlock(host, it, X),
     it.canTake ? takeButton(host, it.id, X) : null,
@@ -274,7 +274,7 @@ function reactRow(host, it, X, small = false) {
   const status = el('div', { class: 'academy-status' });
   const button = (r, extra = {}) => el('button', {
     type: 'button',
-    class: r.n === 0 ? 'ad-zero' : null,
+    class: r.n === 0 ? 'dia-zero' : null,
     'aria-pressed': r.mine ? 'true' : 'false',
     ...(r.tone ? { 'aria-label': r.tone, title: r.tone } : {}),
     dataset: { emoji: r.emoji },
@@ -285,12 +285,12 @@ function reactRow(host, it, X, small = false) {
     },
     ...extra,
   }, [
-    el('span', { class: 'ad-e', text: r.emoji }),
+    el('span', { class: 'dia-e', text: r.emoji }),
     r.n ? String(r.n) : null,
   ]);
   const more = pal ? el('button', {
     type: 'button',
-    class: 'ad-react-more',
+    class: 'dia-react-more',
     'aria-expanded': it.palOpen ? 'true' : 'false',
     'aria-label': X.feedReactMore,
     title: X.feedReactMore,
@@ -301,11 +301,11 @@ function reactRow(host, it, X, small = false) {
       renderPanel(host);
     },
   }) : null;
-  return el('div', { class: small ? 'ad-reacts ad-small' : 'ad-reacts', title: X.feedReactHint }, [
+  return el('div', { class: small ? 'dia-reacts dia-small' : 'dia-reacts', title: X.feedReactHint }, [
     ...(it.reacts || []).map((r) => button(r)),
     more,
     status,
-    ...(pal && it.palOpen ? [el('div', { class: 'ad-react-pal' }, pal.map((r) => button({ ...r, n: null })))] : []),
+    ...(pal && it.palOpen ? [el('div', { class: 'dia-react-pal' }, pal.map((r) => button({ ...r, n: null })))] : []),
   ]);
 }
 
@@ -314,11 +314,11 @@ function focusPost(view) {
   mounted.feedFocus = null;
   if (!id || !view.items.some((it) => it.id === id)) return;
   setTimeout(() => safe(() => {
-    const node = [...mounted.panel.querySelectorAll('.ad-post')].find((n) => n.dataset.id === id);
+    const node = [...mounted.panel.querySelectorAll('.dia-post')].find((n) => n.dataset.id === id);
     if (!node) return;
     node.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    node.classList.add('ad-focus');
-    setTimeout(() => node.classList.remove('ad-focus'), 2400);
+    node.classList.add('dia-focus');
+    setTimeout(() => node.classList.remove('dia-focus'), 2400);
   }, null), 0);
 }
 
@@ -329,31 +329,31 @@ function threadBlock(host, it, X) {
     else mounted.feedOpen.delete(it.id);
     renderPanel(host);
   };
-  return el('div', { class: 'ad-thread', role: 'list', 'aria-label': X.feedRepliesLabel }, [
+  return el('div', { class: 'dia-thread', role: 'list', 'aria-label': X.feedRepliesLabel }, [
     ...it.replies.map((a) => el('div', {
-      class: a.unread ? 'ad-reply ad-unread' : 'ad-reply',
+      class: a.unread ? 'dia-reply dia-unread' : 'dia-reply',
       role: 'listitem',
       dataset: { id: a.id },
     }, [
-      el('div', { class: 'ad-reply-line' }, [
+      el('div', { class: 'dia-reply-line' }, [
         a.avatar ? avatarNode(a.avatar, { size: 'reply' }) : null,
-        el('div', { class: 'ad-reply-body' }, [
+        el('div', { class: 'dia-reply-body' }, [
           whoNode(a, X),
           el('span', { text: a.text }),
         ]),
       ]),
       reactRow(host, a, X, true),
     ])),
-    it.more ? el('button', { type: 'button', class: 'ad-link ad-feed-more', text: it.moreText, onclick: toggle(true) }) : null,
-    it.unfolded ? el('button', { type: 'button', class: 'ad-link ad-feed-more', text: X.feedFoldReplies, onclick: toggle(false) }) : null,
+    it.more ? el('button', { type: 'button', class: 'dia-link dia-feed-more', text: it.moreText, onclick: toggle(true) }) : null,
+    it.unfolded ? el('button', { type: 'button', class: 'dia-link dia-feed-more', text: X.feedFoldReplies, onclick: toggle(false) }) : null,
   ]);
 }
 
 function takeButton(host, ref, X) {
   if (mounted.feedPreview && mounted.feedPreview.ref === ref) return null;
-  return el('div', { class: 'ad-take-row' }, [el('button', {
+  return el('div', { class: 'dia-take-row' }, [el('button', {
     type: 'button',
-    class: 'ad-take',
+    class: 'dia-take',
     text: X.feedTake,
     onclick: () => {
       const draft = safe(() => host.getFeedDraft(ref), null);
@@ -370,14 +370,14 @@ function previewFor(host, ref, X) {
   const area = el('textarea', { rows: '4', 'aria-label': X.feedPreviewTitle });
   area.value = pv.text;
   area.addEventListener('input', () => { pv.text = area.value; });
-  return el('div', { class: 'ad-preview', role: 'group', 'aria-label': X.feedPreviewTitle }, [
-    el('div', { class: 'ad-pv-title', text: X.feedPreviewTitle }),
+  return el('div', { class: 'dia-preview', role: 'group', 'aria-label': X.feedPreviewTitle }, [
+    el('div', { class: 'dia-pv-title', text: X.feedPreviewTitle }),
     area,
-    el('p', { class: 'ad-pv-note', text: X.feedPreviewNote }),
-    el('div', { class: 'ad-pv-btns' }, [
+    el('p', { class: 'dia-pv-note', text: X.feedPreviewNote }),
+    el('div', { class: 'dia-pv-btns' }, [
       el('button', {
         type: 'button',
-        class: 'ad-btn ad-main ad-tiny',
+        class: 'dia-btn dia-main dia-tiny',
         text: X.feedSend,
         onclick: async (e) => {
           const res = await runAction(e.currentTarget, status, () => call(host, 'takeHook', ref, String(area.value || '')), X.feedSent);
@@ -389,7 +389,7 @@ function previewFor(host, ref, X) {
       }),
       el('button', {
         type: 'button',
-        class: 'ad-btn ad-quiet ad-tiny',
+        class: 'dia-btn dia-quiet dia-tiny',
         text: X.feedCancel,
         onclick: () => { mounted.feedPreview = null; renderPanel(host); },
       }),
@@ -400,14 +400,14 @@ function previewFor(host, ref, X) {
 
 function queueBlock(host, view, X) {
   const status = el('div', { class: 'academy-status' });
-  return el('div', { class: 'ad-queue' }, [
-    el('h3', { class: 'ad-sec-h', text: X.feedQueueTitle }),
-    ...view.queue.map((q) => el('div', { class: 'ad-queue-item' }, [
+  return el('div', { class: 'dia-queue' }, [
+    el('h3', { class: 'dia-sec-h', text: X.feedQueueTitle }),
+    ...view.queue.map((q) => el('div', { class: 'dia-queue-item' }, [
       el('div', { text: q.text }),
-      el('div', { class: 'ad-q-state', text: [q.stateText, q.auto ? X.feedQueueAuto : ''].filter(Boolean).join(' · ') }),
+      el('div', { class: 'dia-q-state', text: [q.stateText, q.auto ? X.feedQueueAuto : ''].filter(Boolean).join(' · ') }),
       el('div', {}, [el('button', {
         type: 'button',
-        class: 'ad-btn ad-quiet ad-tiny',
+        class: 'dia-btn dia-quiet dia-tiny',
         text: X.feedDrop,
         onclick: async (e) => {
           const res = await runAction(e.currentTarget, status, () => call(host, 'dropHook', q.id), X.feedDropped);

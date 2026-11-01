@@ -1222,7 +1222,7 @@ export function lookSummary(settings, preset) {
 
 function matPrev(m) {
   return el('span', {
-    class: 'ad-mat-prev',
+    class: 'dia-mat-prev',
     style: `--ad-mp-bg:${m.sw[1]};--ad-mp-ink:${m.ink || '#222'};--ad-mp-cover:${m.sw[0]}`,
   }, [el('b', { text: LOOK_TEXT.sample }), el('i'), el('i')]);
 }
@@ -1235,7 +1235,7 @@ export function renderLookBlock(host, preset, settings) {
   const save = (patch) => safe(() => host.setSettings({ ui: patch }), null);
   const tavern = look === 'tavern';
 
-  const seg = el('div', { class: 'ad-seg', role: 'group', 'aria-label': T.look }, [
+  const seg = el('div', { class: 'dia-seg', role: 'group', 'aria-label': T.look }, [
     ['diary', T.lookDiary], ['tavern', T.lookTavern],
   ].map(([id, name]) => el('button', {
     type: 'button',
@@ -1256,15 +1256,15 @@ export function renderLookBlock(host, preset, settings) {
   const cur = items.find((m) => m.id === own) || items[0];
   const row = (m) => [
     matPrev(m),
-    el('div', {}, [el('div', { class: 'ad-pk-name', text: m.name }), el('div', { class: 'ad-pk-note', text: m.note })]),
+    el('div', {}, [el('div', { class: 'dia-pk-name', text: m.name }), el('div', { class: 'dia-pk-note', text: m.note })]),
   ];
 
   const key = `${sectionScope}::set:matopen`;
   const opened = sectionOpen.get(key) === true && !tavern;
-  const list = el('div', { class: 'ad-pick-list', hidden: !opened },
+  const list = el('div', { class: 'dia-pick-list', hidden: !opened },
     items.map((m) => el('button', {
       type: 'button',
-      class: 'ad-pick',
+      class: 'dia-pick',
       'aria-pressed': String(m.id === cur.id),
       dataset: { mat: m.id },
       disabled: tavern,
@@ -1272,7 +1272,7 @@ export function renderLookBlock(host, preset, settings) {
     }, row(m))));
   const toggle = el('button', {
     type: 'button',
-    class: 'ad-btn ad-quiet ad-tiny',
+    class: 'dia-btn dia-quiet dia-tiny',
     text: opened ? T.close : T.change,
     disabled: tavern,
     onclick: () => {
@@ -1284,27 +1284,27 @@ export function renderLookBlock(host, preset, settings) {
   });
 
   const iconNow = launcherIconOf(ui);
-  const icons = el('div', { class: 'ad-icon-pick', role: 'group', 'aria-label': T.icon },
+  const icons = el('div', { class: 'dia-icon-pick', role: 'group', 'aria-label': T.icon },
     LAUNCHER_ICON_IDS.map((id) => el('button', {
       type: 'button',
-      class: 'ad-pick ad-icon-opt',
+      class: 'dia-pick dia-icon-opt',
       'aria-pressed': String(id === iconNow),
       dataset: { icon: id },
       onclick: () => { if (id !== iconNow) save({ launcherIcon: id }); },
     }, [
-      el('span', { class: 'ad-icon-sample', html: LAUNCHER_ICONS[id].svg }),
-      el('span', { class: 'ad-pk-name', text: LAUNCHER_ICONS[id].name }),
-      el('span', { class: 'ad-pk-note', text: LAUNCHER_ICONS[id].note }),
+      el('span', { class: 'dia-icon-sample', html: LAUNCHER_ICONS[id].svg }),
+      el('span', { class: 'dia-pk-name', text: LAUNCHER_ICONS[id].name }),
+      el('span', { class: 'dia-pk-note', text: LAUNCHER_ICONS[id].note }),
     ])));
 
   return [
-    el('div', { class: 'ad-set-sub' }, [el('h4', { text: T.look }), seg]),
-    el('div', { class: 'ad-set-sub' }, [
+    el('div', { class: 'dia-set-sub' }, [el('h4', { text: T.look }), seg]),
+    el('div', { class: 'dia-set-sub' }, [
       el('h4', { text: T.material }),
-      el('div', { class: 'ad-pick' }, [...row(cur), toggle]),
+      el('div', { class: 'dia-pick' }, [...row(cur), toggle]),
       list,
       el('p', { text: tavern ? T.tavernNote : T.hint }),
     ]),
-    el('div', { class: 'ad-set-sub' }, [el('h4', { text: T.icon }), icons, el('p', { text: T.iconHint })]),
+    el('div', { class: 'dia-set-sub' }, [el('h4', { text: T.icon }), icons, el('p', { text: T.iconHint })]),
   ];
 }

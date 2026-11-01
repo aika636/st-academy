@@ -123,67 +123,67 @@ export function renderAchievements(host, view, preset) {
   if (view.off) {
     return {
       l: [
-        el('div', { class: 'ad-p-title' }, [el('h2', { text: pageTitle(preset) })]),
-        el('div', { class: 'ad-silent', text: X.achOff }),
+        el('div', { class: 'dia-p-title' }, [el('h2', { text: pageTitle(preset) })]),
+        el('div', { class: 'dia-silent', text: X.achOff }),
       ],
       single: true,
-      cls: 'ad-inner ad-full',
+      cls: 'dia-inner dia-full',
     };
   }
 
-  const sign = () => el('span', { class: 'ad-sign', 'aria-hidden': 'true' }, [el('i')]);
+  const sign = () => el('span', { class: 'dia-sign', 'aria-hidden': 'true' }, [el('i')]);
   const row = (id, main, state, more) => memoDetails(`ach:${id}`, {
-    cls: 'ad-row', summary: [sign(), el('span', { class: 'ad-row-main' }, main), state], body: more,
+    cls: 'dia-row', summary: [sign(), el('span', { class: 'dia-row-main' }, main), state], body: more,
   });
-  const award = (f, a) => el('li', { class: `ad-award ad-fam-${f.id}`, dataset: { kind: a.kind, milestone: a.id, rarity: a.rarity } }, [
+  const award = (f, a) => el('li', { class: `dia-award dia-fam-${f.id}`, dataset: { kind: a.kind, milestone: a.id, rarity: a.rarity } }, [
     row(`${a.kind}:${a.id}`, [
-      el('span', { class: 'ad-award-title', text: a.title }),
-      a.quip || a.desc ? el('span', { class: a.quip ? 'ad-row-sub ad-award-quip' : 'ad-row-sub ad-award-desc', text: a.quip || a.desc }) : null,
-    ], el('span', { class: 'ad-row-state' }, [
-      el('span', { class: 'ad-got', text: X.achGot }),
-      a.whenShort ? el('span', { class: 'ad-award-when', text: a.whenShort }) : null,
-    ]), el('div', { class: 'ad-row-more' }, [
-      a.quip && a.desc ? el('span', { class: 'ad-award-desc', text: a.desc }) : null,
-      a.emoji ? el('span', { class: 'ad-emoji', 'aria-hidden': 'true', text: a.emoji }) : null,
-      a.whenLine || a.detail ? el('span', { class: 'ad-award-when' }, [
+      el('span', { class: 'dia-award-title', text: a.title }),
+      a.quip || a.desc ? el('span', { class: a.quip ? 'dia-row-sub dia-award-quip' : 'dia-row-sub dia-award-desc', text: a.quip || a.desc }) : null,
+    ], el('span', { class: 'dia-row-state' }, [
+      el('span', { class: 'dia-got', text: X.achGot }),
+      a.whenShort ? el('span', { class: 'dia-award-when', text: a.whenShort }) : null,
+    ]), el('div', { class: 'dia-row-more' }, [
+      a.quip && a.desc ? el('span', { class: 'dia-award-desc', text: a.desc }) : null,
+      a.emoji ? el('span', { class: 'dia-emoji', 'aria-hidden': 'true', text: a.emoji }) : null,
+      a.whenLine || a.detail ? el('span', { class: 'dia-award-when' }, [
         a.whenLine ? el('span', { text: a.whenLine }) : null,
         a.whenLine && a.detail ? ' · ' : null,
         a.detail ? el('span', { text: a.detail }) : null,
       ]) : null,
-      el('span', { class: 'ad-award-fam', text: a.family }),
-      el('span', { class: 'ad-award-rar', text: a.rarityLabel }),
-      a.mark ? el('span', { class: 'ad-award-mark', text: a.mark }) : null,
+      el('span', { class: 'dia-award-fam', text: a.family }),
+      el('span', { class: 'dia-award-rar', text: a.rarityLabel }),
+      a.mark ? el('span', { class: 'dia-award-mark', text: a.mark }) : null,
     ])),
   ]);
-  const todo = (t) => el('li', { class: 'ad-todo-row', dataset: { kind: t.kind } }, [
-    el('div', { class: 'ad-row ad-row-flat' }, [el('div', { class: 'ad-row-head' }, [
+  const todo = (t) => el('li', { class: 'dia-todo-row', dataset: { kind: t.kind } }, [
+    el('div', { class: 'dia-row dia-row-flat' }, [el('div', { class: 'dia-row-head' }, [
       sign(),
-      el('span', { class: 'ad-row-main' }, [
-        el('span', { class: 'ad-award-title ad-tr-t', text: t.title }),
-        el('span', { class: 'ad-row-sub ad-tr-h', text: t.hint }),
+      el('span', { class: 'dia-row-main' }, [
+        el('span', { class: 'dia-award-title dia-tr-t', text: t.title }),
+        el('span', { class: 'dia-row-sub dia-tr-h', text: t.hint }),
       ]),
     ])]),
   ]);
-  const shelf = (f) => el('section', { class: `ad-shelf ad-fam-${f.id}`, dataset: { family: f.id } }, [
-    el('div', { class: 'ad-shelf-h' }, [
+  const shelf = (f) => el('section', { class: `dia-shelf dia-fam-${f.id}`, dataset: { family: f.id } }, [
+    el('div', { class: 'dia-shelf-h' }, [
       el('h3', { text: f.title }),
-      el('span', { class: 'ad-n', text: f.countLine }),
+      el('span', { class: 'dia-n', text: f.countLine }),
     ]),
-    el('div', { class: 'ad-shelf-bar', 'aria-hidden': 'true' }, [el('i', { style: `--p:${f.share.toFixed(3)}` })]),
-    f.awards.length ? el('ul', { class: 'ad-awards' }, f.awards.map((a) => award(f, a))) : null,
-    f.todo.length ? el('ul', { class: 'ad-todo-rows' }, f.todo.map(todo)) : null,
-    f.secretMore ? el('div', { class: 'ad-secret-row' }, [el('span', { class: 'ad-sign', 'aria-hidden': 'true' }), el('span', { text: f.secretMore })]) : null,
+    el('div', { class: 'dia-shelf-bar', 'aria-hidden': 'true' }, [el('i', { style: `--p:${f.share.toFixed(3)}` })]),
+    f.awards.length ? el('ul', { class: 'dia-awards' }, f.awards.map((a) => award(f, a))) : null,
+    f.todo.length ? el('ul', { class: 'dia-todo-rows' }, f.todo.map(todo)) : null,
+    f.secretMore ? el('div', { class: 'dia-secret-row' }, [el('span', { class: 'dia-sign', 'aria-hidden': 'true' }), el('span', { text: f.secretMore })]) : null,
   ]);
 
-  const global = el('section', { class: 'ad-alltime' }, [
-    el('h3', { class: 'ad-sec-h', text: X.achGlobalTitle }),
+  const global = el('section', { class: 'dia-alltime' }, [
+    el('h3', { class: 'dia-sec-h', text: X.achGlobalTitle }),
     view.global.length
       ? el('ul', {}, view.global.map((g) => el('li', { dataset: { kind: g.kind } }, [
         el('span', { text: g.title }),
         el('span', { text: g.line }),
       ])))
-      : el('div', { class: 'ad-silent', text: X.achGlobalNone }),
-    el('p', { class: 'ad-hint-note', text: X.achGlobalNote }),
+      : el('div', { class: 'dia-silent', text: X.achGlobalNone }),
+    el('p', { class: 'dia-hint-note', text: X.achGlobalNote }),
   ]);
 
   const weight = (f) => 2 + f.awards.length * 1.2 + f.todo.length + (f.secretMore ? 0.7 : 0);
@@ -195,17 +195,17 @@ export function renderAchievements(host, view, preset) {
     acc += weight(view.families[i]);
   }
   cut = Math.max(1, Math.min(cut, view.families.length));
-  const col = (list) => (list.length ? el('div', { class: 'ad-shelves' }, list.map(shelf)) : null);
+  const col = (list) => (list.length ? el('div', { class: 'dia-shelves' }, list.map(shelf)) : null);
 
   const l = [
-    el('div', { class: 'ad-p-title' }, [
+    el('div', { class: 'dia-p-title' }, [
       el('h2', { text: pageTitle(preset) }),
-      el('span', { class: 'ad-p-count' }, [el('span', { text: X.achEarnedTitle }), ' · ', el('span', { text: view.countLine })]),
+      el('span', { class: 'dia-p-count' }, [el('span', { text: X.achEarnedTitle }), ' · ', el('span', { text: view.countLine })]),
     ]),
-    view.earnedTotal ? null : el('div', { class: 'ad-silent', text: X.achEarnedNone }),
-    el('h3', { class: 'ad-sec-h', text: X.achCatalogTitle }),
+    view.earnedTotal ? null : el('div', { class: 'dia-silent', text: X.achEarnedNone }),
+    el('h3', { class: 'dia-sec-h', text: X.achCatalogTitle }),
     col(view.families.slice(0, cut)),
   ];
   const r = [col(view.families.slice(cut)), global];
-  return { l, r, cls: 'ad-inner' };
+  return { l, r, cls: 'dia-inner' };
 }

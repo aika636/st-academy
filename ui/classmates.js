@@ -204,13 +204,13 @@ export function loreFoundBlock(host, view, preset) {
     pick.value = loreChoice.get(key) || 'later';
     const brief = (p.role === 'teacher' ? [p.subject, p.post] : p.role === 'other' ? [X.loreOther] : [p.desire || p.problem]).filter(Boolean).join(' — ');
     const meta = [...(p.aliases || []).slice(0, 3), oneBook ? '' : p.lorebook && p.lorebook.book].filter(Boolean).join(' · ');
-    const row = el('div', { class: 'ad-lore-row', dataset: { index: String(index) } }, [
+    const row = el('div', { class: 'dia-lore-row', dataset: { index: String(index) } }, [
       el('div', {}, [
         el('b', { text: p.name }),
-        p.source === 'canon' ? el('span', { class: 'ad-canon ad-stamp-canon', text: X.canonBadge }) : null,
-        meta ? el('div', { class: 'ad-small ad-soft', text: meta }) : null,
-        brief ? el('div', { class: 'ad-small', text: brief }) : null,
-        loreWhy.has(key) ? el('div', { class: 'ad-small academy-note-warn', text: fill(X.loreNotApplied, { reason: loreWhy.get(key) }) }) : null,
+        p.source === 'canon' ? el('span', { class: 'dia-canon dia-stamp-canon', text: X.canonBadge }) : null,
+        meta ? el('div', { class: 'dia-small dia-soft', text: meta }) : null,
+        brief ? el('div', { class: 'dia-small', text: brief }) : null,
+        loreWhy.has(key) ? el('div', { class: 'dia-small academy-note-warn', text: fill(X.loreNotApplied, { reason: loreWhy.get(key) }) }) : null,
       ]),
       pick,
     ]);
@@ -219,7 +219,7 @@ export function loreFoundBlock(host, view, preset) {
     row.suggest = () => { pick.value = p.role === 'teacher' && !canTeach(p) ? 'later' : DEFAULT_AS[p.role] || 'skip'; loreChoice.set(key, pick.value); };
     return row;
   });
-  const list = el('div', { class: 'ad-lore-list' }, rows);
+  const list = el('div', { class: 'dia-lore-list' }, rows);
   const apply = el('div', {
     class: 'menu_button academy-btn academy-btn-main',
     text: X.loreApply,
@@ -268,9 +268,9 @@ export function loreFoundBlock(host, view, preset) {
       else btn.textContent = X.cmClearAll;
     },
   }) : null;
-  return el('div', { class: 'ad-lore' }, [
-    mounted.loreApplyNote ? el('div', { class: 'ad-small academy-note-warn', text: mounted.loreApplyNote }) : null,
-    rows.length ? el('div', { class: 'ad-small', text: fill(X.loreFound, { n: rows.length, word: plural(rows.length, ...X.loreWords) }) }) : null,
+  return el('div', { class: 'dia-lore' }, [
+    mounted.loreApplyNote ? el('div', { class: 'dia-small academy-note-warn', text: mounted.loreApplyNote }) : null,
+    rows.length ? el('div', { class: 'dia-small', text: fill(X.loreFound, { n: rows.length, word: plural(rows.length, ...X.loreWords) }) }) : null,
     list,
     el('div', { class: 'academy-row academy-row-buttons' }, [find, findCanon, rows.length ? markAll : null, rows.length ? apply : null, clearFound]),
     clearAll ? el('div', { class: 'academy-row academy-row-buttons' }, [clearAll]) : null,

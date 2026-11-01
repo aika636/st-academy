@@ -369,29 +369,29 @@ export function renderToday(host, view, preset) {
   const spread = mounted.spread === true;
 
   const chips = [
-    view.termLine ? el('span', { class: 'ad-chip' }, [view.termLine, hintIcon(preset, view.termLine)]) : null,
-    el('span', { class: 'ad-chip' }, [view.phaseLabel, hintIcon(preset, view.phaseLabel)]),
-    view.time ? el('span', { class: 'ad-chip ad-clock', text: view.time }) : null,
-    view.expelled ? el('span', { class: 'ad-chip', text: view.expelled }) : null,
+    view.termLine ? el('span', { class: 'dia-chip' }, [view.termLine, hintIcon(preset, view.termLine)]) : null,
+    el('span', { class: 'dia-chip' }, [view.phaseLabel, hintIcon(preset, view.phaseLabel)]),
+    view.time ? el('span', { class: 'dia-chip dia-clock', text: view.time }) : null,
+    view.expelled ? el('span', { class: 'dia-chip', text: view.expelled }) : null,
   ];
   const heroine = String(safe(() => host.getHeroine(), '') || '').trim();
   const head = [
-    heroine ? el('div', { class: 'ad-from', text: `Из записей: ${heroine}` }) : null,
-    el('div', { class: 'ad-date' }, view.dayNumber
+    heroine ? el('div', { class: 'dia-from', text: `Из записей: ${heroine}` }) : null,
+    el('div', { class: 'dia-date' }, view.dayNumber
       ? [
-        el('div', { class: 'ad-date-day', text: view.dayNumber }),
-        el('div', { class: 'ad-date-rest' }, [
-          el('div', { class: 'ad-date-week', text: view.monthName }),
-          el('div', { class: 'ad-date-wd', text: view.weekday }),
+        el('div', { class: 'dia-date-day', text: view.dayNumber }),
+        el('div', { class: 'dia-date-rest' }, [
+          el('div', { class: 'dia-date-week', text: view.monthName }),
+          el('div', { class: 'dia-date-wd', text: view.weekday }),
         ]),
-        el('div', { class: 'ad-chips' }, chips),
+        el('div', { class: 'dia-chips' }, chips),
       ]
-      : [el('div', { class: 'ad-date-rest' }, [el('div', { class: 'ad-date-week', text: view.dateLine }), el('div', { class: 'ad-chips' }, chips)])]),
-    view.heldJump ? el('div', { class: 'ad-weekline ad-jump-wait', text: view.heldJump.waiting }) : null,
-    view.weekLine ? el('div', { class: 'ad-weekline' }, [view.weekLine, hintIcon(preset, view.weekLine)]) : null,
-    view.countdown ? el('div', { class: 'ad-countdown', dataset: { holiday: view.countdown.id } }, [
-      el('span', { class: 'ad-cd-n', text: view.countdown.n }),
-      el('span', { class: 'ad-cd-l', text: view.countdown.label }),
+      : [el('div', { class: 'dia-date-rest' }, [el('div', { class: 'dia-date-week', text: view.dateLine }), el('div', { class: 'dia-chips' }, chips)])]),
+    view.heldJump ? el('div', { class: 'dia-weekline dia-jump-wait', text: view.heldJump.waiting }) : null,
+    view.weekLine ? el('div', { class: 'dia-weekline' }, [view.weekLine, hintIcon(preset, view.weekLine)]) : null,
+    view.countdown ? el('div', { class: 'dia-countdown', dataset: { holiday: view.countdown.id } }, [
+      el('span', { class: 'dia-cd-n', text: view.countdown.n }),
+      el('span', { class: 'dia-cd-l', text: view.countdown.label }),
     ]) : null,
   ];
 
@@ -403,84 +403,84 @@ export function renderToday(host, view, preset) {
 
   const main = (view.exams || []).map(verdictCard);
   if (view.silent) {
-    main.push(el('div', { class: 'ad-quiet-note' }, [
-      el('div', { class: 'ad-q-main', text: view.silentReason }),
-      view.examList.length ? el('div', { class: 'ad-small ad-soft', text: view.examList.join(', ') }) : null,
+    main.push(el('div', { class: 'dia-quiet-note' }, [
+      el('div', { class: 'dia-q-main', text: view.silentReason }),
+      view.examList.length ? el('div', { class: 'dia-small dia-soft', text: view.examList.join(', ') }) : null,
     ]));
   } else if (view.now) {
     const n = view.now;
-    main.push(el('section', { class: 'ad-now', 'aria-label': n.title }, [
-      el('div', { class: 'ad-now-label', text: n.title }),
-      el('div', { class: 'ad-now-subject', text: n.name }),
-      el('div', { class: 'ad-now-slot', text: n.slotText }),
-      n.teacher ? el('div', { class: 'ad-now-meta', text: n.teacher }) : null,
-      n.where ? el('div', { class: 'ad-now-meta', text: n.where }) : null,
+    main.push(el('section', { class: 'dia-now', 'aria-label': n.title }, [
+      el('div', { class: 'dia-now-label', text: n.title }),
+      el('div', { class: 'dia-now-subject', text: n.name }),
+      el('div', { class: 'dia-now-slot', text: n.slotText }),
+      n.teacher ? el('div', { class: 'dia-now-meta', text: n.teacher }) : null,
+      n.where ? el('div', { class: 'dia-now-meta', text: n.where }) : null,
     ]));
   }
   if (view.next) {
     const x = view.next;
-    main.push(el('div', { class: 'ad-next-card' }, [
-      el('div', { class: 'ad-nx-title', text: U.nextCardTitle }),
-      el('div', { class: 'ad-nx-subject', text: x.name }),
-      el('div', { class: 'ad-nx-meta', text: x.when }),
-      x.teacher ? el('div', { class: 'ad-nx-meta', text: x.teacher }) : null,
-      x.where ? el('div', { class: 'ad-nx-meta', text: x.where }) : null,
+    main.push(el('div', { class: 'dia-next-card' }, [
+      el('div', { class: 'dia-nx-title', text: U.nextCardTitle }),
+      el('div', { class: 'dia-nx-subject', text: x.name }),
+      el('div', { class: 'dia-nx-meta', text: x.when }),
+      x.teacher ? el('div', { class: 'dia-nx-meta', text: x.teacher }) : null,
+      x.where ? el('div', { class: 'dia-nx-meta', text: x.where }) : null,
     ]));
   } else if (!view.silent && !view.nextIsNow) {
-    main.push(el('div', { class: 'ad-silent', text: U.noNext }));
+    main.push(el('div', { class: 'dia-silent', text: U.noNext }));
   }
 
   let plan = [];
   if (view.plan.length && !view.silent) {
     const hasN = view.plan.some((p) => p.start);
-    const list = el('ol', { class: 'ad-sched', dataset: hasN ? { n: '1' } : {} }, view.plan.map((p) => {
-      const state = p.done ? ' ad-done' : p.current ? ' ad-cur' : '';
+    const list = el('ol', { class: 'dia-sched', dataset: hasN ? { n: '1' } : {} }, view.plan.map((p) => {
+      const state = p.done ? ' dia-done' : p.current ? ' dia-cur' : '';
       const where = [p.teacher, p.where].filter(Boolean).join(' · ');
-      return el('li', { class: `ad-sched-row${state}`, dataset: { index: String(p.index) } }, [
-        hasN ? el('span', { class: 'ad-n', text: String(p.ordinal) }) : null,
-        el('span', { class: 'ad-t', text: p.start ? `${p.start}${p.end ? `–${p.end}` : ''}` : String(p.ordinal) }),
-        el('span', { class: 'ad-s' }, [
+      return el('li', { class: `dia-sched-row${state}`, dataset: { index: String(p.index) } }, [
+        hasN ? el('span', { class: 'dia-n', text: String(p.ordinal) }) : null,
+        el('span', { class: 'dia-t', text: p.start ? `${p.start}${p.end ? `–${p.end}` : ''}` : String(p.ordinal) }),
+        el('span', { class: 'dia-s' }, [
           el('b', { text: p.name }),
           where ? el('small', { text: where }) : null,
-          p.done ? el('span', { class: 'ad-mk-label', text: X.planPassed }) : null,
+          p.done ? el('span', { class: 'dia-mk-label', text: X.planPassed }) : null,
         ]),
-        p.done ? svgIcon('tick', 'ad-mk') : el('span'),
+        p.done ? svgIcon('tick', 'dia-mk') : el('span'),
       ]);
     }));
     plan = spread
-      ? [el('h3', { class: 'ad-sec-h', text: U.dayTitle }), list]
+      ? [el('h3', { class: 'dia-sec-h', text: U.dayTitle }), list]
       : [memoDetails('today:plan', {
-        cls: 'ad-sched-wrap',
-        summary: [el('span', { text: U.dayTitle }), svgIcon('chev', 'ad-chev')],
+        cls: 'dia-sched-wrap',
+        summary: [el('span', { text: U.dayTitle }), svgIcon('chev', 'dia-chev')],
         body: list,
       })];
   }
 
   const timeMark = view.timeMark
-    ? el('div', { class: view.stalled ? 'ad-timemark ad-stalled' : 'ad-timemark', text: view.timeMark })
+    ? el('div', { class: view.stalled ? 'dia-timemark dia-stalled' : 'dia-timemark', text: view.timeMark })
     : null;
-  const more = [X.weekHint ? el('div', { class: 'ad-small ad-soft academy-week-hint', text: X.weekHint }) : null, timeMark];
+  const more = [X.weekHint ? el('div', { class: 'dia-small dia-soft academy-week-hint', text: X.weekHint }) : null, timeMark];
 
   const events = [];
   const stickers = holidaySheet(view.holidays, X, preset);
   if (stickers) events.push(stickers);
   if (view.rumor) {
-    events.push(el('div', { class: 'ad-margin-note', dataset: { post: view.rumor.id } }, [
+    events.push(el('div', { class: 'dia-margin-note', dataset: { post: view.rumor.id } }, [
       el('small', { text: view.rumor.tag }),
       view.rumor.text,
-      el('span', { class: 'ad-mn-src', text: view.rumor.src }),
+      el('span', { class: 'dia-mn-src', text: view.rumor.src }),
     ]));
   }
   if (view.bully) {
-    events.push(el('div', { class: 'ad-margin-note ad-bully', dataset: { bully: view.bully.id } }, [
+    events.push(el('div', { class: 'dia-margin-note dia-bully', dataset: { bully: view.bully.id } }, [
       el('small', { text: view.bully.hidden ? `${X.bullyTodayTitle} · ${X.bullyHiddenMark}` : X.bullyTodayTitle }),
       view.bully.text,
     ]));
   }
   if (view.deal) {
-    events.push(el('h3', { class: 'ad-sec-h ad-deal-h', text: X.feedDealsTitle }));
-    events.push(el('div', { class: 'ad-deal', dataset: { deal: view.deal.id } }, [
-      el('i', { class: 'ad-mk-sq' }),
+    events.push(el('h3', { class: 'dia-sec-h dia-deal-h', text: X.feedDealsTitle }));
+    events.push(el('div', { class: 'dia-deal', dataset: { deal: view.deal.id } }, [
+      el('i', { class: 'dia-mk-sq' }),
       el('span', { text: view.deal.text }),
     ]));
   }
@@ -496,30 +496,30 @@ export function renderToday(host, view, preset) {
 
 function holidaySheet(list, X, preset) {
   if (!list || !list.length) return null;
-  return el('div', { class: 'ad-stickers' }, list.map((h) => el('aside', {
-    class: h.days === 0 ? 'ad-sticker ad-sticker-now' : 'ad-sticker',
+  return el('div', { class: 'dia-stickers' }, list.map((h) => el('aside', {
+    class: h.days === 0 ? 'dia-sticker dia-sticker-now' : 'dia-sticker',
     'aria-label': X.holidaysTitle,
     dataset: { holiday: h.id },
   }, [
-    el('i', { class: 'ad-attach', dataset: { for: 'sticker' } }),
-    el('div', { class: 'ad-st-when', text: h.whenLine }),
-    el('div', { class: 'ad-st-what' }, [
+    el('i', { class: 'dia-attach', dataset: { for: 'sticker' } }),
+    el('div', { class: 'dia-st-when', text: h.whenLine }),
+    el('div', { class: 'dia-st-what' }, [
       h.name,
       hintIcon(preset, h.name),
       h.own ? el('span', { class: 'academy-holiday-own', title: X.holidayOwnTitle, 'aria-label': X.holidayOwnTitle, text: X.holidayOwnMark }) : null,
     ]),
-    h.note ? el('div', { class: 'ad-st-buzz', text: h.note }) : (h.about ? el('div', { class: 'ad-st-about', text: h.about }) : null),
-    h.offLine ? el('div', { class: 'ad-st-off', text: h.offLine }) : null,
-    h.going ? el('div', { class: 'ad-st-going', text: h.going }) : null,
+    h.note ? el('div', { class: 'dia-st-buzz', text: h.note }) : (h.about ? el('div', { class: 'dia-st-about', text: h.about }) : null),
+    h.offLine ? el('div', { class: 'dia-st-off', text: h.offLine }) : null,
+    h.going ? el('div', { class: 'dia-st-going', text: h.going }) : null,
   ])));
 }
 
 function verdictCard(r) {
   const fresh = !mounted.seenRolls.has(r.key);
   mounted.seenRolls.add(r.key);
-  return el('details', { class: r.passed ? 'ad-verdict' : 'ad-verdict ad-fail', dataset: { exam: r.id } }, [
+  return el('details', { class: r.passed ? 'dia-verdict' : 'dia-verdict dia-fail', dataset: { exam: r.id } }, [
     el('summary', {}, [
-      el('span', { class: 'ad-v-head' }, [
+      el('span', { class: 'dia-v-head' }, [
         r.auto ? null : el('span', {
           class: fresh ? 'academy-roll academy-roll-fresh' : 'academy-roll',
           text: String(r.roll),
@@ -527,10 +527,10 @@ function verdictCard(r) {
         }),
         el('span', { text: r.head }),
       ]),
-      r.stamp ? el('span', { class: 'ad-stamp', 'aria-hidden': 'true', text: r.stamp }) : null,
-      el('span', { class: 'ad-more-t', text: 'Подробности' }),
+      r.stamp ? el('span', { class: 'dia-stamp', 'aria-hidden': 'true', text: r.stamp }) : null,
+      el('span', { class: 'dia-more-t', text: 'Подробности' }),
     ]),
-    el('div', { class: 'ad-v-roll' }, [
+    el('div', { class: 'dia-v-roll' }, [
       el('div', { text: r.rollText }),
       ...(r.notes || []).map((n) => el('div', { text: n })),
     ]),

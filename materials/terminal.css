@@ -1,4 +1,4 @@
-.ad-diary[data-mat="terminal"], .ad-mat-scope[data-mat="terminal"] {
+.dia-diary[data-mat="terminal"], .dia-mat-scope[data-mat="terminal"] {
   --ad-cover: #222d39; --ad-cover-edge: #101923;
   --ad-page: #15222c; --ad-grid: transparent; --ad-margin: #476473;
   --ad-ink: #edf4f6; --ad-ink-soft: #b1c4cd;
@@ -29,7 +29,7 @@
   --ad-case-border: 2px solid #5a6e7b; --ad-surface-edge: inset 0 0 0 1px #62848f; --ad-title-rule: 1px solid #3d5663; --ad-title-rule-pad: 8px;
   --ad-ph-border: 1px solid #84afbd; --ad-ph-bg: #304754;
 }
-.ad-diary[data-mat="terminal"] .ad-attach[data-for="photo"] { display: block; top: -3px; right: 4px; width: 14px; height: 6px; background: #a5bec7; border: 1px solid #edf4f6; }
-.ad-diary[data-mat="terminal"] .ad-attach[data-for="photo"][data-size="lg"] { width: 20px; height: 7px; }
-.ad-diary[data-mat="terminal"] { --ad-doc-mark-display: none; }
-.ad-mat-scope[data-mat="terminal"] .ad-bookmark { display: none; }
+.dia-diary[data-mat="terminal"] .dia-attach[data-for="photo"] { display: block; top: -3px; right: 4px; width: 14px; height: 6px; background: #a5bec7; border: 1px solid #edf4f6; }
+.dia-diary[data-mat="terminal"] .dia-attach[data-for="photo"][data-size="lg"] { width: 20px; height: 7px; }
+.dia-diary[data-mat="terminal"] { --ad-doc-mark-display: none; }
+.dia-mat-scope[data-mat="terminal"] .dia-bookmark { display: none; }

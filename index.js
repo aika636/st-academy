@@ -2152,7 +2152,7 @@ function panelDiagnosis() {
   parts.push(trace.length ? `последние события: ${trace.join(', ')}` : 'событий об ответах с запуска не было');
   if (typeof document !== 'undefined') {
     parts.push(`сообщений на странице: ${document.querySelectorAll('#chat .mes[mesid]').length}`);
-    parts.push(`плашек на странице: ${document.querySelectorAll('.ad-mpanel').length}`);
+    parts.push(`плашек на странице: ${document.querySelectorAll('.dia-mpanel').length}`);
   }
   return `Плашки: ${parts.join('; ')}.`;
 }
@@ -2222,7 +2222,7 @@ function panelsMissing() {
   if (!chat) return false;
   const mes = chatOf();
   for (const node of chat.querySelectorAll('.mes[mesid]')) {
-    if (node.querySelector('.ad-mpanel')) continue;
+    if (node.querySelector('.dia-mpanel')) continue;
     const id = Number(node.getAttribute('mesid'));
     if (Number.isInteger(id) && eligible(mes[id]) && node.querySelector('.mes_text')) return true;
   }
