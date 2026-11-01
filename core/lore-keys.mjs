@@ -7,6 +7,7 @@ const CYR = 'А-Яа-яЁё';
 const LEFT = `(?<![${CYR}])`;
 const RIGHT = `(?![${CYR}])`;
 const TAIL = `[${CYR}]*`;
+const SHORT_TAIL = `(?:[аеёиоуыьюяй]{0,3}|[оеё]м)`;
 
 export const FREQUENT_WORDS = [
   'мир', 'мира', 'миру', 'миром', 'мире', 'мирный', 'мирная', 'мирные', 'друг', 'друга', 'другу', 'другом', 'друге', 'друзья', 'друзей',
@@ -56,7 +57,10 @@ const flat = (s) => String(s == null ? '' : s).toLowerCase().replace(/ё/g, 'е'
 const lettersOf = (s) => String(s || '').replace(/[^\p{L}]/gu, '');
 const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&').replace(/\s+/g, '\\s+');
 const cyrWord = (w) => /^[А-Яа-яЁё]+(?:-[А-Яа-яЁё]+)*$/.test(w);
-const latWord = (w) => /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(w);
+const latWord = (w) => /^\p{Script=Latin}+(?:['’-]\p{Script=Latin}+)*$/u.test(w);
+const LAT = 'A-Za-z\\u00C0-\\u024F';
+const enGroup = (body) => (/^[\x00-\x7f]*$/.test(body) ? `\\b(?:${body})\\b` : `(?<![${LAT}])(?:${body})(?![${LAT}])`);
+const yo = (s) => esc(s).replace(/ё/gi, '[её]');
 
 export const asKey = (body) => `/${body}/i`;
 
@@ -81,17 +85,21 @@ function variant(lang, body, text, forms, extra = {}) {
 
 function ruWord(word) {
   const stem = ruStem(word);
-  if (stem && lettersOf(stem).length >= MIN_STEM) return variant('ru', `${LEFT}${esc(stem)}${TAIL}`, stem, [word], { single: true, stem: true });
+  const n = stem ? lettersOf(stem).length : 0;
+  if (n >= MIN_STEM || (n === 3 && stem.length < word.length)) {
+    const open = n > 4 || word.length - stem.length > 1;
+    return variant('ru', `${LEFT}${yo(stem)}${open ? TAIL : `${SHORT_TAIL}${RIGHT}`}`, stem, [word], { single: true, stem: true });
+  }
   if (lettersOf(word).length < 3) return null;
-  return variant('ru', `${LEFT}${esc(word)}${RIGHT}`, word, [word], { single: true });
+  return variant('ru', `${LEFT}${yo(word)}${RIGHT}`, word, [word], { single: true });
 }
 
 function ruPhrase(words, loose = false) {
   const parts = words.map((w) => {
     const stem = ruStem(w);
-    if (stem && lettersOf(stem).length >= 3) return { body: `${esc(stem)}${TAIL}`, open: true };
-    if (loose && lettersOf(w).length >= 5) return { body: `${esc(w)}[${CYR}]{0,3}`, open: true };
-    return { body: esc(w), open: false };
+    if (stem && lettersOf(stem).length >= 3) return { body: `${yo(stem)}${TAIL}`, open: true };
+    if (loose && lettersOf(w).length >= 5) return { body: `${yo(w)}[${CYR}]{0,3}`, open: true };
+    return { body: yo(w), open: false };
   });
   const last = parts[parts.length - 1];
   const body = `${LEFT}${parts.map((p) => p.body).join('\\s+')}${last.open ? '' : RIGHT}`;
@@ -107,7 +115,7 @@ export function checkVariant(v, { frequent = true, generic = true } = {}) {
   if (!v) return false;
   let re;
   try {
-    re = new RegExp(v.lang === 'en' ? `\\b(?:${v.body})\\b` : v.body, 'i');
+    re = new RegExp(v.lang === 'en' ? enGroup(v.body) : v.body, 'i');
   } catch {
     return false;
   }
@@ -172,7 +180,7 @@ function stemVariant(raw) {
   const stem = String((raw && raw.stem) || '').trim();
   if (!cyrWord(stem) || stem.includes('-') || lettersOf(stem).length < MIN_STEM) return null;
   const forms = (Array.isArray(raw.forms) ? raw.forms : []).map((f) => String(f || '').trim()).filter(cyrWord);
-  return variant('ru', `${LEFT}${esc(stem)}${TAIL}`, stem, forms.length ? forms : [stem], { single: true, stem: true });
+  return variant('ru', `${LEFT}${yo(stem)}${TAIL}`, stem, forms.length ? forms : [stem], { single: true, stem: true });
 }
 
 function phraseVariant(raw, roles) {
@@ -224,9 +232,9 @@ export function contentWords(text, { min = 6, max = 3 } = {}) {
 
 function termBody(word) {
   const w = String(word);
-  if (/[оеё][кц]$/i.test(w) && lettersOf(w).length >= 6) return `${esc(w.slice(0, -2))}[${CYR}]{0,4}`;
+  if (/[оеё][кц]$/i.test(w) && lettersOf(w).length >= 6) return `${yo(w.slice(0, -2))}[${CYR}]{0,4}`;
   const cut = /[аяеёиоуыьюэй]$/i.test(w) && lettersOf(w).length - 1 >= MIN_STEM ? w.slice(0, -1) : w;
-  return `${esc(cut)}[${CYR}]{0,${cut.length >= 5 ? 3 : 2}}`;
+  return `${yo(cut)}[${CYR}]{0,${cut.length >= 5 ? 3 : 2}}`;
 }
 
 function termVariant(ws) {
@@ -238,7 +246,7 @@ function looseWord(word) {
   const w = String(word);
   const two = /(?:ам|ом|ем|ах|ей|ов|ев|ою|ею|ие|ые|ий|ых|их|ми|ть|ла|ли|ло|ет|ют|ит|ат|ят)$/i;
   const stem = two.test(w) && w.length >= 7 ? w.slice(0, -2) : /[аяеёиоуыьюэй]$/i.test(w) ? w.slice(0, -1) : w;
-  return variant('ru', `${LEFT}${esc(stem)}${TAIL}`, stem, [w], { single: true, stem: true });
+  return variant('ru', `${LEFT}${yo(stem)}${TAIL}`, stem, [w], { single: true, stem: true });
 }
 
 export function essenceWords(text) {
@@ -267,7 +275,7 @@ export function overused(v, ctx = {}) {
   if (!v || !text) return false;
   let re;
   try {
-    re = new RegExp(v.lang === 'en' ? `\\b(?:${v.body})\\b` : v.body, 'gi');
+    re = new RegExp(v.lang === 'en' ? enGroup(v.body) : v.body, 'gi');
   } catch {
     return false;
   }
@@ -307,13 +315,13 @@ export function variantsFor(spec, hints, ctx = {}) {
     for (const p of spec.people || []) out.push(...personVariants(p, ctx).slice(0, 3));
   }
   const taken = new Set((ctx.exclude || []).map(flat));
-  return uniq(out.filter((v) => v && !taken.has(v.text) && (spec.type === 'person' || !nearEssence(v, ctx)))).slice(0, MAX_KEYS);
+  return uniq(out.filter((v) => v && !taken.has(v.text) && !v.forms.some((f) => taken.has(flat(f))) && (spec.type === 'person' || !nearEssence(v, ctx)))).slice(0, MAX_KEYS);
 }
 
 export function composeKeys(variants) {
   const en = variants.filter((v) => v.lang === 'en').map((v) => v.body);
   const ru = variants.filter((v) => v.lang === 'ru').map((v) => asKey(v.body));
-  return [...(en.length ? [asKey(`\\b(?:${en.join('|')})\\b`)] : []), ...ru];
+  return [...(en.length ? [asKey(enGroup(en.join('|')))] : []), ...ru];
 }
 
 function overlaps(a, b) {

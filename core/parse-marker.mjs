@@ -262,7 +262,7 @@ function parseBody(body, ctx, events, rejected) {
 }
 
 function parseTime(value, raw, events, rejected) {
-  const v = value.replace(/\s+/g, ' ').trim();
+  const v = dashed(value.replace(/\s+/g, ' ').trim());
 
   const num = v.match(/^([+-]?)(\d{1,3})$/);
   if (num) {
@@ -322,10 +322,12 @@ function parseRel(value, raw, ctx, events, rejected) {
 
 const REASON_MAX = 60;
 
+const dashed = (v) => String(v).replace(/[−‒–—―]/g, '-');
+
 function splitReason(value, ctx) {
   const parts = value.split(':');
   for (let k = parts.length - 2; k >= 1; k -= 1) {
-    const word = parts[k].replace(/[[\]()]/g, '').trim();
+    const word = dashed(parts[k].replace(/[[\]()]/g, '').trim());
     if (!/^[+-]?\d{1,2}$/.test(word) && !parseImpact(word, ctx)) continue;
     const reason = parts.slice(k + 1).join(':')
       .replace(/[[\]()]/g, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
@@ -353,7 +355,7 @@ function parseRelCore(value, raw, ctx, events, rejected, reason) {
     rejected.push({ raw, reason: `неизвестный преподаватель: «${who}»` });
     return;
   }
-  const word = value.slice(at + 1).trim();
+  const word = dashed(value.slice(at + 1).trim());
   const why = reason ? { reason } : {};
   const d = word.match(/^([+-]?\d{1,2})$/);
   if (d) {

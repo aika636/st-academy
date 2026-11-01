@@ -143,10 +143,10 @@ export const POST_WORDS = [
 export const LIKES_WORDS = [
   { re: /книг|чтени|читать/, text: 'a book', tags: ['holding book'] },
   { re: /кофе/, text: 'a cup of coffee', tags: ['coffee cup'] },
-  { re: /чай|чаю/, text: 'a teacup', tags: ['teacup'] },
+  { re: /(?<![а-я])ча(?:й|ю|я|е|ем)(?![а-я])/, text: 'a teacup', tags: ['teacup'] },
   { re: /вин[оау]|вине/, text: 'a glass of wine', tags: ['wine glass'] },
-  { re: /кош|кот[аеиоуы]?(?:\s|,|$)|котик/, text: 'a cat', tags: ['cat'] },
-  { re: /сов[аыуе]|птиц/, text: 'an owl', tags: ['owl'] },
+  { re: /(?<![а-я])(?:кош|кот[аеиоуы]?(?:\s|,|$)|котик)/, text: 'a cat', tags: ['cat'] },
+  { re: /(?<![а-я])сов[аыуе](?![а-я])|птиц/, text: 'an owl', tags: ['owl'] },
   { re: /цвет[ыоа]|роз[ыа]?(?:\s|,|$)|сад|орхиде/, text: 'flowers', tags: ['flower'] },
   { re: /музык|скрипк|гитар|пианин|рояль/, text: 'music', tags: ['musical note'] },
   { re: /картин|живопис/, text: 'paintings', tags: ['painting (object)'] },
@@ -162,7 +162,7 @@ export const CLUB_WORDS = [
   { re: /шахмат/, text: 'the chess club', tags: ['chess piece'] },
   { re: /хор|музык|оркестр|групп|вокал/, text: 'the music club', tags: ['musical note'] },
   { re: /фото/, text: 'the photography club', tags: ['holding camera'] },
-  { re: /художеств|рисова|арт|живопис/, text: 'the art club', tags: ['holding paintbrush'] },
+  { re: /художеств|рисова|(?<![а-я])арт|живопис/, text: 'the art club', tags: ['holding paintbrush'] },
   { re: /литерат|книж|поэз/, text: 'the literature club', tags: ['holding book'] },
   { re: /газет|журнал|пресс/, text: 'the school newspaper', tags: ['holding notebook'] },
   { re: /науч|робот|физик|хими|астроном/, text: 'the science club', tags: [] },
@@ -191,23 +191,23 @@ export const LOOKS_WORDS = [
   { re: /блонд|светловолос|светл\S*\s+волос|золотист\S*\s+волос/, text: 'blonde hair', tags: ['blonde hair'] },
   { re: /брюнет|черноволос|ч[её]рн\S*\s+волос|т[её]мн\S*\s+волос/, text: 'black hair', tags: ['black hair'] },
   { re: /шатен|каштан|русы|русая|русые/, text: 'brown hair', tags: ['brown hair'] },
-  { re: /сед[аоыи]|седин|серебрист\S*\s+волос/, text: 'grey hair', tags: ['grey hair'] },
+  { re: /(?<![а-я])сед[аоыи]|(?<![а-я])седин|серебрист\S*\s+волос/, text: 'grey hair', tags: ['grey hair'] },
   { re: /(?<![а-я])бел\S*\s+волос|беловолос/, text: 'white hair', tags: ['white hair'] },
   { re: /(?<![а-я])розов\S*\s+волос/, text: 'pink hair', tags: ['pink hair'] },
   { re: /(?<![а-я])(?:син|голуб)\S*\s+волос/, text: 'blue hair', tags: ['blue hair'] },
-  { re: /коротк\S*\s+(?:волос|стрижк)|стрижк|каре/, text: 'short hair', tags: ['short hair'] },
+  { re: /коротк\S*\s+(?:волос|стрижк)|стрижк|(?<![а-я])каре(?![а-я])/, text: 'short hair', tags: ['short hair'] },
   { re: /длинн\S*\s+(?:волос|кос)/, text: 'long hair', tags: ['long hair'] },
   { re: /косичк|кос(?:а|у|ы|ой|ами)(?:\s|,|$)/, text: 'a braid', tags: ['braid'] },
   { re: /хвост/, text: 'a ponytail', tags: ['ponytail'] },
-  { re: /пуч[оке]/, text: 'a hair bun', tags: ['hair bun'] },
+  { re: /(?<![а-я])пуч[оке]/, text: 'a hair bun', tags: ['hair bun'] },
   { re: /кудр|локон/, text: 'curly hair', tags: ['curly hair'] },
-  { re: /(?<![а-я])(?:голуб|син)\S*\s+глаз/, text: 'blue eyes', tags: ['blue eyes'] },
-  { re: /(?<![а-я])зел[её]н\S*\s+глаз/, text: 'green eyes', tags: ['green eyes'] },
-  { re: /(?<![а-я])кар\S*\s+глаз/, text: 'brown eyes', tags: ['brown eyes'] },
-  { re: /(?<![а-я])сер(?!ь[её]зн)\S*\s+глаз/, text: 'grey eyes', tags: ['grey eyes'] },
+  { re: /(?<![а-я])(?:голуб|син)\S*\s+глаз|голубоглаз|синеглаз/, text: 'blue eyes', tags: ['blue eyes'] },
+  { re: /(?<![а-я])зел[её]н\S*\s+глаз|зел[её]ноглаз/, text: 'green eyes', tags: ['green eyes'] },
+  { re: /(?<![а-я])кар\S*\s+глаз|кареглаз/, text: 'brown eyes', tags: ['brown eyes'] },
+  { re: /(?<![а-я])сер(?!ь[её]зн)\S*\s+глаз|сероглаз/, text: 'grey eyes', tags: ['grey eyes'] },
   { re: /янтарн|(?<![а-я])золот\S*\s+глаз/, text: 'amber eyes', tags: ['yellow eyes'] },
   { re: /(?<![а-я])(?:красн|ал)\S*\s+глаз/, text: 'red eyes', tags: ['red eyes'] },
-  { re: /очк|пенсне|монокл/, text: 'glasses', tags: ['glasses'] },
+  { re: /(?<![а-я])очк|пенсне|монокл/, text: 'glasses', tags: ['glasses'] },
   { re: /бород/, text: 'a beard', tags: ['beard'] },
   { re: /усы|усат/, text: 'a mustache', tags: ['mustache'] },
   { re: /веснуш/, text: 'freckles', tags: ['freckles'] },
@@ -272,11 +272,19 @@ export function guessGender(person) {
   return adjectiveGender(looks) || genderOfName(p.name) || null;
 }
 
+const MINOR_TAG = /\b(?:child|children|kid|kids|loli|lolita|shota|shotacon|teen|teens|teenage|teenager|young (?:girl|boy)|little|schoolgirl|schoolboy|toddler|baby|minor|underage|preteen|juvenile)\b/i;
+
+const MINOR_RU = /девочк|мальчик|ребен|подрост|школьниц|школьник|малолет|тинейдж|(?<![\d.])1[0-7](?:\s*лет|-?летн)|(?<![а-я])лет\s+1[0-7](?!\d)/;
+
+export const MINOR_REFUSAL = 'В описании внешности есть слова о несовершеннолетнем, а все персонажи Академии совершеннолетние. Поправьте описание внешности.';
+
+export const isMinorLooks = (text) => MINOR_RU.test(low(text));
+
 function latinTags(looks) {
   if (!looks || hasCyrillic(looks)) return [];
   return looks.split(/[,;]+/)
     .map((t) => t.trim().toLowerCase().replace(/[^a-z0-9 ()'.-]+/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
+    .filter((t) => t && !MINOR_TAG.test(t))
     .slice(0, 12);
 }
 
@@ -318,13 +326,13 @@ export function portraitFacts(person, opts = {}) {
 
 export function naiPrompt(facts, style = DEFAULT_DRAW_STYLE, styleText = '', looksTags = []) {
   const f = facts;
-  const own = (looksTags || []).filter(Boolean);
+  const own = (looksTags || []).filter((t) => t && !MINOR_TAG.test(t));
   const outfit = own.some((t) => CLOTHES_TAG.test(t)) ? [] : f.outfit.tags;
   const st = styleOf(style, styleText);
   const who = f.gender === 'f' ? ['1girl'] : f.gender === 'm' ? ['1boy'] : [];
   const age = f.kind === 'teacher' && !own.some((t) => /\b(?:mature|old|elderly|adult)\b/.test(t))
     ? [f.gender === 'f' ? 'mature female' : f.gender === 'm' ? 'mature male' : 'adult']
-    : own.some((t) => /(?:mature|old|elderly|adult)/.test(t)) ? [] : ['adult'];
+    : own.some((t) => /\b(?:mature|old|elderly|adult)\b/.test(t)) ? [] : ['adult'];
   const props = [
     ...(f.subject ? f.subject.tags : []),
     ...(f.club ? f.club.tags : []),
@@ -340,7 +348,7 @@ export function naiPrompt(facts, style = DEFAULT_DRAW_STYLE, styleText = '', loo
     ...props,
     ...st.tags,
     'blurry background', ...f.bg.tags,
-  ]).filter((t) => !hasCyrillic(t));
+  ]).filter((t) => !hasCyrillic(t) && !MINOR_TAG.test(t));
   const negative = [...NAI_NEGATIVE, ...(style === 'realism' ? ['anime', 'cartoon'] : [])];
   return { prompt: tags.join(', '), negative: negative.join(', ') };
 }
@@ -376,7 +384,7 @@ export function parseLooksTags(text) {
     .replace(/```[a-z]*|```/gi, '')
     .split(/[,\n]+/)
     .map((t) => t.trim().toLowerCase().replace(/^(?:[-*•]+|\d+[.)])\s*/, '').replace(/[^a-z0-9 ()'_-]+/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter((t) => t && t.length <= 40 && !skip.test(t)))
+    .filter((t) => t && t.length <= 40 && !skip.test(t) && !MINOR_TAG.test(t)))
     .slice(0, LOOKS_TAGS_MAX);
 }
 
@@ -462,5 +470,8 @@ export function buildPortraitPrompt(person, opts = {}) {
   const style = DRAW_STYLES[opts.style] ? opts.style : DEFAULT_DRAW_STYLE;
   const facts = portraitFacts(person, opts);
   const nai = naiPrompt(facts, style, opts.styleText, opts.looksTags);
+  if (isMinorLooks(facts.looksRaw)) {
+    return { tags: '', negative: nai.negative, text: '', facts, refused: MINOR_REFUSAL };
+  }
   return { tags: nai.prompt, negative: nai.negative, text: phrasePrompt(facts, style, opts.styleText), facts };
 }

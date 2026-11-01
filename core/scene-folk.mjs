@@ -4,14 +4,19 @@ import { stopHit, normName } from './stop-names.mjs';
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const clip = (v, max) => Array.from(str(v).replace(/\s+/g, ' ')).slice(0, max).join('').trim();
 
-export const LOVE_RE = /влюбл|люб(?:ит|ов|ви)|симпат|нравит|ухажив|роман|невест|жених|помолв|поцел|взаимност|crush/iu;
+export const LOVE_RE = /влюбл|люб(?:ит|ов|ви)|симпат|нравит|ухажив|романт|(?<!\p{L})роман\s+с(?!\p{L})|невест|жених|помолв|поцел|взаимност|crush/iu;
+
+export function isNameWord(word, token) {
+  const t = String(token);
+  return word.startsWith(t.length >= 5 ? t.slice(0, -1) : t) && word.length <= t.length + (t.length >= 4 ? 2 : 1);
+}
 
 export const SCENE_MAX = 2;
 
 function namedIn(name, text) {
   const stems = normName(name).split(' ').filter((t) => t.length >= 4).map((t) => t.slice(0, 5));
   const hay = String(text == null ? '' : text).replace(/ё/g, 'е').replace(/Ё/g, 'Е');
-  return stems.some((s) => new RegExp(`(?<![\\p{L}])${s[0].toUpperCase()}${s.slice(1)}`, 'u').test(hay));
+  return stems.some((s) => new RegExp(`(?<![\\p{L}])${(s[0].toUpperCase() + s.slice(1)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'u').test(hay));
 }
 
 export function loveOf(mate, mains) {
@@ -19,7 +24,7 @@ export function loveOf(mate, mains) {
   const text = [mate && mate.desire, mate && mate.problem, tie, mate && mate.club].map(str).join(' ');
   if (!text || !LOVE_RE.test(text)) return null;
   const words = normName(text).split(' ').filter(Boolean);
-  const named = (names) => names.some((n) => normName(n).split(' ').some((t) => t.length >= 3 && words.some((w) => w.startsWith(t.slice(0, Math.min(t.length, 5))))));
+  const named = (names) => names.some((n) => normName(n).split(' ').some((t) => t.length >= 3 && words.some((w) => isNameWord(w, t))));
   const hero = str(mains && mains.hero);
   const card = ((mains && mains.card) || []).map(str).filter(Boolean);
   if (hero && named([hero])) return { to: hero, rival: card.join(', ') };

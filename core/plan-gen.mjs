@@ -225,7 +225,7 @@ export function balancedBlock(text) {
 
 export function repairJson(text) {
   let s = String(text || '');
-  s = s.replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'");
+  s = mapOutsideStrings(s, (p) => p.replace(/[“”«»]/g, '"').replace(/[‘’]/g, "'"));
   s = s.replace(/^﻿/, '');
   s = stripOutsideStrings(s, /\/\/[^\n]*/g).replace(/\/\*[\s\S]*?\*\//g, '');
   s = s.replace(/'([^'"\\\n]*)'/g, '"$1"');
@@ -234,9 +234,13 @@ export function repairJson(text) {
   return s.trim();
 }
 
-function stripOutsideStrings(s, re) {
+function mapOutsideStrings(s, fn) {
   const parts = s.split(/("(?:[^"\\]|\\.)*")/);
-  return parts.map((p, i) => (i % 2 ? p : p.replace(re, ''))).join('');
+  return parts.map((p, i) => (i % 2 ? p : fn(p))).join('');
+}
+
+function stripOutsideStrings(s, re) {
+  return mapOutsideStrings(s, (p) => p.replace(re, ''));
 }
 
 function tryParse(s) {
@@ -341,6 +345,16 @@ function toTraits(v) {
   return s.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
 }
 
+function clampRelation(value, rel) {
+  if (value === undefined || !rel) return value;
+  const lo = Number(rel.min);
+  const hi = Number(rel.max);
+  let v = value;
+  if (Number.isFinite(lo)) v = Math.max(lo, v);
+  if (Number.isFinite(hi)) v = Math.min(hi, v);
+  return v;
+}
+
 export function validatePlan(plan, preset, opts = {}) {
   const canon = Boolean(str(opts.canon));
   const errors = [];
@@ -349,9 +363,13 @@ export function validatePlan(plan, preset, opts = {}) {
 
   const teachers = [];
   const teacherIds = new Set();
+  const idAlias = new Map();
+  const rel = preset && preset.relations;
   for (const raw of inTeachers) {
-    const id = str(raw && raw.id) || slugify(str(raw && raw.name));
-    const name = str(raw && raw.name);
+    const given = str(raw && raw.id);
+    const id = given && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(given) ? given : slugify(given || str(raw && raw.name));
+    if (given) idAlias.set(given, id);
+    const name = str(raw && raw.name).slice(0, 80);
     if (!name) { errors.push(`teacher-empty-name:${id || '?'}`); continue; }
     if (!id) { errors.push(`teacher-no-id:${name}`); continue; }
     if (teacherIds.has(id)) { errors.push(`teacher-duplicate-id:${id}`); continue; }
@@ -363,7 +381,7 @@ export function validatePlan(plan, preset, opts = {}) {
     }
     if (traits.length < minTraits(preset)) errors.push(`teacher-no-traits:${id}`);
     const looks = normalizeLooks(raw && raw.looks);
-    teachers.push({ id, name, traits, ...teacherDetails(raw), ...(looks ? { looks } : {}), relation: numberOr(raw && raw.relation, undefined) });
+    teachers.push({ id, name, traits, ...teacherDetails(raw), ...(looks ? { looks } : {}), relation: clampRelation(numberOr(raw && raw.relation, undefined), rel) });
   }
   if (teachers.length > planTeachers(preset, canon)) {
     errors.push(`too-many-teachers:${teachers.length}`);
@@ -382,6 +400,7 @@ export function validatePlan(plan, preset, opts = {}) {
     if (subjectIds.has(id)) { errors.push(`subject-duplicate-id:${id}`); continue; }
     subjectIds.add(id);
     let teacherId = str(raw && raw.teacherId) || '';
+    if (idAlias.has(teacherId)) teacherId = idAlias.get(teacherId);
     if (teacherId && !kept.has(teacherId)) {
       errors.push(`subject-unknown-teacher:${id}`);
       teacherId = '';

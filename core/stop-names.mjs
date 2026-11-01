@@ -71,7 +71,7 @@ export function strictest(hits) {
 }
 
 function charHit(tokens, stopTokens) {
-  const same = (a, b) => a === b || (a.length >= MIN_TOKEN && b.length >= MIN_TOKEN && (skeletonEq(a, b) || soundEq(a, b)));
+  const same = (a, b) => a === b || (a.length >= MIN_TOKEN && b.length >= MIN_TOKEN && (skeletonEq(a, b) || soundEq(a, b)) && closeSpelling(a, b));
   const inside = (xs, ys) => xs.every((x) => ys.some((y) => same(x, y)));
   const long = stopTokens.filter((t) => t.length >= MIN_TOKEN);
   return inside(tokens, stopTokens) || (long.length > 0 && long.length === stopTokens.length && inside(long, tokens));
@@ -105,6 +105,26 @@ function soundBase(word) {
     .replace(/th/g, 't')
     .replace(/w/g, 'v')
     .replace(/x/g, 'ks');
+}
+
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+function closeSpelling(a, b) {
+  const x = soundBase(a);
+  const y = soundBase(b);
+  const len = Math.max(x.length, y.length);
+  const limit = len <= 3 ? 1 : len <= 4 ? 0 : len <= 6 ? 2 : 3;
+  return editDistance(x, y) <= limit;
 }
 
 function soundEq(a, b) {

@@ -1,4 +1,4 @@
-import { addDays, dayOfWeek } from './time.mjs';
+import { addDays } from './time.mjs';
 import { examMode, awaitingAnnouncement } from './exams.mjs';
 import { examAhead } from './engine.mjs';
 
@@ -55,8 +55,6 @@ export function upcomingEvents(state, preset, opts = {}) {
     .sort((a, b) => (a.days - b.days) || (PRIORITY[a.kind] - PRIORITY[b.kind]))
     .slice(0, limit);
 }
-
-export const weekdayOf = (day) => dayOfWeek(day);
 
 function daysUntil(today, day, horizon) {
   for (let k = 0; k <= horizon; k += 1) if (addDays(today, k) === day) return k;

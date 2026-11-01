@@ -138,7 +138,7 @@ export function surveyOf(state, settings, chatId = '') {
   const draft = {};
   if (mine) for (const key of [...Object.keys(emptySurvey()), 'gender']) if (typeof raw[key] === 'string') draft[key] = raw[key];
   const own = Object.fromEntries(Object.entries((state && state.survey) || {}).filter(([, v]) => v !== '' && v != null));
-  return { ...emptySurvey(), ...draft, ...own };
+  return state && state.started ? { ...emptySurvey(), ...draft, ...own } : { ...emptySurvey(), ...own, ...draft };
 }
 
 function apiView(raw, connections) {
@@ -372,7 +372,7 @@ export function renderSettings(host) {
       if (!res || res.ok === false || !res.survey) return;
       for (const [key, node] of Object.entries(inputs)) {
         const value = str(res.survey[key]);
-        if (value) node.value = value;
+        if (value && !str(node.value)) node.value = value;
       }
       await saveDraft(host, collect(inputs));
       const filled = (res.filled || []).length;
@@ -456,11 +456,12 @@ export function renderSettings(host) {
     text: view.started ? U.startedButton : U.startButton,
     onclick: async (e) => {
       if (!view.canStart) return;
-      await runAction(
+      const res = await runAction(
         e.currentTarget, startStatus,
         () => call(host, 'startTerm', collect(inputs), { startDay: startDay.value }),
         U.startedOk,
       );
+      if (res && res.ok === false) return;
       mounted.tab = 'today';
       renderPanel(host);
     },
@@ -764,7 +765,7 @@ function collect(inputs) {
 function saveDraft(host, survey) {
   try {
     const chatId = safe(() => (host.getChatId ? String(host.getChatId() || '') : ''), '');
-    const res = host.setSettings({ ui: { surveyDraft: { ...survey, chatId } } });
+    const res = host.setSettings({ ui: { surveyDraft: { ...survey, chatId } } }, { quiet: true });
     return Promise.resolve(res);
   } catch (err) {
     return Promise.resolve({ ok: false, error: err });

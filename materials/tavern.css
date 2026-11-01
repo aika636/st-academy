@@ -13,6 +13,7 @@
   --ad-accent: var(--SmartThemeQuoteColor, #e18a24);
   --ad-rule: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 16%, transparent);
   --ad-rumor: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 40%, #b58ae0);
+  --ad-badge-bg: color-mix(in srgb, var(--ad-rumor) 55%, #000);
   --ad-today: color-mix(in srgb, var(--SmartThemeQuoteColor, #e18a24) 40%, #e0a93a);
 
   --ad-tab: color-mix(in srgb, var(--SmartThemeBodyColor, #dcdcd2) 12%, var(--ad-tint));

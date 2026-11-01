@@ -251,7 +251,7 @@ export function calendarNames(state, preset) {
   return out.slice(0, 20);
 }
 
-const systemOf = (preset) => 'Ты придумываешь постоянных второстепенных учеников для школьного чата со слухами в ролевой игре. Все ученики совершеннолетние (18+).'
+const systemOf = (preset) => 'Ты придумываешь постоянных второстепенных учеников для общего чата со слухами в ролевой игре. Все ученики совершеннолетние (18+).'
   + ` Это массовка: у каждого свои дела, ${heroWords(presetGender(preset)).heroAcc} они знают понаслышке.`
   + ' Отвечай только строками списка, без пояснений, вступлений и markdown.';
 
@@ -356,7 +356,7 @@ function temperBlock(i, w, persona) {
   return [
     `Описание ${w.heroGen}${name ? ` (${name})` : ''}:`,
     persona,
-    `НРАВ: одна-две фразы своими словами, каков нрав ${w.heroGen} в глазах курса и как с ней обращаются. Только по описанию.`,
+    `НРАВ: одна-две фразы своими словами, каков нрав ${w.heroGen} в глазах курса и как с ${w.she === 'она' ? 'ней' : 'ним'} обращаются. Только по описанию.`,
   ];
 }
 
@@ -366,7 +366,7 @@ function roleBlock(i, card) {
   return [
     `Описание персонажа карточки (${charNameOf(i)}):`,
     card,
-    'РОЛЬ: кто он в заведении, 2–6 слов (должность или положение), строго по описанию.',
+    'РОЛЬ: кто в заведении, 2–6 слов (должность или положение), строго по описанию.',
   ];
 }
 
@@ -378,7 +378,7 @@ export function buildTemperPrompt(input) {
   const persona = personaOf(i.persona);
   const card = personaOf(i.card);
   return {
-    system: 'Ты помогаешь вести общий школьный чат массовки в ролевой игре; все участники — совершеннолетние (18+). Отвечай короткими строками, без пояснений и markdown.',
+    system: 'Ты помогаешь вести общий чат массовки в ролевой игре; все участники — совершеннолетние (18+). Отвечай короткими строками, без пояснений и markdown.',
     user: [...(persona ? temperBlock(i, w, persona) : []), ...(card ? ['', ...roleBlock(i, card)] : []), '',
       `Ответ — ${persona && card ? 'две строки «НРАВ: …» и «РОЛЬ: …»' : persona ? 'строка «НРАВ: …»' : 'строка «РОЛЬ: …»'}, затем строка «${END_MARK}».`].join('\n'),
   };
@@ -388,7 +388,7 @@ const BULLET = /^\s*(?:[-–—*•]|\d+[.)])\s*/;
 
 const MARKED = /^[\s*_#>`-]*(нрав|роль)(?:\s*\([^)]*\))?\s*[:—–]\s*(.+)$/iu;
 
-const LABEL_ECHO = /(?:^|[\s,;(])(?:нрав|роль)\s*(?:[:«»]|$)/iu;
+const LABEL_ECHO = /(?:^|[\s,;(])(?:нрав|роль)\s*[:«»]|(?:^|[:—–])\s*(?:нрав|роль)\s*$/iu;
 
 const leadOff = (v) => String(v).replace(/^\s*(?:нрав|роль|характер)\s*[:—–-]\s*/iu, '');
 
@@ -452,7 +452,6 @@ function rowKind(f, opts = {}) {
 const FAN_MARK = /^(?:да|\+|фанат|поклонни)/iu;
 const FAN_GUESS = /фанат|поклонни|восхища|восторга/iu;
 const HEADERS = new Set(['ник', 'имя', 'кто', 'типаж', 'интерес', 'цель', 'как пишет', 'ревность', 'союзник', 'соперник']);
-const FAN_CELL = /^(?:нет|да|\+|-|—|–|фанат\p{L}*|поклонни\p{L}*)$/iu;
 
 const scrub = (v) => {
   const t = String(v == null ? '' : v).replace(new RegExp(END_MARK, 'g'), ' ').replace(/\s+/g, ' ').trim().replace(/[\s,;:|—–-]+$/u, '');
@@ -511,7 +510,7 @@ export function parseCastResponse(text, opts = {}) {
     }
     const id = `cast${members.length + 1}`;
     names.set(normName(nick), id);
-    const long = f.length >= 9 || (f.length === 8 && !FAN_CELL.test(f[6] || ''));
+    const long = f.length >= 9;
     const withRel = !long && f.length >= 8;
     members.push({
       id, nick, type: f[1], interest: f[2], goal: f[3], manner: f[4],
@@ -533,7 +532,7 @@ export function parseCastResponse(text, opts = {}) {
   return { members: normalizeCastList(resolved), rejected, complete, temper, role, rels: Object.fromEntries(rels) };
 }
 
-const stemOf = (t) => t.slice(0, t.length <= 4 ? t.length - 1 : Math.min(5, t.length - 2));
+const stemOf = (t) => t.slice(0, t.length <= 3 ? t.length : t.length <= 4 ? t.length - 1 : Math.min(5, t.length - 2));
 
 function nameStems(names) {
   return [...new Set((names || []).flatMap((n) => textKey(n).split(' ')).filter((t) => t.length >= 3).map(stemOf))];
@@ -579,7 +578,7 @@ export function repairCast(members, { manners = [] } = {}) {
 
 const mainKind = (words, hero, card) => {
   for (const w of words) {
-    if (w.startsWith('героин')) return 'hero';
+    if (/^геро(?:ин|й|я|ю|ем|е)/u.test(w)) return 'hero';
     if (w.startsWith('персонаж')) return 'card';
     if (hero.some((s) => w.startsWith(s))) return 'hero';
     if (card.some((s) => w.startsWith(s))) return 'card';
@@ -615,10 +614,11 @@ export function castGaps(members, input, rels = {}) {
   const card = nameStems([input.charName, ...(input.mainNames || [])]);
   if (!hero.length || !card.length) return { gaps: [], missing: [] };
   const kinds = members.filter((m) => concreteJealousy(m.jealousy)).map((m) => loveKind(m, { hero, card, rel: rels[m.id] }));
+  const w = heroWords(presetGender(input.preset));
   const gaps = [];
   const missing = [];
-  if (!kinds.includes('card')) { gaps.push('нет влюблённого в персонажа карточки, ревнующего к героине'); missing.push(str(input.mainNames && input.mainNames[0]) || str(input.charName) || 'персонажа карточки'); }
-  if (!kinds.includes('hero')) { gaps.push('нет влюблённого в героиню, ревнующего к персонажу карточки'); missing.push(str(input.heroine) || 'героиню'); }
+  if (!kinds.includes('card')) { gaps.push(`нет влюблённого в персонажа карточки, ревнующего к ${w.heroDat}`); missing.push(str(input.mainNames && input.mainNames[0]) || str(input.charName) || 'персонажа карточки'); }
+  if (!kinds.includes('hero')) { gaps.push(`нет влюблённого в ${w.heroAcc}, ревнующего к персонажу карточки`); missing.push(str(input.heroine) || w.heroAcc); }
   return { gaps, missing };
 }
 

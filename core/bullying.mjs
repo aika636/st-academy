@@ -312,7 +312,7 @@ function settleRoles(next, b, preset) {
   b.crew = b.crew.filter((id) => ids.has(id) && id !== b.lead && id !== b.ally
     && (b.manual || crewEligible(next, preset, personById(next, id), allies)));
   if (!b.manual) {
-    const picked = pickLead(next, b);
+    const picked = b.mode === 'self' ? '' : pickLead(next, b);
     if (picked) b.lead = picked;
     else if (b.mode === 'self' || b.pickState === 'none' || b.pickState === 'denied') b.lead = '';
     else if (!b.lead) b.lead = ranked(next, preset, b.crew)[0] || '';
@@ -325,7 +325,11 @@ function settleRoles(next, b, preset) {
       b.crew.push(id);
     }
   }
-  if (b.pending && b.pending.by !== b.lead) b.pending = null;
+  if (b.ally && !ids.has(b.ally)) b.ally = '';
+  if (b.pending) {
+    if (b.pending.by !== b.lead) b.pending = null;
+    else b.pending.crew = b.pending.crew.filter((id) => ids.has(id));
+  }
 }
 
 export function bullyRole(state, id) {
@@ -349,9 +353,10 @@ export function setBullyRole(state, personId, role) {
     b.crew = b.crew.filter((id) => id !== personId);
     if (b.lead && b.lead !== personId) b.crew = [b.lead, ...b.crew].slice(0, BULLYING_MAX.crew);
     b.lead = personId;
+    if (b.ally === personId) b.ally = '';
     b.manual = true;
   } else if (role === 'crew') {
-    if (b.lead === personId) { b.lead = ''; unpick(next, b, personId); }
+    if (b.lead === personId) b.lead = '';
     b.crew = [...b.crew.filter((id) => id !== personId), personId].slice(-BULLYING_MAX.crew);
     b.manual = true;
   } else {
@@ -380,7 +385,7 @@ export function setBullyingOptions(state, { on, taboo, mode, npcOk, skip } = {})
     b.mode = mode;
     b.pickState = '';
     b.pickKey = '';
-    if (mode === 'self' && !b.manual) Object.assign(b, { lead: '', crew: [], pending: null });
+    if (mode === 'self' && !b.manual) dropPick(b);
   }
   if (typeof npcOk === 'boolean' && npcOk !== b.npcOk) {
     b.npcOk = npcOk;
@@ -509,7 +514,7 @@ export function bullyHookWords(state, preset, opts = {}) {
   const names = namesOf(state, p.by);
   const avoid = [...new Set(b.acts.slice(-3).map((a) => clauseOf(fill(a.text, v), names).slice(0, 90)).filter(Boolean))];
   const list = (xs) => xs.map(trim).filter(Boolean).join('; ');
-  const crew = p.crew.map((id) => nameOf(state, id));
+  const crew = p.crew.filter((id) => personById(state, id)).map((id) => nameOf(state, id));
   const style = pick && pick.responseStyle ? `: ${trim(pick.responseStyle)}` : '';
   const compose = (L, attempt) => {
     const taboo = b.taboo ? fill(L.taboo, { taboo: trim(b.taboo) }) : '';
@@ -560,7 +565,7 @@ export function parseBullyToken(token) {
     const kind = (parts[1] || '').trim();
     return BULLY_MOVES.includes(kind) && (kind === 'backoff') === (who === BULLY) ? { type: 'move', kind, with: (parts[2] || '').trim() } : null;
   }
-  const level = Number(parts[1]);
+  const level = (parts[1] || '').trim() === '' ? NaN : Number(parts[1]);
   if (!Number.isInteger(level) || level < 0 || level > BULLYING_MAX.heat) return null;
   return { type: 'act', by: who, level, text: parts.slice(2).join(':').trim() };
 }
@@ -600,7 +605,7 @@ function logMove(next, b, preset, move, day, opts, by) {
 
 function setHeat(b, to, day, why) {
   const heat = Math.min(BULLYING_MAX.heat, Math.max(bullyFloor(b.peak), to));
-  b.change = { day, from: b.heat, to: heat, why };
+  if (heat !== b.heat) b.change = { day, from: b.heat, to: heat, why };
   b.heat = heat;
   b.peak = Math.max(b.peak, heat);
   b.press = 0;
@@ -650,6 +655,7 @@ function applyMove(next, b, preset, move, day, opts) {
   } else if (move.kind === 'revenge') {
     b.rev = true;
   } else if (move.kind === 'peace') {
+    b.peak = 0;
     setHeat(b, b.heat - 2, day, 'truce');
     b.ep = null;
     b.rev = false;

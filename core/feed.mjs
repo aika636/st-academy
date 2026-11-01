@@ -41,7 +41,7 @@ export const LOUDNESS = [
   { level: 0, max: 1, word: 'тихо' },
   { level: 1, max: 2, word: 'заметно' },
   { level: 2, max: 3, word: 'шумно' },
-  { level: 3, max: Infinity, word: 'на всю школу' },
+  { level: 3, max: Infinity, word: 'на всё заведение' },
 ];
 
 export function reactionCap(preset) {
@@ -329,7 +329,7 @@ const isMateId = (v) => ID_RE.test(v) && !/^cast\d+$/.test(v) && v !== '@heroine
 export function cutWords(text, max) {
   const t = String(text == null ? '' : text).trim();
   if (t.length <= max) return t;
-  const cut = t.slice(0, max);
+  const cut = headOf(t, max);
   const at = cut.lastIndexOf(' ');
   return (at > max / 2 && /[\p{L}\p{N}]/u.test(t[max]) ? cut.slice(0, at) : cut).replace(/[\s,;:\-–—]+$/u, '').trim();
 }
@@ -400,7 +400,7 @@ export function normalizeThread(raw, ids) {
     topic,
     members: kept,
     owner: kept.includes(str(raw.owner)) ? str(raw.owner) : kept[0],
-    want: oneLine(raw.want !== undefined ? raw.want : raw.dispute, THREAD_TEXT_MAX.want),
+    want: clipText(raw.want !== undefined ? raw.want : raw.dispute, THREAD_TEXT_MAX.want),
     last: clipText(raw.last, THREAD_TEXT_MAX.last),
     question: clipText(raw.question, THREAD_TEXT_MAX.question),
     source: THREAD_SOURCES.includes(raw.source) ? raw.source : 'cast',
@@ -434,7 +434,7 @@ export function normalizeThreads(raw, cast) {
 export const MOLVA_FACTS_MAX = 60;
 
 export function emptyMolva() {
-  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' }, leads: [], cal: [], offered: [], hot: [] };
+  return { issue: 0, since: 0, facts: [], at: { day: '', time: '' }, topics: [], lead: { topic: '', stage: '' }, leads: [], cal: [], offered: [], hot: [], talked: [] };
 }
 
 export const MOLVA_TOPICS_MAX = 10;
@@ -464,6 +464,8 @@ export function normalizeMolva(raw) {
     offered: (Array.isArray(src.offered) ? src.offered : []).map(str).filter(Boolean).slice(-EVENTS_OFFERED_MAX),
     hot: (Array.isArray(src.hot) ? src.hot : [])
       .map((h) => ({ id: str(h && h.id), issue: num(h && h.issue) })).filter((h) => h.id).slice(-EVENTS_MAX_HOT),
+    talked: (Array.isArray(src.talked) ? src.talked : [])
+      .map((t) => ({ id: str(t && t.id), issue: num(t && t.issue) })).filter((t) => t.id).slice(-12),
   };
 }
 
@@ -879,7 +881,7 @@ export function rumorFor(state, personId, opts = {}) {
 export function clipText(v, max) {
   const t = oneLine(v, 4000);
   if (t.length <= max) return t;
-  const room = t.slice(0, max - 1);
+  const room = headOf(t, max - 1);
   const stop = Math.max(room.lastIndexOf('. '), room.lastIndexOf('! '), room.lastIndexOf('? '));
   if (stop >= max * 0.6) return room.slice(0, stop + 1).trim();
   const clause = Math.max(room.lastIndexOf(', '), room.lastIndexOf('; '));
@@ -1022,7 +1024,12 @@ function str(v) {
 }
 
 function oneLine(v, max) {
-  return str(v).replace(/\s+/g, ' ').slice(0, max).trim();
+  return headOf(str(v).replace(/\s+/g, ' '), max).trim();
+}
+
+function headOf(t, max) {
+  const head = t.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head;
 }
 
 function key(s) {

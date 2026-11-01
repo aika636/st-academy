@@ -406,7 +406,7 @@ function bullyWords(preset) {
   return Array.isArray(own) && own.length ? own : ['травля'];
 }
 
-export const RUMOR_RULES = { loud: 2, voices: 2, keepDays: 14, max: 5, quote: 120 };
+export const RUMOR_RULES = { loud: 2, voices: 2, keepDays: 5, max: 5, quote: 120 };
 
 const PURE_REACTION = /^(?:а?х[ах]*а[ах]*|ха[ха]*|ого+|ух+|вау+|лол|кек|ору+|ага|мда+|жиза|\+\d*)$/iu;
 
@@ -419,7 +419,9 @@ function substance(text) {
 function clipQuote(text, max) {
   const t = String(text || '').replace(/[«»]/g, '').replace(/\s+/g, ' ').trim();
   if (t.length <= max) return t;
-  return `${t.slice(0, max - 1).replace(/\s+\S*$/, '').replace(/[\s,;:—-]+$/, '')}…`;
+  const cut = t.slice(0, max - 1);
+  const whole = /\s/.test(t[max - 1]) ? cut : cut.replace(/\s+\S*$/, '');
+  return `${whole.replace(/[\s,;:—-]+$/, '')}…`;
 }
 
 function rumorTopics(state, opts = {}) {
@@ -620,7 +622,7 @@ export function diffEntries(entries, snapshot, preset, opts = {}) {
   const planned = new Set(list.map((e) => e.uid));
   const flexSet = new Set(list.filter(flexible).map((e) => e.uid));
   const isFlex = (e) => flexSet.has(e.uid);
-  let room = cap - [...have.keys()].filter((u) => !planned.has(u)).length - list.filter((e) => have.has(e.uid) && !isFlex(e)).length;
+  let room = cap - [...have.keys()].filter((u) => !planned.has(u) && !String(u).startsWith('foreign:')).length - list.filter((e) => have.has(e.uid) && !isFlex(e)).length;
   const fixedNew = new Set();
   for (const e of list) {
     if (have.has(e.uid) || isFlex(e) || room <= 0) continue;

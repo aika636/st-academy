@@ -256,9 +256,16 @@ export function loreFoundBlock(host, view, preset) {
     text: X.cmClearAll,
     onclick: async (e) => {
       const btn = e.currentTarget;
-      if (!sure) { sure = true; btn.textContent = X.cmClearSure; return; }
+      if (!sure) {
+        sure = true;
+        btn.textContent = X.cmClearSure;
+        setTimeout(() => { sure = false; btn.textContent = X.cmClearAll; }, 6000);
+        return;
+      }
+      sure = false;
       const res = await runAction(btn, status, () => call(host, 'clearClassmates'), X.cmCleared);
       if (res && res.ok !== false) renderPanel(host);
+      else btn.textContent = X.cmClearAll;
     },
   }) : null;
   return el('div', { class: 'ad-lore' }, [

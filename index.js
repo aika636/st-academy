@@ -60,7 +60,7 @@ import {
   extraLabels, fill, formatDate, formatDateOn, setDateShift, gradebookView, hookJournal, hookNow, hookSummary, hookToday, playChime,
   promptDoctorView, todayView, PRESET_TEXT, uiLabels, heldWaiting,
 } from './ui.js';
-import { renderMessagePanels, clearMessagePanels, rowText, PANEL_TEXT } from './mes-panel.js';
+import { renderMessagePanels, clearMessagePanels, forgetPanelState, rowText, PANEL_TEXT } from './mes-panel.js';
 import { ensureLook } from './ui/look.js';
 import { authorAvatar } from './core/masks.mjs';
 import { savePortraitImage } from './portraits.js';
@@ -88,7 +88,9 @@ const INJECT = {
 };
 
 const ctx = () => SillyTavern.getContext();
+const heroName = (c = ctx()) => String((c && c.name1) || '').trim();
 
+const debugOn = () => { try { return storage.loadSettings(ctx()).debug === true; } catch { return false; } };
 const extOn = () => storage.loadSettings(ctx()).enabled !== false;
 
 const live = {
@@ -99,7 +101,7 @@ const live = {
     const raw = this.rawPreset;
     if (!raw) return null;
     let name = '';
-    try { name = String((ctx() || {}).name1 || ''); } catch {}
+    try { name = heroName(); } catch {}
     const gender = heroGender(this.state, name);
     const st = this.state;
     const cv = (st && st.canonVocab) || null;
@@ -357,7 +359,9 @@ function tallyMilestones(list) {
     if (!chat) return;
     const settings = storage.loadSettings(ctx());
     const before = settings.achievementTally;
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     const after = recordTally(before, chat, list, today);
     if (after !== before) storage.saveSettings({ achievementTally: after }, ctx());
   } catch (err) {
@@ -410,20 +414,36 @@ function forgetTurns() {
   savePlot();
 }
 
-let bullyPicking = null;
+function singleFlight(slot, op, start) {
+  const run = start();
+  const entry = { op, promise: run };
+  run.then(() => {}, () => {}).then(() => { if (slot.current === entry) slot.current = null; });
+  slot.current = entry;
+  return run;
+}
+
+function runningIn(slot) {
+  return slot.current && isCurrent(slot.current.op) ? slot.current.promise : null;
+}
+
+const bullyPickSlot = {};
 
 async function ensureBullyPick({ force = false } = {}) {
   if (!live.state || !live.state.started || !live.preset) return { ok: false, error: 'семестра в этом чате нет' };
-  if (bullyPicking) return bullyPicking;
-  if (force) await commit(resetBullyPick(live.state));
-  else if (!pickWanted(live.state)) return { ok: true, skipped: true };
-  const exclude = force ? ((live.state.bullying && live.state.bullying.past) || []) : [];
+  const running = runningIn(bullyPickSlot);
+  if (running) return running;
+  if (!force && !pickWanted(live.state)) return { ok: true, skipped: true };
   const c = ctx();
   const op = captureOperation();
-  const at = live.state;
-  bullyPicking = (async () => {
+  return singleFlight(bullyPickSlot, op, async () => {
     try {
-      const res = await api.generateBullyPick(at, live.preset, storage.apiSettings(c), c, { char: castMainNames(c), heroine: String((c && c.name1) || ''), exclude });
+      if (force) {
+        await commit(resetBullyPick(live.state));
+        if (!isCurrent(op)) return chatChanged('подбирался зачинщик');
+      }
+      const at = live.state;
+      const exclude = force ? ((at.bullying && at.bullying.past) || []) : [];
+      const res = await api.generateBullyPick(at, live.preset, storage.apiSettings(c), c, { char: castMainNames(c), heroine: heroName(c), exclude });
       if (!isCurrent(op)) return chatChanged('подбирался зачинщик');
       const next = applyPick(live.state, live.preset, res, { key: pickKeyOf(at), stop: classmateStop() });
       await commit(next);
@@ -436,11 +456,8 @@ async function ensureBullyPick({ force = false } = {}) {
     } catch (err) {
       console.error(`[${MODULE}] зачинщик не подобран:`, err);
       return { ok: false, error: `Подбор не удался: ${(err && err.message) || err}` };
-    } finally {
-      bullyPicking = null;
     }
-  })();
-  return bullyPicking;
+  });
 }
 
 function bullyHookArgs(state, resolved = '') {
@@ -534,7 +551,7 @@ function writeInjects({ blank = false } = {}) {
   const muted = started && feedMuted();
   const plotOpts = plotSettings();
   const built = started
-    ? buildPrompt(live.state, live.preset, { injects: [], withMarker, feed: { quiet: muted || !plotOpts.background, muted }, heroine: c.name1 })
+    ? buildPrompt(live.state, live.preset, { injects: [], withMarker, feed: { quiet: muted || !plotOpts.background, muted }, heroine: heroName(c) })
     : { status: '', instruction: '', oneShot: '' };
   const hook = started && !muted && plotOpts.enabled && !holidaySounding() ? hookPrompt(live.plot) : '';
   const status = settings.statusViaMacro === true ? '' : built.status;
@@ -589,7 +606,7 @@ async function handlePlayerSent(mesId) {
   const yielded = holidaySounding();
   let { plot } = onPlayerSent(live.plot, { enabled: opts.enabled, muted, yielded });
   if (opts.auto && !muted) {
-    const picked = autoPick(plot, live.state, { enabled: true, muted, yielded, heroine: ctx().name1, preset: live.preset });
+    const picked = autoPick(plot, live.state, { enabled: true, muted, yielded, heroine: heroName(), preset: live.preset });
     plot = picked.plot;
     if (picked.id) await commit(picked.state);
   }
@@ -705,7 +722,7 @@ function setLoreStatus({ phase, error = '', changes }) {
 
 function loreNames(c) {
   const char = [...new Set([...castMainNames(c), String((c && c.name2) || '')].map((n) => n.trim()).filter(Boolean))];
-  return { user: [String((c && c.name1) || '').trim()].filter(Boolean), char, essence: [personaText(c), cardText(c)].filter(Boolean).join(' ') };
+  return { user: [heroName(c)].filter(Boolean), char, essence: [personaText(c), cardText(c)].filter(Boolean).join(' ') };
 }
 
 function loreChatText(c, max) {
@@ -987,7 +1004,7 @@ function userTextBefore(chat, at) {
 }
 
 function sceneNames(c) {
-  const user = c && c.name1;
+  const user = heroName(c);
   let char = c && c.name2;
   try {
     if (c && c.groupId !== undefined && c.groupId !== null && Array.isArray(c.groups)) {
@@ -1156,15 +1173,16 @@ function startDayHint() {
 
 function replayJumpAnswer(state, turn, mark) {
   const answer = turn && turn.jumpAnswer;
-  if (!answer) return state;
+  if (!answer) return { state, injects: [] };
   if (answer.stamp !== mark) {
     delete turn.jumpAnswer;
-    return state;
+    return { state, injects: [] };
   }
   const held = state.calendar && state.calendar.heldJump;
-  if (!held || held.day !== answer.day) return state;
+  if (!held || held.day !== answer.day) return { state, injects: [] };
   const res = resolveHeldJump(state, live.preset, answer.accept);
-  return answer.accept && res.applied ? armPending(res.state) : res.state;
+  if (!(answer.accept && res.applied)) return { state: res.state, injects: [] };
+  return { state: { ...res.state, pending: [] }, injects: [...(res.state.pending || [])] };
 }
 
 async function handleMessage(mesId, { source = 'received' } = {}) {
@@ -1217,11 +1235,12 @@ async function handleMessage(mesId, { source = 'received' } = {}) {
   });
 
   let state = run.state;
-  state = replayJumpAnswer(state, turn, mark);
+  const replayed = replayJumpAnswer(state, turn, mark);
+  state = replayed.state;
   state = askPromises(state, before.calendar.day, state.calendar.day, mark);
-  state = replayPromises(state, live.preset, turn.promiseAnswers, mark, ctx().name1);
+  state = replayPromises(state, live.preset, turn.promiseAnswers, mark, heroName());
   if (turn.promiseAnswers) turn.promiseAnswers = turn.promiseAnswers.filter((a) => a.stamp === mark);
-  const injects = [...run.injects];
+  const injects = [...run.injects, ...replayed.injects];
   let permission = '';
 
   const exam = maybeSitExam(state, run.modelSaid, dice, `${said}
@@ -1241,7 +1260,7 @@ ${text}`);
   state = carryFeedMarks(live.state, state, mark, fresh ? [] : turn.marks);
   if (source === 'received') live.plot = onReply(live.plot, { fresh });
   const prepped = stepPrep(state, live.preset, {
-    tokens, seed: examSeedBase(state), heroine: c.name1, open: storage.loadSettings(c).prep !== false,
+    tokens, seed: examSeedBase(state), heroine: heroName(c), open: storage.loadSettings(c).prep !== false,
   });
   state = prepped.state;
   live.plot = dropStale(live.plot, state);
@@ -1253,7 +1272,7 @@ ${text}`);
   }).state;
   live.plot = syncInviteHook(live.plot, state, inviteHookWords(state, live.preset));
   const bullied = stepBullying(state, live.preset, {
-    tokens, playedIds: Array.isArray(tokens) ? playedOf(tokens) : [], seed: examSeedBase(state), heroine: c.name1,
+    tokens, playedIds: Array.isArray(tokens) ? playedOf(tokens) : [], seed: examSeedBase(state), heroine: heroName(c),
     sounded: !feedMuted(), voices: !feedMuted() && !molvaSettings().manual, text: stripMarker(text), said,
   });
   state = bullied.state;
@@ -1276,7 +1295,9 @@ ${text}`);
   noticeJump(run.jump);
   recordLedger(mark, before, state, { marker: hasOwnMarker(text), exam: run.exam });
   renderPanels();
+  const op = captureOperation();
   await lazyLore();
+  if (!isCurrent(op)) return 'посчитан';
   refreshPanel();
   if (source === 'received' && text.trim()) {
     if (secretaryAuto()) live.autoTried.add(mark);
@@ -1430,12 +1451,12 @@ function lexiconOf(state, c) {
     survey: state.survey,
     names: sceneNames(c),
     hooks: knownHooks(live.plot),
-    preps: prepList(state, c && c.name1),
+    preps: prepList(state, heroName(c)),
   };
 }
 
 function safeHeroName() {
-  try { return String((ctx() || {}).name1 || ''); } catch { return ''; }
+  try { return heroName(); } catch { return ''; }
 }
 
 function sceneStop(state, c) {
@@ -1455,13 +1476,13 @@ function sceneOfTurn(state, text, tokens, mark, c) {
   const featsActive = featsOn();
   const scene = items.filter((x) => x.ev && SCENE_KINDS.includes(x.ev.kind) && (featsActive || x.ev.kind !== 'feat'));
   const privateSet = Array.isArray(tokens) ? privateRefs(tokens) : null;
-  if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: c && c.name1, privateRefs: privateSet, loud: Array.isArray(tokens) ? loudOf(tokens) : null });
+  if (scene.length) next = applySceneEvents(next, scene, live.preset, { src: mark, day, time, stop, heroine: heroName(c), privateRefs: privateSet, loud: Array.isArray(tokens) ? loudOf(tokens) : null });
   next = applyNotableFacts(next, items, live.preset, {
-    src: mark, day, time, heroine: c && c.name1, loud: Array.isArray(tokens) ? loudOf(tokens) : null,
+    src: mark, day, time, heroine: heroName(c), loud: Array.isArray(tokens) ? loudOf(tokens) : null,
   });
   const loud = Array.isArray(tokens) ? loudOf(tokens) : null;
   next = applyEventFame(next, items, live.preset, { loud, isPrivate: (x) => Boolean(privateSet && x.token && privateSet.has(factRef(x.token))) });
-  next = applyLoudScene(next, items, live.preset, { src: mark, day, time, heroine: c && c.name1, loud });
+  next = applyLoudScene(next, items, live.preset, { src: mark, day, time, heroine: heroName(c), loud });
   const reactions = Array.isArray(tokens) ? reactionsWithFacts(tokens, lexicon) : [];
   const replies = Array.isArray(tokens) ? repliesOf(tokens) : [];
   if (reactions.length || replies.length) {
@@ -1548,7 +1569,7 @@ function panelView(mesId) {
     labels: panelLabels(),
     invite: inviteCard(live.state, live.preset, mark),
     decisions: doneLines(live.state, live.preset, mark),
-    promises: promiseCards(live.state, live.preset, mark, ctx().name1),
+    promises: promiseCards(live.state, live.preset, mark, heroName()),
     heldJump: Boolean(live.state.calendar && live.state.calendar.heldJump && (turn || uncounted)),
     jumpAsk: heldAsk(turn || uncounted),
     canUndo: Boolean(turn && turn.stamp && live.turns[live.turns.length - 1] === turn && live.undoneAt !== live.turns.length),
@@ -1606,7 +1627,7 @@ function panelLabels() {
 
 function tokenAvatar(author) {
   const c = ctx();
-  return authorAvatar(live.state, author, { heroine: c && c.name1 });
+  return authorAvatar(live.state, author, { heroine: heroName(c) });
 }
 
 function panelTokens(list, lexicon, entry, isDraft) {
@@ -1654,6 +1675,25 @@ function panelTokens(list, lexicon, entry, isDraft) {
   });
 }
 
+function loreReasonText(reason) {
+  const U = uiLabels(live.preset);
+  const known = {
+    off: 'книга мира выключена',
+    'no-state': U.lorebookNoState,
+    'no-chat': U.lorebookNoChat,
+    'no-world-info': U.lorebookNoWorldInfo,
+    'no-entry': 'такой записи в книге уже нет',
+    'no-uid': 'такой записи в книге уже нет',
+    [lorebook.CHAT_CHANGED]: 'Пока шла работа, открылся другой чат. Вернитесь в тот чат и повторите.',
+  };
+  return known[reason] || String(reason || 'книга мира не обновилась');
+}
+
+function noPersonError(personId) {
+  const U = uiLabels(live.preset);
+  return `человека «${personId}» нет ни в разделе «${U.teachersTitle}», ни в разделе «${U.classmatesTitle}»`;
+}
+
 function newNameToken(name, isDraft) {
   const head = `новое лицо: ${name}`;
   const U = uiLabels(live.preset);
@@ -1665,9 +1705,9 @@ function newNameToken(name, isDraft) {
   const cand = listCandidates(live.state).find((c) => c && isPerson(c, name));
   if (cand) {
     if (part && U.teachersTitle) {
-      const word = (s) => String(s).toLowerCase();
-      const asClassmate = { as: 'classmate', label: `В ${word(part)}`, hint: part };
-      const asTeacher = { as: 'teacher', label: `В ${word(U.teachersTitle)}`, hint: U.teachersTitle };
+      const into = (title) => fill(extraLabels(live.preset).loreInto, { part: title });
+      const asClassmate = { as: 'classmate', label: into(part), hint: part };
+      const asTeacher = { as: 'teacher', label: into(U.teachersTitle), hint: U.teachersTitle };
       return {
         text: `${head} — добавить?`, brief: head, kind: 'course', candidate: cand.id,
         targets: [asTeacher, asClassmate],
@@ -1724,7 +1764,7 @@ async function fillCanonPerson(id) {
   const op = captureOperation();
   const names = sceneNames(c);
   const res = await api.findCanonCourse(live.state, live.preset, storage.apiSettings(c), c, {
-    count: 1, names: [mate.name], heroName: String((c && c.name1) || ''), card: [].concat(names.char == null ? [] : names.char),
+    count: 1, names: [mate.name], heroName: heroName(c), card: [].concat(names.char == null ? [] : names.char),
   });
   if (!isCurrent(op) || !res.ok) return;
   const p = res.people.find((x) => [x.name, ...(x.aliases || [])].some((n) => sameName(n, mate.name))) || (res.people.length === 1 ? res.people[0] : null);
@@ -1795,6 +1835,7 @@ async function analyzeMessage(mesId) {
 
   const epoch = live.epoch;
   const fail = (error) => {
+    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
     live.analysisErrors.set(mark, error);
     toast('warning', error);
     return { ok: false, error, shown: true };
@@ -1813,7 +1854,7 @@ async function analyzeMessage(mesId) {
   }, SLOW_MS);
   try {
     settings = storage.apiSettings(c);
-    if (molvaRunning) live.analysisNote.set(mark, PANEL_TEXT.afterMolva);
+    if (runningIn(molvaSlot)) live.analysisNote.set(mark, PANEL_TEXT.afterMolva);
     renderPanels();
     const entry = entryOf(mark, turn);
     if (turn) turn.before = carryManual(live.state, turn.before);
@@ -1824,12 +1865,12 @@ async function analyzeMessage(mesId) {
       statusLine: turn
         ? statusLine(base, live.preset)
         : [entry ? formatDate(entry.day) : '', entry ? entry.time : ''].filter(Boolean).join(', '),
-      heroine: c.name1,
+      heroine: heroName(c),
       cardNames: [].concat(sceneNames(c).char || []),
       exams: Boolean(turn),
       posts: Boolean(turn),
       hooks: secretaryHooks(live.plot, live.state),
-      preps: prepList(base, c.name1),
+      preps: prepList(base, heroName(c)),
       feats: featsOn() ? { ahead: turn ? 1 : 0 } : false,
     });
     const ask = () => api.complete(settings, {
@@ -1846,7 +1887,7 @@ async function analyzeMessage(mesId) {
     let parsed = res.ok ? read(res) : null;
     let attempts = 1;
     if (res.ok && !parsed.found && !res.truncated && live.epoch === epoch && !ctl.signal.aborted) {
-      console.warn(`[${MODULE}] секретарь ответил без метки, повтор:`, res.text);
+      if (debugOn()) console.warn(`[${MODULE}] секретарь ответил без метки, повтор:`, res.text);
       attempts = ANALYSIS_ATTEMPTS;
       live.analysisNote.set(mark, PANEL_TEXT.retrying.replace('{n}', attempts).replace('{max}', ANALYSIS_ATTEMPTS));
       renderPanels();
@@ -1860,13 +1901,13 @@ async function analyzeMessage(mesId) {
     }
     if (!res.ok) return fail(api.secretaryFailure(res));
     if (!parsed.found) {
-      console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
+      if (debugOn()) console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       if (res.truncated) return fail(PANEL_TEXT.failCut);
       return fail(attempts > 1 ? PANEL_TEXT.failRefusedMany.replace('{n}', attempts) : PANEL_TEXT.failRefused);
     }
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
-    for (const r of parsed.rejected) console.info(`[${MODULE}] секретарь: отвергнуто: ${r.reason} | ${clip(r.raw, 120)}`);
+    if (debugOn()) for (const r of parsed.rejected) console.info(`[${MODULE}] секретарь: отвергнуто: ${r.reason} | ${clip(r.raw, 120)}`);
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
       stamp: mark,
@@ -1925,7 +1966,7 @@ async function writeAnalysis(mesId, tokens, summary, { molva = true } = {}) {
   const privateSet = list ? privateRefs(list) : null;
   for (const t of list || []) {
     const ev = tokenEvent(t, lexicon);
-    const step = (s) => applyCorrection(s, ev, live.preset, { day, src: mark, token: t, stop, heroine: ctx().name1, privateRefs: privateSet, loud: list ? loudOf(list) : null });
+    const step = (s) => applyCorrection(s, ev, live.preset, { day, src: mark, token: t, stop, heroine: heroName(), privateRefs: privateSet, loud: list ? loudOf(list) : null });
     steps.push(step);
     receipts.push(null);
   }
@@ -2136,11 +2177,11 @@ async function answerInviteNow(answer) {
 async function answerPromiseNow(key, came) {
   if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
   const asked = invitesOf(live.state).asked.find((a) => a.key === key);
-  const res = answerPromise(live.state, live.preset, key, came === true, ctx().name1);
+  const res = answerPromise(live.state, live.preset, key, came === true, heroName());
   if (!res.ok) return { ok: false, error: res.error };
   for (const t of live.turns) {
     if (t.stamp && asked && t.stamp === asked.mark) t.promiseAnswers = [...(t.promiseAnswers || []).filter((a) => a.key !== key), { stamp: t.stamp, key, came: came === true }];
-    const settled = t.before && settlePromise(t.before, live.preset, key, came === true, ctx().name1);
+    const settled = t.before && settlePromise(t.before, live.preset, key, came === true, heroName());
     if (settled) t.before = settled;
   }
   await commit(res.state);
@@ -2269,6 +2310,7 @@ async function undoLastReply() {
   if (!turn || turn.stamp === null || live.undoneAt === live.turns.length) {
     return { ok: false, error: 'Отменять нечего: последний ответ не посчитан или уже отменён.' };
   }
+  if (!turn.before) return { ok: false, error: 'Отменять нечего: снимок хода не читается.' };
   const dayOf = (s) => (s && s.calendar ? s.calendar.day : '');
   const rows = turnRows(turn.before, live.state, null);
   const [from, to] = [dayOf(live.state), dayOf(turn.before)];
@@ -2432,7 +2474,7 @@ async function rewindToChat({ branch = false, chatId, epoch } = {}) {
   await commit(state);
   if (branch) await save();
   announceRollback(branch ? 'branch' : 'delete');
-  toast('warning', `${word}: дата и время возвращены, а оценки, отношения и лента могли остаться — поправь вручную, если нужно.`);
+  toast('warning', `${word}: дата и время возвращены, а оценки, отношения и лента могли остаться — поправьте вручную, если нужно.`);
   setInjects({});
   refreshPanel();
   return true;
@@ -2455,6 +2497,7 @@ async function handleChatChanged() {
   live.oneShot = '';
   live.undoneAt = -1;
   live.view = null;
+  forgetPanelState();
   reloadState();
   await adoptChatPreset();
   if (live.epoch !== epoch) return;
@@ -2496,7 +2539,7 @@ function feedCastInput() {
     preset: live.preset,
     realities: worldRealities(state, live.preset),
     calendar: calendarNames(state, live.preset),
-    heroine: String((c && c.name1) || ''),
+    heroine: heroName(c),
     mainNames: castMainNames(c),
     classmates: (state.classmates || []).map((p) => p && p.name).filter(Boolean),
     stop: classmateStop(),
@@ -2515,7 +2558,7 @@ async function ensureHeroineTemper(op) {
   const card = feed.charRole ? '' : cardText(c);
   if (!persona && !card) return;
   try {
-    const got = await api.generateCastProfile({ persona, card, heroine: String((c && c.name1) || ''), charName: String((c && c.name2) || ''), mainNames: castMainNames(c), preset: live.preset }, storage.apiSettings(c), c);
+    const got = await api.generateCastProfile({ persona, card, heroine: heroName(c), charName: String((c && c.name2) || ''), mainNames: castMainNames(c), preset: live.preset }, storage.apiSettings(c), c);
     if ((!got.temper && !got.role) || !isCurrent(op) || !live.state) return;
     const next = cloneState(live.state);
     if (got.temper) next.feed.heroineTemper = got.temper;
@@ -2526,13 +2569,14 @@ async function ensureHeroineTemper(op) {
   }
 }
 
-let castBuilding = null;
+const castSlot = {};
 
 async function ensureFeedCast({ force = false, auto = false } = {}) {
   if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
   const have = feedCastOf(live.state);
   if (have.length && !force) return { ok: true, cast: have, created: false, warnings: [] };
-  if (castBuilding) return castBuilding;
+  const building = runningIn(castSlot);
+  if (building) return building;
   const step = castAttempt(live.castFails, { manual: force || !auto });
   live.castFails = step.fails;
   if (!step.go) {
@@ -2542,7 +2586,7 @@ async function ensureFeedCast({ force = false, auto = false } = {}) {
   }
   const c = ctx();
   const op = captureOperation();
-  castBuilding = (async () => {
+  return singleFlight(castSlot, op, async () => {
     try {
       const res = await api.generateFeedCast(feedCastInput(), storage.apiSettings(c), c);
       if (!isCurrent(op)) return chatChanged('собирался каст слухов');
@@ -2550,7 +2594,7 @@ async function ensureFeedCast({ force = false, auto = false } = {}) {
       if (!res.ok) {
         const raw = String(res.raw == null ? '' : res.raw).slice(0, 4000);
         const details = Array.isArray(res.details) ? res.details : [];
-        console.warn(`[${MODULE}] каст не собран (${res.code || '?'}): ${res.error || ''}${details.length ? ` | ${details.join(' | ')}` : ''}${raw ? ` | ${clip(raw, 300)}` : ''}`);
+        console.warn(`[${MODULE}] каст не собран (${res.code || '?'}): ${res.error || ''}${details.length ? ` | ${details.join(' | ')}` : ''}${raw && debugOn() ? ` | ${clip(raw, 300)}` : ''}`);
         live.molvaDebug = { at: new Date().toISOString(), ok: false, skipped: `каст не собран: ${res.error || res.code || 'запрос не удался'}`, details, raw };
         return { ok: false, error: `${res.error || 'запрос не удался'}${have.length ? ' Прежний каст оставлен.' : ''}`, code: res.code, raw: res.raw };
       }
@@ -2566,11 +2610,8 @@ async function ensureFeedCast({ force = false, auto = false } = {}) {
       if (isCurrent(op)) live.castFails = castResult(live.castFails, false);
       console.error(`[${MODULE}] каст слухов не собран:`, err);
       return { ok: false, error: `Каст не собран: ${(err && err.message) || err}` };
-    } finally {
-      castBuilding = null;
     }
-  })();
-  return castBuilding;
+  });
 }
 
 function molvaSettings() {
@@ -2582,7 +2623,7 @@ const MOLVA_RAW_MAX = 12000;
 
 const clip = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
 
-let molvaRunning = null;
+const molvaSlot = {};
 
 async function autoMolva(mesId, mark) {
   if (!live.state || !live.state.started || feedMuted()) return;
@@ -2619,18 +2660,19 @@ async function autoAnalyze(mesId, mark) {
 
 async function molvaAfterAnalysis(mesId, mark) {
   if (!live.state || !live.state.started || feedMuted() || molvaSettings().manual) return;
-  if (molvaRunning) await molvaRunning.catch(() => null);
+  const busy = runningIn(molvaSlot);
+  if (busy) await busy.catch(() => null);
   const turn = live.turns[live.turns.length - 1];
   if (!turn || turn.mesId !== mesId || turn.stamp !== mark) return;
-  const due = molvaDue(live.state, molvaSettings()) || (turn.molva || []).some((d) => d.stamp === mark);
-  if (!due || !newFacts(live.state).all.length) return;
+  if ((turn.molva || []).some((d) => d.stamp === mark)) return;
+  if (!molvaDue(live.state, molvaSettings()) || !newFacts(live.state).all.length) return;
   const res = await runMolva({ auto: true, mark });
   if (!res.ok) console.warn(`[${MODULE}] слухи после разбора: ${res.error}`);
 }
 
 async function runMolva({ auto = false, mark = '' } = {}) {
   if (!live.state || !live.state.started || !live.preset) return { ok: false, error: 'семестра в этом чате нет' };
-  if (molvaRunning) return { ok: false, error: 'Слухи уже обновляются — подождите немного.' };
+  if (runningIn(molvaSlot)) return { ok: false, error: 'Слухи уже обновляются — подождите немного.' };
   if (auto) {
     const worth = issueWorth(live.state, live.preset);
     if (!worth.go) {
@@ -2645,7 +2687,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
   }
   const c = ctx();
   const op = captureOperation();
-  molvaRunning = (async () => {
+  return singleFlight(molvaSlot, op, async () => {
     try {
       const cast = await ensureFeedCast({ auto });
       if (!cast.ok) return { ok: false, error: `Каст слухов не собран: ${cast.error}` };
@@ -2661,7 +2703,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       const stop = classmateStop();
       const { work, agenda } = planIssue(live.state, live.preset, { stop, every: auto ? molvaSettings().every : 0, auto });
       if (!agenda.pool.length || !agenda.occasions.length) return { ok: false, error: 'Писать некому: в касте нет подходящих статистов.' };
-      const prompt = buildMolvaPrompt(work, live.preset, agenda, { statusLine: statusLine(live.state, live.preset), swear: molvaSettings().swear, mains: { hero: c.name1, card: castMainNames(c).length ? castMainNames(c) : [].concat(c.name2 || []) } });
+      const prompt = buildMolvaPrompt(work, live.preset, agenda, { statusLine: statusLine(live.state, live.preset), swear: molvaSettings().swear, mains: { hero: heroName(c), card: castMainNames(c).length ? castMainNames(c) : [].concat(c.name2 || []) } });
       const res = await api.generateMolva(prompt, storage.apiSettings(c), c);
       if (!isCurrent(op)) return auto ? { ok: false, error: 'чат сменился' } : chatChanged('обновлялись слухи');
       if (!res.ok) return { ok: false, error: `Слухи не обновились: ${res.error}` };
@@ -2671,7 +2713,7 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       const parsed = parseIssue(res.text, agenda, {
         pool: rumorAuthors(work, { stop }),
         stop,
-        lovers: loversOf(work, { hero: c.name1, card: castMainNames(c).length ? castMainNames(c) : [].concat(c.name2 || []) }),
+        lovers: loversOf(work, { hero: heroName(c), card: castMainNames(c).length ? castMainNames(c) : [].concat(c.name2 || []) }),
         canon: Boolean(String((live.state.survey && live.state.survey.canon) || '').trim()),
         truncated: res.truncated === true && res.endMissing !== true,
         existing: feedItemsOf(live.state).slice(-40).map((x) => x.text),
@@ -2680,8 +2722,8 @@ async function runMolva({ auto = false, mark = '' } = {}) {
       });
       const cal = live.state.calendar || {};
       const out = applyIssue(work, parsed, agenda, { stamp, resetOnFail: auto, day: cal.day, time: cal.time, preset: live.preset, stop });
-      for (const r of parsed.rejected) console.info(`[${MODULE}] слухи: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
-      for (const r of parsed.warned) console.info(`[${MODULE}] слухи: замечание${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      if (debugOn()) for (const r of parsed.rejected) console.info(`[${MODULE}] слухи: отброшено${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
+      if (debugOn()) for (const r of parsed.warned) console.info(`[${MODULE}] слухи: замечание${r.line ? ` (строка ${r.line})` : ''}: ${r.reason} | ${clip(r.raw, 120)}`);
       live.molvaDebug = {
         at: new Date().toISOString(), auto, ok: out.ok, truncated: res.truncated === true, complete: parsed.complete,
         rows: parsed.rows, posts: out.posts, replies: out.replies,
@@ -2711,11 +2753,8 @@ async function runMolva({ auto = false, mark = '' } = {}) {
     } catch (err) {
       console.error(`[${MODULE}] слухи не обновились:`, err);
       return { ok: false, error: `Слухи не обновились: ${(err && err.message) || err}` };
-    } finally {
-      molvaRunning = null;
     }
-  })();
-  return molvaRunning;
+  });
 }
 
 async function planLoreDigest(c) {
@@ -2765,7 +2804,9 @@ function macroText() {
   if (live.quiet || !extOn()) return '';
   if (!live.preset || !live.state || !live.state.started) return '';
   try {
-    return wrapTag('academy_scene', buildPrompt(live.state, live.preset, { injects: [], withMarker: false, feed: { quiet: feedMuted() || !plotSettings().background } }).status || '');
+    const muted = feedMuted();
+    const feed = { quiet: muted || !plotSettings().background, muted };
+    return wrapTag('academy_scene', buildPrompt(live.state, live.preset, { injects: [], withMarker: false, feed, heroine: heroName(ctx()) }).status || '');
   } catch (err) {
     console.error(`[${MODULE}] {{${MACRO}}} не собран:`, err);
     return '';
@@ -2782,6 +2823,9 @@ async function setEnabled(on) {
   if (on) {
     await handleChatChanged();
   } else {
+    live.epoch += 1;
+    for (const c of live.analysisCtl.values()) c.abort();
+    live.analysisCtl.clear();
     writeInjects();
     clearMessagePanels();
     refreshPanel();
@@ -2867,9 +2911,9 @@ const host = {
   getDebug: () => live.lastRun,
   getMolvaDebug: () => live.molvaDebug,
   getPlot: () => live.plot,
-  getHeroine: () => String((ctx() && ctx().name1) || ''),
+  getHeroine: () => heroName(),
   getCharName: () => charName(),
-  getFeedDraft: (ref) => (live.state ? draftHook(live.state, ref, { heroine: ctx().name1, preset: live.preset }) : null),
+  getFeedDraft: (ref) => (live.state ? draftHook(live.state, ref, { heroine: heroName(), preset: live.preset }) : null),
   markerVisibleRisk,
   getPromptDoctor: () => {
     const c = ctx();
@@ -2939,7 +2983,7 @@ const host = {
         loadBook: (name) => lorebook.loadBook(c, name),
         stop: classmateStop(),
         survey: live.state.survey,
-        heroName: String((c && c.name1) || ''),
+        heroName: heroName(c),
       });
       if (!isCurrent(op)) return chatChanged('читались лорбуки');
       if (!res.ok) return { ok: false, error: res.error || 'запрос не удался', code: res.code };
@@ -2994,7 +3038,7 @@ const host = {
       const count = classmateSize(live.preset);
       const op = captureOperation();
       const res = await api.findCanonCourse(live.state, live.preset, storage.apiSettings(c), c, {
-        count, heroName: String((c && c.name1) || ''), known, card: [].concat(names.char == null ? [] : names.char),
+        count, heroName: heroName(c), known, card: [].concat(names.char == null ? [] : names.char),
       });
       if (!isCurrent(op)) return chatChanged('звали однокурсников');
       if (!res.ok) return { ok: false, error: res.error || 'запрос не удался', code: res.code };
@@ -3093,7 +3137,7 @@ const host = {
     async generatePlan(survey) {
       const c = ctx();
       const op = captureOperation();
-      const planPreset = live.rawPreset ? resolvePreset(live.rawPreset, heroGender({ survey }, c && c.name1)) : live.preset;
+      const planPreset = live.rawPreset ? resolvePreset(live.rawPreset, heroGender({ survey }, heroName(c))) : live.preset;
       const res = await api.generatePlan(survey, planPreset, storage.apiSettings(c), c, { lore: await planLoreDigest(c) });
       if (!isCurrent(op)) return chatChanged('генерировался план');
       if (!res.ok) return { ok: false, error: res.message || res.error || 'запрос не удался', raw: res.raw };
@@ -3244,7 +3288,7 @@ const host = {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const next = cloneState(live.state);
       const teacher = (next.teachers || []).find((t) => t.id === teacherId);
-      if (!teacher) return { ok: false, error: `наставника «${teacherId}» нет в списке` };
+      if (!teacher) return { ok: false, error: `«${teacherId}» нет в разделе «${uiLabels(live.preset).teachersTitle}»` };
       const X = extraLabels(live.preset);
       const p = patch && typeof patch === 'object' ? patch : {};
       for (const key of Object.keys(TEACHER_TEXT_MAX)) {
@@ -3337,7 +3381,7 @@ const host = {
       if (raw && !portrait) return { ok: false, code: 'bad-portrait', error: X.portraitBad };
       const next = cloneState(live.state);
       const person = [...(next.teachers || []), ...(next.classmates || [])].find((x) => x && x.id === personId);
-      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      if (!person) return { ok: false, error: noPersonError(personId) };
       if (portrait) person.portrait = portrait;
       else delete person.portrait;
       await commit(next);
@@ -3348,9 +3392,11 @@ const host = {
     async uploadPortrait(personId, file) {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const known = [...(live.state.teachers || []), ...(live.state.classmates || [])].some((x) => x && x.id === personId);
-      if (!known) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      if (!known) return { ok: false, error: noPersonError(personId) };
+      const op = captureOperation();
       const saved = await savePortraitImage(file, { personId });
       if (!saved.ok) return saved;
+      if (!isCurrent(op)) return chatChanged('сохранялся портрет');
       const res = await host.actions.setPortrait(personId, saved.path);
       return res.ok ? { ...res, path: saved.path } : res;
     },
@@ -3360,22 +3406,24 @@ const host = {
       const teacher = (live.state.teachers || []).find((x) => x && x.id === personId);
       const classmate = teacher ? null : (live.state.classmates || []).find((x) => x && x.id === personId);
       let person = teacher || classmate;
-      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      if (!person) return { ok: false, error: noPersonError(personId) };
+      const op = captureOperation();
       const settings = storage.settingsWithKeys(ctx());
       const subjects = teacher
         ? (live.state.subjects || []).filter((s) => s && s.teacherId === teacher.id).map((s) => String(s.name || s.id || ''))
         : [];
       await loadTavernModules();
-      const op0 = captureOperation();
+      if (!isCurrent(op)) return chatChanged('рисовался портрет');
       if (!normalizeLooks(person.looks)) {
         const invented = await inventLooks(person, { kind: teacher ? 'teacher' : 'classmate', subjects }, opts.signal);
-        if (invented && isCurrent(op0)) {
+        if (invented && isCurrent(op)) {
           const saved = await host.actions.setLooks(personId, invented);
           if (saved.ok && saved.looks) person = { ...person, looks: saved.looks };
         }
-        if (!isCurrent(op0)) return chatChanged('рисовался портрет');
+        if (!isCurrent(op)) return chatChanged('рисовался портрет');
       }
       const looksTags = drawForm(ctx(), settings.draw) === 'tags' ? await looksToTags(person.looks, opts.signal) : [];
+      if (!isCurrent(op)) return chatChanged('рисовался портрет');
       const prompt = buildPortraitPrompt(person, {
         looksTags,
         kind: teacher ? 'teacher' : 'classmate',
@@ -3385,7 +3433,6 @@ const host = {
         style: settings.draw && settings.draw.style,
         styleText: settings.draw && settings.draw.styleText,
       });
-      const op = captureOperation();
       const res = await drawImage(ctx(), settings.draw, prompt, { personId, signal: opts.signal });
       if (!res.ok) return { ...res, error: api.safeReason(res.error, 240) || 'портрет не нарисован' };
       if (!isCurrent(op)) return chatChanged('рисовался портрет');
@@ -3396,7 +3443,7 @@ const host = {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const next = cloneState(live.state);
       const person = [...(next.teachers || []), ...(next.classmates || [])].find((x) => x && x.id === personId);
-      if (!person) return { ok: false, error: `человека «${personId}» нет ни среди преподавателей, ни на курсе` };
+      if (!person) return { ok: false, error: noPersonError(personId) };
       const looks = normalizeLooks(String(value == null ? '' : value));
       if (looks) person.looks = looks;
       else delete person.looks;
@@ -3494,7 +3541,7 @@ const host = {
     async takeHook(ref, text = '') {
       if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       if (!plotSettings().enabled) return { ok: false, error: 'поводы выключены в настройках' };
-      const res = takeHook(live.plot, live.state, { ref, text, heroine: ctx().name1, preset: live.preset });
+      const res = takeHook(live.plot, live.state, { ref, text, heroine: heroName(), preset: live.preset });
       if (!res.ok) return res;
       live.plot = res.plot;
       savePlot();
@@ -3547,6 +3594,7 @@ const host = {
     },
 
     async manualTime(patch = {}) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const shift = patch.shift && typeof patch.shift === 'object'
         ? (Number.isFinite(patch.shift.days)
           ? { unit: 'day', n: patch.shift.days }
@@ -3583,6 +3631,7 @@ const host = {
     },
 
     async skipToDayEnd() {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const was = (live.state && live.state.reputation && live.state.reputation.value) || 0;
       const res = skipToDayEnd(live.state, live.preset);
       if (!res.applied) return { ok: false, error: res.reason };
@@ -3605,6 +3654,7 @@ const host = {
     },
 
     async resolveJump(accept = true) {
+      if (!live.state) return { ok: false, error: 'семестра в этом чате нет' };
       const before = live.state;
       const held = before.calendar && before.calendar.heldJump;
       const res = resolveHeldJump(live.state, live.preset, accept !== false);
@@ -3648,8 +3698,12 @@ const host = {
     async syncLorebook() {
       const report = await syncLorebook({ force: true, immediately: true });
       refreshPanel();
-      if (!report) return { ok: false, error: live.lorebook.error || 'книга мира выключена' };
-      return report.ok ? { ok: true, name: report.name, wrote: report.wrote } : { ok: false, error: report.reason };
+      if (!report) {
+        if (live.lorebook.error) return { ok: false, error: live.lorebook.error };
+        const own = lorebook.settingsOf(storage.loadSettings(ctx())).enabled && extOn();
+        return own ? chatChanged('сверялась книга мира') : { ok: false, error: loreReasonText('off') };
+      }
+      return report.ok ? { ok: true, name: report.name, wrote: report.wrote } : { ok: false, error: loreReasonText(report.reason) };
     },
 
     async suggestLorebookEntry(raw = {}) {
@@ -3673,7 +3727,7 @@ const host = {
         guard: () => isCurrent(op),
       });
       if (res.reason === lorebook.CHAT_CHANGED) return chatChanged('принималась запись лорбука');
-      if (!res.ok) return { ok: false, error: res.reason };
+      if (!res.ok) return { ok: false, error: loreReasonText(res.reason) };
       live.lorebook.suggested = live.lorebook.suggested.filter((x) => !uid.endsWith(`:${x.id}`));
       await syncLorebook({ force: true });
       refreshPanel();
@@ -3689,7 +3743,7 @@ const host = {
         guard: () => isCurrent(op),
       });
       if (res.reason === lorebook.CHAT_CHANGED) return chatChanged('чистился лорбук');
-      if (!res.ok) return { ok: false, error: res.reason };
+      if (!res.ok) return { ok: false, error: loreReasonText(res.reason) };
       await syncLorebook({ force: true });
       refreshPanel();
       return { ok: true, removed: res.removed };

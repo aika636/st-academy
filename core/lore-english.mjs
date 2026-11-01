@@ -58,15 +58,31 @@ export function buildEnglishPrompt(items, ctx = {}) {
 export function macroNames(en, names = {}) {
   let out = String(en || '');
   const swap = (list_, macro) => {
-    const parts = new Set();
+    const fulls = new Set();
+    const parts = new Map();
     for (const n of [].concat(list_ || [])) {
       const full = line(n, 80);
       if (!full) continue;
-      parts.add(full);
-      for (const p of full.split(/\s+/)) if (letters(p).length >= 4) parts.add(p);
+      fulls.add(full);
+      const ws = full.split(/\s+/);
+      ws.forEach((p, i) => {
+        if (letters(p).length >= 4) parts.set(p, { first: i === 0 && ws.length > 1, last: i === ws.length - 1 && ws.length > 1 });
+      });
     }
-    for (const p of [...parts].sort((a, b) => b.length - a.length)) {
-      out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${esc(p)}(?![\\p{L}\\p{N}])`, 'giu'), macro);
+    const own = new Set([...parts.keys()].map((p) => p.toLowerCase()));
+    const edge = (p) => `(?<![\\p{L}\\p{N}])${esc(p)}(?![\\p{L}\\p{N}])`;
+    for (const p of [...fulls].sort((a, b) => b.length - a.length)) {
+      out = out.replace(new RegExp(edge(p), 'giu'), macro);
+    }
+    for (const p of [...parts.keys()].sort((a, b) => b.length - a.length)) {
+      const pos = parts.get(p);
+      out = out.replace(new RegExp(edge(p), 'gu'), (m, at, whole) => {
+        const prev = /(\p{Lu}[\p{L}'’-]*)\s+$/u.exec(whole.slice(Math.max(0, at - 40), at));
+        const next = /^\s+(\p{Lu}[\p{L}'’-]*)/u.exec(whole.slice(at + m.length, at + m.length + 40));
+        const stranger = (x) => x && !own.has(x[1].toLowerCase()) && x[1] !== '{{user}}' && x[1] !== '{{char}}';
+        const blocked = ((pos.last || !pos.first) && stranger(prev)) || ((pos.first || !pos.last) && stranger(next));
+        return blocked ? m : macro;
+      });
     }
   };
   swap(names.user, '{{user}}');

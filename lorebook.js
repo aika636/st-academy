@@ -168,7 +168,7 @@ export function snapshotOf(data) {
 
   for (const [key, raw] of Object.entries((data && data.entries) || {})) {
     if (!raw || typeof raw !== 'object') continue;
-    const wiUid = Number.isFinite(Number(raw.uid)) ? Number(raw.uid) : Number(key);
+    const wiUid = Number.isFinite(Number(key)) ? Number(key) : key;
     const mark = raw[MARK];
     const mine = mark && typeof mark === 'object' && typeof mark.uid === 'string' ? mark : null;
     const uid = mine ? mine.uid : `foreign:${wiUid}`;
@@ -254,7 +254,7 @@ function renamedByHand(comment, mark) {
 
 export function isOwnBook(name, data) {
   return Boolean(data && typeof data[BOOK_OWNER_KEY] === 'string' && data[BOOK_OWNER_KEY])
-    || String(name || '').startsWith(BOOK_PREFIX) || String(name || '').startsWith('Academy ');
+    || String(name || '').startsWith(BOOK_PREFIX) || /^Academy .*\d{4}-\d{1,2}-\d{1,2}/.test(String(name || ''));
 }
 
 export const WI_BEFORE = 0;

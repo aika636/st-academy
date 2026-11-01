@@ -25,7 +25,7 @@ export const INVITE_PHRASES = {
   card: '{who} зовёт с собой: {event}, {when}',
   go: 'Пойти',
   decline: 'Отказаться',
-  going: 'вместе с тобой идёт {who}',
+  going: 'вместе с вами идёт {who}',
   weekdaysOn: ['в понедельник', 'во вторник', 'в среду', 'в четверг', 'в пятницу', 'в субботу', 'в воскресенье'],
   tomorrow: 'завтра',
   inWeek: 'через неделю',
@@ -180,8 +180,9 @@ export function inviteHookWords(state, preset, pending) {
   const p = pending || invitesOf(state).pending;
   if (!p) return null;
   const person = personOf(state, p.personId);
+  if (!person) return null;
   const W = heroWords(presetGender(preset));
-  const v = { who: shortName((person && person.name) || p.personId), heroAcc: W.heroAcc, heroIns: W.heroIns, hero: W.heroEn, event: p.eventName, when: p.when };
+  const v = { who: shortName(person.name || person.id), heroAcc: W.heroAcc, heroIns: W.heroIns, hero: W.heroEn, event: p.eventName, when: p.when };
   return { core: fill(P.core, v), text: fill(P.hook, v), en: fill(P.hookEn, v), plate: fill(P.heard, v) };
 }
 
@@ -190,8 +191,9 @@ export function inviteCard(state, preset, mark) {
   if (!p || !p.played || !p.mark || p.mark !== mark) return null;
   const P = phrasesOf(preset);
   const person = personOf(state, p.personId);
+  if (!person) return null;
   return {
-    text: fill(P.card, { who: shortName((person && person.name) || p.personId), event: p.eventName, when: p.when }),
+    text: fill(P.card, { who: shortName(person.name || person.id), event: p.eventName, when: p.when }),
     go: P.go,
     decline: P.decline,
   };
@@ -200,10 +202,10 @@ export function inviteCard(state, preset, mark) {
 export function doneLines(state, preset, mark) {
   const P = phrasesOf(preset);
   const gender = presetGender(preset);
-  return invitesOf(state).done.filter((d) => d.mark && d.mark === mark).map((d) => {
+  return invitesOf(state).done.filter((d) => d.mark && d.mark === mark && (d.kind !== 'go' || personOf(state, d.withId))).map((d) => {
     const person = personOf(state, d.withId);
     const v = {
-      event: d.eventName, who: shortName((person && person.name) || d.withId),
+      event: d.eventName, who: person ? shortName(person.name || person.id) : '',
       was: gender === 'm' ? 'был' : 'была', arrived: gender === 'm' ? 'пришёл' : 'пришла',
     };
     return fill({ go: P.goDone, decline: P.declineDone, came: P.cameDone, missed: P.missedDone }[d.kind], v);
@@ -327,14 +329,14 @@ export function promiseCards(state, preset, mark, heroName = '') {
   const P = phrasesOf(preset);
   const W = heroWords(presetGender(preset));
   const hero = String(heroName || '').trim() || W.hero;
-  return invitesOf(state).asked.filter((a) => a.mark && a.mark === mark).map((a) => {
+  return invitesOf(state).asked.filter((a) => a.mark && a.mark === mark && personOf(state, a.withId)).map((a) => {
     const n = diffDays(a.from, a.to);
     const person = personOf(state, a.withId);
     return {
       key: a.key,
       text: fill(P.ask, {
         n, days: plural(n, ...P.dayForms), when: capital(pastWord(state, preset, a.day, a.to)), event: a.eventName,
-        hero, who: shortName((person && person.name) || a.withId),
+        hero, who: shortName(person.name || person.id),
       }),
       yes: P.yes,
       no: P.no,

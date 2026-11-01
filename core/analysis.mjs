@@ -134,7 +134,7 @@ export function buildAnalysisPrompt(state, preset, input = {}) {
     `- looks=id:description${bare.length ? ' (only for people in "No recorded appearance")' : ''} or looks=Name:description for a new face from new= in the same reply: appearance described in the reply. Start with who it is and apparent age, then hair, eyes, face, height, clothes, marks — briefly, up to 160 characters, only what is written, invent nothing. Only lasting traits: height, build, hair, eyes, face, habitual clothes, marks; not the momentary — traces, dirt, blood, bruises, lipstick, pose, rumpled clothes, expression. Not described — no key. Never for ${heroine} or the card character.`,
     `- deal=who:to:what: a commitment opened between people: promise (a small explicit one counts: «зайду вечером», «верну завтра»), debt, joint project, an item to return. who = the one who owes or is assigned detention, punishment or a fine; to = whom they owe. Detention given to ${heroine}: who=@heroine, to=the one who assigned it. Closed: deal-=who:to:what — write it in the reply where the one who owes actually did it (brought the promised thing, returned the book, served the detention), with the same who, to and wording as the open one.`,
     `- fame: only if ${heroine} personally did something in public that made witnesses treat ${g('her', 'him')} better (fame=+:reason) or worse (fame=-:reason): ${g('защитила, победила, блеснула', 'защитил, победил, блеснул')} in class / ${g('сорвалась, опозорилась, нарушила', 'сорвался, опозорился, нарушил')} a known rule. A quarrel or closeness alone, anything in private, a retelling or memory of the past is not fame. At most one fame per reply. In doubt, omit.`,
-    ...(hooks.length ? [`- played=id: a hook from "Hooks" actually came up in the fragment; otherwise omit. An invitation hook came up only if the inviter himself invites ${heroine}; if someone else is invited, or he says he himself was invited — omit.`] : []),
+    ...(hooks.length ? [`- played=id: a hook from "Hooks" actually came up in the fragment; otherwise omit. An invitation hook came up only if the inviter personally invites ${heroine}; if someone else is invited, or the inviter says they were invited themselves — omit.`] : []),
     ...(preps.length ? ['- prep=id:done or prep=id:failed: an intention from "NPC intentions" was explicitly fulfilled (done) or fell through (failed) in this fragment. Not directly visible — omit; expectations and plans do not count.'] : []),
     ...feats.rules,
     ...(bullyAnalysisActive(state) ? bullyRules(heroine, g, state) : []),
@@ -329,11 +329,6 @@ export function parseAnalysis(raw, lexicon, opts = {}) {
   tokens.sort((a, b) => a.startsWith('looks=') - b.startsWith('looks='));
 
   const pairKey = (ev) => [ev.a, ev.b].sort().join('|');
-  const conflicts = new Map();
-  for (const t of tokens) {
-    const ev = evOf.get(t);
-    if (ev && ev.kind === 'act' && ev.type === 'конфликт' && ev.b) conflicts.set(pairKey(ev), t);
-  }
   const verbStem = (what) => String(what || '').toLowerCase().replace(/ё/g, 'е').trim().split(/\s+/)[0].slice(0, 4);
   const acts = new Map();
   for (const t of [...tokens]) {
@@ -345,6 +340,11 @@ export function parseAnalysis(raw, lexicon, opts = {}) {
     tokens.splice(tokens.indexOf(t), 1);
     byNumber.forEach((x, i) => { if (x === t) byNumber[i] = twin; });
     rejected.push({ raw: t, reason: 'то же действие в ответ уже записано' });
+  }
+  const conflicts = new Map();
+  for (const t of tokens) {
+    const ev = evOf.get(t);
+    if (ev && ev.kind === 'act' && ev.type === 'конфликт' && ev.b) conflicts.set(pairKey(ev), t);
   }
   for (const t of [...tokens]) {
     const ev = evOf.get(t);
@@ -507,7 +507,7 @@ function readBully(value, lexicon) {
   }
   const by = resolveBully(course, who);
   if (!by) return { error: 'травит кто-то не из курса' };
-  const level = Number(parts[1]);
+  const level = String(parts[1] || '').trim() === '' ? NaN : Number(parts[1]);
   if (!Number.isInteger(level) || level < 0 || level > 4) return { error: 'уровень травли — от 0 до 4' };
   const text = parts.slice(2).join(' ').trim();
   if (!text) return { error: 'не сказано, что именно случилось' };
@@ -1040,5 +1040,5 @@ export function clipAnalysisReply(text, limit = ANALYSIS_LIMITS.reply) {
 
 function clip(text, limit) {
   const s = str(text);
-  return s.length > limit ? `…${s.slice(s.length - limit)}` : s;
+  return s.length > limit ? `${s.slice(0, limit).trimEnd()}…` : s;
 }

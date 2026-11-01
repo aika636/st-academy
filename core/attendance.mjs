@@ -1,5 +1,6 @@
 import { cloneState, findSubject, teacherOfSubject, pushJournal, isDay } from './state.mjs';
 import { diffDays } from './time.mjs';
+import { closeSkipDebt } from './gradebook.mjs';
 
 export const STATUSES = ['present', 'skip', 'late', 'excused'];
 
@@ -53,7 +54,12 @@ export function mark(state, ev, preset, opts = {}) {
   }
 
   const effects = effectsFor(next, subjectId, status, preset, day);
-  if (was && SEVERITY[status] > SEVERITY[was]) subtractMark(effects, effectsFor(next, subjectId, was, preset, day));
+  if (was && SEVERITY[status] !== SEVERITY[was]) subtractMark(effects, effectsFor(next, subjectId, was, preset, day));
+  const threshold = preset && preset.attendance && preset.attendance.debtAfterSkips;
+  const eased = was && SEVERITY[status] < SEVERITY[was];
+  if (eased && typeof threshold === 'number' && findSubject(next, subjectId).debtSkips && effectiveSkips(next, subjectId, preset) < threshold) {
+    return { state: closeSkipDebt(next, subjectId, preset), effects };
+  }
   return { state: next, effects };
 }
 

@@ -286,5 +286,5 @@ export function loreDigest(entries, candidates, opts = {}) {
     const text = prefix + [...base, PEOPLE_RULE, ...[...new Set(people)].slice(0, n)].join('\n');
     if (text.length <= max) return text;
   }
-  return fit(base);
+  return base.length ? fit(base) : '';
 }

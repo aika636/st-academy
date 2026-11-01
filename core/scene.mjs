@@ -109,7 +109,10 @@ export function sceneGist(ev, people, heroine = '', gender = 'f') {
 
 const PENALTY_WORDS = /отработк|отрабат|наказани|наказан|взыскани|штраф|нарядов?(?![а-яё])|работ[аыуе](?![а-яё])|явк[аиу](?![а-яё])|явитьс|явиться|уборк|убор(?:ка|ки|ку)(?![а-яё])|дежурств|дежурит/i;
 
+const OWED_BACK = /верн[уи]|отда[тьй]|проверенн|выдат/i;
+
 const DATIVE_SPECIAL = { лев: 'Льву', павел: 'Павлу', петр: 'Петру' };
+const FEMALE_CLOSED = new Set(['ингрид', 'айрис', 'элис', 'джудит', 'мирабель', 'дженнифер', 'эстер', 'любовь', 'нинель', 'адель', 'рахиль', 'аурель']);
 
 export function dativeName(name) {
   const w = firstWord(name);
@@ -126,14 +129,15 @@ export function dativeName(name) {
   if (/(?:ский|цкий)$/.test(low)) return `${w.slice(0, -2)}ому`;
   if (/[ий]$/.test(low) && /[еаи]й$/.test(low)) return `${w.slice(0, -1)}ю`;
   if (/ий$/.test(low)) return `${w.slice(0, -1)}ю`;
-  if (/ь$/.test(low)) return null;
+  if (FEMALE_CLOSED.has(low)) return null;
+  if (/ь$/.test(low)) return `${w.slice(0, -1)}ю`;
   if (/[бвгджзклмнпрстфхцчшщ]$/.test(low)) return `${w}у`;
   return null;
 }
 
 export function dealText(ev, people, heroine = '', gender = 'f') {
   if (!ev) return '';
-  if (!ev.closed && ev.b === HEROINE && ev.a !== HEROINE && PENALTY_WORDS.test(String(ev.what || ''))) {
+  if (!ev.closed && ev.b === HEROINE && ev.a !== HEROINE && PENALTY_WORDS.test(String(ev.what || '')) && !OWED_BACK.test(String(ev.what || ''))) {
     return dealText({ ...ev, a: ev.b, b: ev.a }, people, heroine, gender);
   }
   const known = (id) => id === HEROINE || isCardParty(id) || (people || []).some((x) => x && x.id === id);
@@ -456,7 +460,7 @@ export function mentionedPeople(text, people, stop = null) {
   for (const [part, id] of owners) {
     if (!id || found.has(id)) continue;
     const { base, endings } = stemOf(part);
-    if (base.length < 3) continue;
+    if (base.length < 2) continue;
     const alt = [...new Set(endings)].sort((a, b) => b.length - a.length).map(escapeRe).join('|');
     const re = new RegExp(`(?<![\\p{L}\\p{M}\\d_])${escapeRe(base).replace(/е/g, '[её]')}(?:${alt})(?![\\p{L}\\p{M}\\d_])`, 'giu');
     for (const m of src.matchAll(re)) {

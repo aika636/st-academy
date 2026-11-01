@@ -3,7 +3,7 @@
   --ad-page: #fdfdf8; --ad-grid: rgba(70, 130, 200, .06); --ad-margin: #e0444f;
   --ad-ink: #1b2233; --ad-ink-soft: #3a4358;
   --ad-pen: #1946c4; --ad-pen-2: #c4271f; --ad-accent: #c4271f;
-  --ad-rule: #b7c6dc; --ad-rumor: #8a2bc2; --ad-today: #cf4a0c;
+  --ad-rule: #b7c6dc; --ad-rumor: #8a2bc2; --ad-today: #c4440a;
   --ad-tab: #f7bf2e; --ad-tab-ink: #1a2547; --ad-tab-on: #fdfdf8; --ad-tab-on-ink: #1a2547; --ad-tab-on-line: #c4271f;
   --ad-field: #ffffff; --ad-field-line: #8ea3c4;
   --ad-f-head: "Oswald", "Arial Narrow", sans-serif; --ad-f-body: "Nunito", system-ui, sans-serif; --ad-f-ui: "Nunito", system-ui, sans-serif;
@@ -18,7 +18,7 @@
   --ad-sticker: #ff8a6b; --ad-sticker-ink: #2b1208; --ad-sticker-line: #2b1208;
   --ad-doc: #fbf4de; --ad-doc-ink: #14203f; --ad-doc-soft: #3d4a68; --ad-doc-line: #9a8a58; --ad-stamp: #c4271f;
   --ad-inner: #fdfdf8; --ad-inner-ink: #14203f; --ad-inner-line: rgba(28, 53, 120, .4);
-  --ad-fam-study: #1946c4; --ad-fam-people: #cf2f78; --ad-fam-attend: #d9600b; --ad-fam-secret: #7b2fbf;
+  --ad-fam-study: #1946c4; --ad-fam-people: #c42b71; --ad-fam-attend: #b34f06; --ad-fam-secret: #7b2fbf;
   --ad-good: #14733f; --ad-bad: #c4271f;
   --ad-emb-fg: #F5E6BF; --ad-emb-bg: #244674; --ad-emb-ac: #E8AD47; --ad-scheme: light;
 

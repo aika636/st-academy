@@ -180,6 +180,8 @@ export function clearState(ctx) {
   if (md) {
     delete md[KEY];
     delete md[TURNS_KEY];
+    delete md[LEDGER_KEY];
+    delete md[PLOT_KEY];
   }
   persist(c);
 }
@@ -265,6 +267,7 @@ export function readTurns(raw, preset) {
       marks: readMarks(t.marks),
       molva: readDeltas(t.molva),
       ...jumpAnswerOf(t.jumpAnswer),
+      ...extrasOf(t),
     };
     if (eager) {
       let state = null;
@@ -278,6 +281,22 @@ export function readTurns(raw, preset) {
     out.push(turn);
   }
   return out.reverse();
+}
+
+function extrasOf(t) {
+  const out = {};
+  if (typeof t.inviteKey === 'string' && t.inviteKey) out.inviteKey = t.inviteKey;
+  if (Array.isArray(t.holidayLines)) {
+    const lines = t.holidayLines.filter((l) => typeof l === 'string' && l).slice(-6);
+    if (lines.length) out.holidayLines = lines;
+  }
+  if (Array.isArray(t.promiseAnswers)) {
+    const answers = t.promiseAnswers
+      .filter((a) => a && typeof a.stamp === 'string' && typeof a.key === 'string' && a.key)
+      .map((a) => ({ stamp: a.stamp, key: a.key, came: a.came === true }));
+    if (answers.length) out.promiseAnswers = answers;
+  }
+  return out;
 }
 
 function jumpAnswerOf(raw) {
@@ -324,6 +343,7 @@ export function saveTurns(ctx, list) {
       marks: readMarks(t.marks),
       molva: readDeltas(t.molva),
       ...jumpAnswerOf(t.jumpAnswer),
+      ...extrasOf(t),
     });
   }
   md[TURNS_KEY] = { v: TURNS_FORMAT, pool, list: turns };
@@ -618,7 +638,11 @@ export async function importState(ctx, source, preset, opts = {}) {
   }
 
   const md = context(ctx).chatMetadata;
-  if (md) delete md[TURNS_KEY];
+  if (md) {
+    delete md[TURNS_KEY];
+    delete md[LEDGER_KEY];
+    delete md[PLOT_KEY];
+  }
   await flushState(ctx, parsed.state);
   return { ok: true, state: parsed.state, status: parsed.status, warnings: parsed.warnings, replaced: occupied };
 }
@@ -774,6 +798,7 @@ export function settingsWithKeys(ctx) {
 
 export function deepAssign(target, patch) {
   for (const [k, v] of Object.entries(patch || {})) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       if (!target[k] || typeof target[k] !== 'object' || Array.isArray(target[k])) target[k] = {};
       deepAssign(target[k], v);

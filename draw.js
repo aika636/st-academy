@@ -21,7 +21,7 @@ export function loadTavernModules() {
   return tavern.loading;
 }
 
-export function drawEnv(ctx) {
+export function drawEnv(ctx, custom = null) {
   const c = ctx || {};
   const parser = c.SlashCommandParser;
   const imagine = parser && parser.commands ? parser.commands.imagine : null;
@@ -33,19 +33,20 @@ export function drawEnv(ctx) {
     sd: ext.sd || {},
     modules: (tavern.extensions && Array.isArray(tavern.extensions.modules)) ? tavern.extensions.modules : [],
     workersAccount: String(oai.workers_ai_account_id || ''),
+    custom,
   };
 }
 
 export function drawForm(ctx, raw) {
-  const env = drawEnv(ctx);
   const settings = normalizeDrawSettings(raw);
+  const env = drawEnv(ctx, settings.custom);
   const route = pickRoute(settings.route, availableRoutes(env));
   return route ? promptForm(route, env.sd.source, settings.custom) : 'text';
 }
 
 export function drawInfo(ctx, raw) {
-  const env = drawEnv(ctx);
   const settings = normalizeDrawSettings(raw);
+  const env = drawEnv(ctx, settings.custom);
   const available = availableRoutes(env);
   const route = pickRoute(settings.route, available);
   return {
@@ -55,6 +56,7 @@ export function drawInfo(ctx, raw) {
       label: id === 'tavern' && env.sd.source ? `${ROUTE_LABELS.tavern} (${env.sd.source})` : ROUTE_LABELS[id],
     })),
     route,
+    wanted: settings.route,
     models: route && DRAW_MODELS[route] ? DRAW_MODELS[route] : [],
     model: route ? pickModel(route, settings.models) : '',
     style: settings.style,
@@ -250,10 +252,6 @@ async function drawCustom(ctx, settings, prompt, opts) {
   return race(run, { ...opts, onStop: () => ctrl.abort() });
 }
 
-function customReady(c) {
-  return Boolean(normalizeKey(c.key)) && (Boolean(c.endpoint) || !CUSTOM_MODES[c.mode].needsEndpoint);
-}
-
 export async function loadCustomModels(rawSettings) {
   const c = normalizeDrawSettings(rawSettings).custom;
   const req = customModelsRequest(c.mode, c);
@@ -276,13 +274,13 @@ export async function loadCustomModels(rawSettings) {
 }
 
 export async function drawImage(ctx, rawSettings, prompt, opts = {}) {
+  if (prompt && prompt.refused) return { ok: false, code: 'minor', error: String(prompt.refused) };
   await loadTavernModules();
   const c = ctx || {};
-  const env = drawEnv(c);
   const settings = normalizeDrawSettings(rawSettings);
+  const env = drawEnv(c, settings.custom);
   const route = pickRoute(settings.route, availableRoutes(env));
   if (!route) return { ok: false, code: 'no-route', error: DRAW_TEXT.noRoute };
-  if (route === 'custom' && !customReady(settings.custom)) return { ok: false, code: 'no-custom', error: DRAW_TEXT.noCustom };
   const run = {
     signal: opts.signal,
     timeoutMs: opts.timeoutMs || (route === 'custom' ? CUSTOM_TIMEOUT : DRAW_TIMEOUT),

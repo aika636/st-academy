@@ -9,7 +9,7 @@ export const PLOT_EXPIRE = 6;
 
 export const AUTO_PAUSE = 6;
 
-export const AUTO_PAUSE_LOUD = 2;
+export const AUTO_PAUSE_LOUD = 4;
 
 export const AUTO_FRESH_DAYS = 2;
 
@@ -27,7 +27,6 @@ export const DEFAULT_PLOT_PHRASES = {
   frame: 'Если уместно, можно вплести в сцену (необязательная находка, не приказ): {core}.',
   rumor: 'Это слух — правда ли, неизвестно.',
   outward: 'Покажи внешнее; слова и решения персонажа игрока оставь игроку. Прозвучит — дальше не возвращайся к этому.',
-  notAgain: 'Не повторяй: {last}.',
   said: '{who} пишет в чате: «{text}»',
   someone: 'кто-то с курса',
   gossip: 'пишут без подписи: «{text}»',
@@ -47,7 +46,6 @@ export const PLOT_FRAME_EN = {
   frame: 'If it fits, weave into the scene (an optional find, not an order): {core}.',
   rumor: 'This is a rumor; unknown if true.',
   outward: "Show only the outward side; leave the player character's words and decisions to the player. Once it has come up, do not return to it.",
-  notAgain: 'Do not repeat: {last}.',
 };
 
 export const INVITE_KIND = 'invite';
@@ -73,7 +71,7 @@ export function quietScene(_text) {
 }
 
 export function emptyPlot() {
-  return { queue: [], log: [], replies: 0, seq: 0, autoAt: null, hookAt: null, lastCore: '' };
+  return { queue: [], log: [], replies: 0, seq: 0, autoAt: null, hookAt: null };
 }
 
 export function normalizePlot(raw) {
@@ -103,7 +101,6 @@ export function normalizePlot(raw) {
     seq: int(src.seq, 0),
     autoAt: Number.isInteger(src.autoAt) ? src.autoAt : null,
     hookAt: Number.isInteger(src.hookAt) ? src.hookAt : null,
-    lastCore: oneLine(src.lastCore, CORE_MAX),
   };
 }
 
@@ -236,8 +233,6 @@ function wording({ core, rumor }, opts, P) {
   const parts = [fill(P.frame, { core: bare(core) })];
   if (rumor && !/^(?:слух|rumou?r)(?![\p{L}])/iu.test(bare(core))) parts.push(P.rumor);
   parts.push(P.outward);
-  const last = bare(opts.notAgain);
-  if (last && last !== bare(core)) parts.push(fill(P.notAgain, { last }));
   return oneLine(parts.filter(Boolean).join(' '), HOOK_TEXT_MAX);
 }
 
@@ -310,7 +305,6 @@ function toLog(p, h) {
   p.log = [...p.log.filter((e) => e.id !== h.id), {
     id: h.id, ref: h.ref, kind: h.kind, core: h.core, plate: h.plate, deliveredAt: p.replies,
   }].slice(-LOG_MAX);
-  p.lastCore = h.core;
 }
 
 export function onGeneration(plot, { enabled = true, muted = false, yielded = false } = {}) {
@@ -491,7 +485,7 @@ export function autoPick(plot, state, opts = {}) {
     const pause = (top.loud ?? 1) >= 2 ? AUTO_PAUSE_LOUD : AUTO_PAUSE;
     if (last !== null && p.replies + 1 - last < pause) continue;
     const res = takeHook(p, state, {
-      ref: top.id, auto: true, heroine: opts.heroine, preset: opts.preset, notAgain: p.lastCore,
+      ref: top.id, auto: true, heroine: opts.heroine, preset: opts.preset,
     });
     if (!res.ok) continue;
     res.plot.autoAt = res.plot.replies;

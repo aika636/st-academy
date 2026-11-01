@@ -1,7 +1,7 @@
 import { heroWords, presetGender } from './gender.mjs';
 import {
   FEED_TEXT_MAX, FACT_TEXT_MAX, MOLVA_FACTS_MAX, MOLVA_TOPICS_MAX, normalizeFeed, normalizeItem, normalizeThreads, addFeedItem, ensureFeed,
-  feedItems, hash, feedWorldTopics, feedManners, feedBanter, feedRegister, feedSamples, feedReactions, pickReacts, toneKey, NO_TONE, THREADS_MAX, CALENDAR_GAP, clipText, cutWords, TEMPER_MAX, ROLE_MAX,
+  feedItems, hash, feedWorldTopics, feedManners, feedBanter, feedRegister, feedSamples, feedReactions, pickReacts, toneKey, NO_TONE, THREADS_MAX, PAUSED_MAX, CALENDAR_GAP, clipText, cutWords, TEMPER_MAX, ROLE_MAX,
 } from './feed.mjs';
 import { lastBlock } from './leak.mjs';
 import { castOf, rumorAuthors, worldRealities, worldPreset, calendarNames, textKey, similar, brokenManner, foreignSpell, hasJealousy, goodProfile, END_MARK } from './feed-cast.mjs';
@@ -13,7 +13,7 @@ import { diffDays, addDays, preExamWeek, preExamWord } from './time.mjs';
 import { shortName } from './scene.mjs';
 import { isCardParty } from './parse-marker.mjs';
 import { bullyTabooLine, bullyRole } from './bullying.mjs';
-import { LOVE_RE, loveOf, loversOf } from './scene-folk.mjs';
+import { LOVE_RE, loveOf, loversOf, isNameWord } from './scene-folk.mjs';
 
 export { loveOf, loversOf };
 
@@ -56,6 +56,7 @@ export const BRANCH_DAYS = 0;
 export const BRANCH_DAYS_MAIN = 3;
 export const TALK_DAYS = 5;
 export const TALK_FACTS = 4;
+export const TALK_PAUSE = 3;
 export const BRANCH_ISSUES = 3;
 export const WORN_ISSUES = 6;
 export const WORN_IN = 3;
@@ -370,7 +371,7 @@ export function buildAgenda(state, preset, opts = {}) {
   const tieNames = (id) => {
     const mate = ((state && state.classmates) || []).find((c) => c && c.id === id);
     const me = cast.find((m) => m.id === id);
-    return [mate && lovers.has(id) && loveOf(mate, mains).to, bullyRole(state, id) && mains.hero, me && (me.fan || (me.jealousy && LOVE_RE.test(me.goal || ''))) && mains.hero];
+    return [mate && lovers.has(id) && loveOf(mate, mains).to, bullyRole(state, id) && mains.hero, me && (me.fan || (hasJealousy(me.jealousy) && LOVE_RE.test(me.goal || ''))) && mains.hero];
   };
   for (const a of affairs) {
     a.about = [...new Set([...namedMains([a.topic, a.want, a.last, a.question].join(' '), allMains), ...a.memberIds.flatMap(tieNames)].filter(Boolean))];
@@ -417,6 +418,7 @@ export function buildAgenda(state, preset, opts = {}) {
   const talk = [];
   if (!events.some((e) => e.heroine) && !lifeOnly && allMains.length) {
     const given = new Set(events.map((e) => e.factId));
+    for (const t of feed.molva.talked) if (issue - t.issue < TALK_PAUSE) given.add(t.id);
     const recentFacts = items
       .filter((f) => f.kind === 'fact' && f.status !== 'expired' && aboutMain(f) && !given.has(f.id) && (f.rumor || !f.private) && f.at && f.at.day)
       .map((f) => { let d = NaN; try { d = diffDays(f.at.day, today); } catch {} return { f, d }; })
@@ -425,7 +427,7 @@ export function buildAgenda(state, preset, opts = {}) {
     if (recentFacts.length) {
       const when = (d) => (d === 0 ? 'сегодня' : d === 1 ? 'вчера' : `${dayCount(d)} назад`);
       talk.push({
-        kind: 'talk', topic: 'о главных сейчас', linked: true, about: allMains,
+        kind: 'talk', topic: 'о главных сейчас', linked: true, about: allMains, factIds: recentFacts.map(({ f }) => f.id),
         facts: recentFacts.map(({ f, d }) => `${when(d)}: ${cutWords(f.gist || f.text, 110)} (${knowOf(f)})`),
       });
     }
@@ -760,7 +762,7 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
   const fd = normalizeFeed(state && state.feed);
   const role = goodProfile(fd.charRole, { min: 3, max: ROLE_MAX });
   if (heroName || cardNames.length) {
-    const cardPart = cardNames.length && (role ? `${card} — персонаж карточки, ${role}; зови его по роли и имени, не придумывай ему другую должность` : `${card} — персонаж карточки`);
+    const cardPart = cardNames.length && (role ? `${card} — персонаж карточки, ${role}; зови по роли и имени, не придумывай ему другую должность` : `${card} — персонаж карточки`);
     lines.push('', `Главные: ${[heroName && `${heroName} — ${w0.hero} игрока`, cardPart].filter(Boolean).join('; ')}.`);
   }
   const temper = goodProfile(fd.heroineTemper, { min: 8, max: TEMPER_MAX });
@@ -849,9 +851,9 @@ export function buildMolvaPrompt(state, preset, agenda, opts = {}) {
     `Соблюдай реалии, календарь («Календарь относительно сегодня») и полномочия людей этого мира: прошедшее — в прошедшем времени, учителя в чате не пишут, ученики не принимают решений за администрацию. ${canon ? 'Заклинания, термины и реалии — канонические.' : 'Только заклинания и термины этого мира, ничего из известных книг и фильмов.'}${bullyTabooLine(state) ? ` ${bullyTabooLine(state)}` : ''}`,
     'Учитывай состояние дел: выполненное не требуй заново, закрытое продолжай только при новом основании.',
     'В память записывай только подтверждённое изменение дела массовки. Мнения о главных остаются мнениями.',
-    `Соблюдай формат и бюджет сообщений. Не заполняй бюджет пустыми репликами; если доступных содержательных продолжений нет, ответь одной строкой «${END_MARK}».`,
+    `Соблюдай формат и бюджет сообщений: у автора не больше ${AUTHOR_MAX} сообщений, в ветке не больше ${BRANCH_REPLIES_MAX} ответов, родитель стоит строкой выше, автор не отвечает сам себе, пока не ответил другой. Не заполняй бюджет пустыми репликами; если доступных содержательных продолжений нет, ответь одной строкой «${END_MARK}».`,
   ];
-  if ((agenda.occasions || []).some((o) => o.kind === 'event' && o.rumor)) rules.splice(5, 0, `Слух (подслушанное) пускает статист; из знакомых людей — только влюблённый или ревнивый, и только о ${w0.herPrep} и персонаже карточки.`);
+  if ((agenda.occasions || []).some((o) => o.kind === 'event' && o.rumor)) rules.splice(5, 0, `Слух (подслушанное) пускает статист; из знакомых людей — только влюблённый, и только о ${w0.herPrep} и персонаже карточки.`);
   lines.push('Правила:', ...rules.map((r, i) => `${i + 1}. ${r}`));
   return { system: SYSTEM, user: lines.join('\n') };
 }
@@ -1100,18 +1102,23 @@ const DANGLING_HARD = new Set([
 ]);
 const DANGLING_SOFT = new Set(['ли', 'бы', 'же', 'не', 'ни', 'то', 'вот', 'этот', 'эта', 'эти', 'его', 'её', 'их', 'мой', 'моя', 'свой', 'свою', 'такой', 'такая']);
 
+const TRAILING_OFF = new Set(['и', 'а', 'но', 'или']);
+const SMILEY_END = /(?:\s*(?:[:;=][-']?[()DPp]+|\){2,}|\({2,}|-_-|\^_\^|[xX]D))+$/u;
+
 export function isCutOff(text) {
   const raw = String(text == null ? '' : text).trim();
-  const t = raw.replace(/[\p{Extended_Pictographic}️‍\s]+$/u, '').trim();
-  if (!t) return !raw;
+  const bare = raw.replace(/[\p{Extended_Pictographic}️‍\s]+$/u, '').trim();
+  if (!bare) return !raw;
+  const t = bare.replace(SMILEY_END, '').trim();
   const open = (t.match(/«/g) || []).length - (t.match(/»/g) || []).length;
   const par = (t.match(/\(/g) || []).length - (t.match(/\)/g) || []).length;
   if (open > 0 || par > 0) return true;
   if (/[,:;\-–—(«]$/.test(t)) return true;
+  if (t !== bare) return false;
   if (/(?:\p{Lu}\.){2,}$/u.test(t)) return false;
   const body = t.replace(/[.…!?»)"\s]+$/u, '');
   const last = textKey(body).split(' ').pop() || '';
-  if (DANGLING_HARD.has(last)) return !/[!?]$/.test(t);
+  if (DANGLING_HARD.has(last)) return !(/[!?]$/.test(t) || (TRAILING_OFF.has(last) && /…$/.test(t)));
   if (DANGLING_SOFT.has(last)) return !/[.…!?]$/.test(t);
   return false;
 }
@@ -1389,6 +1396,7 @@ function acceptMemory(rows, { occasions, pool, stop, fail }) {
     if (!fresh && (!affair || affair.kind !== 'affair')) { fail(row, `дела «${clip(ref, 12)}» нет в повестке`); continue; }
     const member = resolveAuthor(who, pool);
     if (!member) { fail(row, `участник «${clip(who, 30)}» не из каста и не из «Людей»`); continue; }
+    if (member.scene) { fail(row, 'память дел не ведётся у людей из сцен'); continue; }
     if ((change.match(/\p{L}/gu) || []).length < MIN_LETTERS * 2 || isCutOff(change)) { fail(row, 'перемена пустая или оборвана'); continue; }
     if (mentionsStop(change, stop)) { fail(row, 'в памяти дела названы главные — это жизнь статистов'); continue; }
     if (ADMIN_RE.test(change)) { fail(row, 'решение администрации — не дело статистов'); continue; }
@@ -1420,7 +1428,7 @@ export function mentionsStop(text, stop) {
   const list = Array.isArray(stop) ? stop : [];
   const words = normName(text).split(' ').filter(Boolean);
   return list.some((s) => (s.kind === 'user' || s.kind === 'char')
-    && s.tokens.some((t) => t.length >= 3 && words.some((w) => w.startsWith(t.slice(0, Math.min(t.length, 5))))));
+    && s.tokens.some((t) => t.length >= 3 && words.some((w) => isNameWord(w, t))));
 }
 
 function sameText(a, b) {
@@ -1463,15 +1471,17 @@ export function brokenWords(text, manner = '') {
     for (let len = 4; len <= 6; len += 1) {
       for (let at = 1; at + len <= w.length - 3; at += 1) {
         const piece = w.slice(at, at + len);
-        if (!found.has(piece)) found.set(piece, new Set());
-        found.get(piece).add(w);
+        if (!found.has(piece)) found.set(piece, new Map());
+        found.get(piece).set(w, [w.slice(Math.max(0, at - 2), at), w.slice(at + len, at + len + 2)]);
       }
     }
   }
   let best = '';
   for (const [piece, set] of found) {
-    const roots = new Set([...set].map((w) => w.slice(0, 4)));
+    const roots = new Set([...set.keys()].map((w) => w.slice(0, 4)));
     if (roots.size < (piece.length >= 5 ? 2 : 3)) continue;
+    const ctx = [...set.values()];
+    if (new Set(ctx.map((x) => x[0])).size < 2 || new Set(ctx.map((x) => x[1])).size < 2) continue;
     if (piece.length > best.length) best = piece;
   }
   return best;
@@ -1493,10 +1503,15 @@ function applyMemory(work, memory) {
 function startMemoryThreads(work, memory, day) {
   for (const m of memory || []) {
     if (m.threadId) continue;
-    const active = ensureFeed(work).threads.filter((t) => t.state === 'active');
+    const threads = ensureFeed(work).threads;
+    const active = threads.filter((t) => t.state === 'active');
     if (active.length >= THREADS_MAX) {
       const old = active.slice().sort((a, b) => ((b.idle || 0) - (a.idle || 0)) || ((b.stale || 0) - (a.stale || 0)))[0];
-      if ((old.idle || 0) + (old.stale || 0) > 0) old.state = 'paused';
+      if ((old.idle || 0) + (old.stale || 0) > 0) {
+        const paused = threads.filter((t) => t.state === 'paused');
+        if (paused.length >= PAUSED_MAX) paused[0].state = 'archived';
+        old.state = 'paused';
+      }
     }
     startThread(work, { topic: clipText(m.change, 90), members: [m.memberId], owner: m.memberId, last: m.change, source: 'cast', day, paused: true });
   }
@@ -1585,6 +1600,9 @@ export function applyIssue(work, result, agenda, opts = {}) {
     .map((o) => ({ id: o.factId, issue }));
   const spent = skipped.filter((id) => after.molva.offered.includes(id));
   const lifeNow = [...new Set(used.filter((u) => u.kind === 'life').map((u) => u.ref))];
+  const talkNow = used.some((u) => u.kind === 'talk')
+    ? (agenda.occasions || []).filter((o) => o.kind === 'talk').flatMap((o) => o.factIds || []).map((id) => ({ id, issue }))
+    : [];
   const affairNow = (agenda.occasions || []).filter((o) => o.kind === 'affair' && touched.has(o.threadId)).map((o) => o.topic);
   const calNow = (agenda.occasions || [])
     .filter((o) => o.kind === 'life' && o.event && lifeNow.includes(clip(o.topic, 90)))
@@ -1593,12 +1611,13 @@ export function applyIssue(work, result, agenda, opts = {}) {
     ...after.molva,
     issue,
     since: 0,
-    facts: [...after.molva.facts, ...usedFacts, ...spent].slice(-MOLVA_FACTS_MAX),
+    facts: [...new Set([...after.molva.facts, ...usedFacts, ...spent])].slice(-MOLVA_FACTS_MAX),
     offered: skipped.filter((id) => !spent.includes(id)),
     hot: [...after.molva.hot.filter((h) => !hotNow.some((n) => n.id === h.id)), ...hotNow],
     at: { day, time },
     topics: [...after.molva.topics, ...lifeNow, ...affairNow].map((t) => clipText(t, 90)).slice(-MOLVA_TOPICS_MAX),
     cal: [...after.molva.cal.filter((c) => !calNow.some((n) => similar(n.topic, c.topic))), ...calNow].slice(-6),
+    talked: [...after.molva.talked.filter((t) => issue - t.issue < TALK_PAUSE && !talkNow.some((n) => n.id === t.id)), ...talkNow].slice(-12),
   };
   const delta = deltaOf(work, made, opts.stamp);
   return { ok: true, delta, posts, replies, ...(made.length ? {} : { quiet: true }) };

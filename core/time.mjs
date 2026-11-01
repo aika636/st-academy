@@ -79,13 +79,22 @@ const EARLY_START_DAYS = 21;
 function termStarts(raw, anchor) {
   const n = raw.length;
   const md = raw.map((t) => (t && typeof t.start === 'string' && /^\d{2}-\d{2}$/.test(t.start) ? t.start : null));
-  const hit = anchor && md.every(Boolean) ? termHit(md, anchor) : null;
+  let hit = anchor && md.every(Boolean) ? termHit(md, anchor) : null;
+  let pinned = Boolean(anchor);
+  if (hit) {
+    const t = raw[hit.index] || {};
+    const span = numberOr(t.studyWeeks, DEFAULT_STUDY_WEEKS) + numberOr(t.examWeeks, 0);
+    if (diffDays(mondayOf(hit.day), anchor) >= span * 7) {
+      hit = nextTermHit(md, anchor) || hit;
+      pinned = false;
+    }
+  }
   const k = hit ? hit.index : 0;
   const out = new Array(n).fill(null);
   let prev = null;
   for (let i = k; i < n; i += 1) {
     const t = raw[i] || {};
-    const start = i === k && anchor ? anchor : absoluteStart(t.start, prev);
+    const start = i === k && pinned ? anchor : (i === k && hit && !pinned ? hit.day : absoluteStart(t.start, prev));
     out[i] = start;
     if (start) prev = start;
   }
@@ -107,6 +116,20 @@ function termHit(md, anchor) {
     for (const y of [a.y + 1, a.y, a.y - 1]) {
       const dist = (ref - Date.UTC(y, Number(s.slice(0, 2)) - 1, Number(s.slice(3, 5)))) / 86400000;
       if (dist >= -EARLY_START_DAYS && dist < best) { best = dist; hit = { index: i, day: `${String(y).padStart(4, '0')}-${s}` }; }
+    }
+  });
+  return hit;
+}
+
+function nextTermHit(md, anchor) {
+  const a = parseDay(anchor);
+  const ref = Date.UTC(a.y, a.m - 1, a.d);
+  let best = Infinity;
+  let hit = null;
+  md.forEach((s, i) => {
+    for (const y of [a.y, a.y + 1]) {
+      const dist = (Date.UTC(y, Number(s.slice(0, 2)) - 1, Number(s.slice(3, 5))) - ref) / 86400000;
+      if (dist > 0 && dist < best) { best = dist; hit = { index: i, day: `${String(y).padStart(4, '0')}-${s}` }; }
     }
   });
   return hit;
@@ -383,8 +406,9 @@ function advancePeriods(next, n, preset) {
   }
 
   next.calendar.day = day;
-  if (datetime) {
-    next.calendar.time = bellsOf(preset)[target].start;
+  const bell = datetime ? bellsOf(preset)[target] : null;
+  if (bell) {
+    next.calendar.time = bell.start;
     next.calendar.periodIndex = target;
   } else {
     next.calendar.periodIndex = target;
@@ -502,9 +526,9 @@ export function setAbsolute(state, at, source, preset, opts = {}) {
   if (back) {
     const reason = `откат назад применён вручную (${jump} дн.)`;
     pushJournal(next, { kind: 'time', text: reason, data: { at, source } }, preset);
-    return { state: next, applied: true, reason };
+    return { state: next, applied: true, reason, rebased };
   }
-  return { state: next, applied: true, reason: jump > 0 ? `скачок вперёд на ${jump} дн.` : 'время уточнено' };
+  return { state: next, applied: true, reason: jump > 0 ? `скачок вперёд на ${jump} дн.` : 'время уточнено', rebased };
 }
 
 function noteWeekday(state, day, weekday) {

@@ -83,7 +83,7 @@ export const DEFAULT_LABELS = {
 export const FEED_LINE_MAX = 220;
 
 export const DEFAULT_PROMPTS = {
-  marker: 'Start the reply (right after the scene-state block, if any) with a marker: <!-- [ACADEMY t=+1] -->. Keys: t= time shift (+1 = one {period}, +1 day, +1 week); grade=subject:grade; rel={teacher}:minor+ or major- (:reason); skip=subject; late=subject. Only what happened in the reply.',
+  marker: 'Start the reply (right after the scene-state block, if any) with a marker: <!-- [ACADEMY t=+1] -->. Keys: t= time shift (+1 = one {period}, +1 day, +1 week); grade=subject:grade; rel={teacher}:minor+/minor-/major+/major- (:reason); skip=subject; late=subject. Only what happened in the reply.',
   markerIds: 'Subject ids: {subjects}.',
   markerTeachers: 'Teacher ids: {teachers}.',
 };
@@ -290,7 +290,7 @@ function feedSegment(state, L, { quiet = false, holiday = false, crowdIn = 'clas
 function goingSegment(state, preset, L) {
   const gender = presetGender(preset);
   return goingToday(state, preset)
-    .map((g) => fill(L.holidayGoing, { hero: heroWords(gender).heroEn, name: g.eventName, who: g.who }))
+    .map((g) => cap(fill(L.holidayGoing, { hero: heroWords(gender).heroEn, name: g.eventName, who: g.who })))
     .join(L.glue);
 }
 
@@ -391,11 +391,12 @@ export function injectBlock(injects) {
   const seen = new Set();
   const lines = [];
   for (const item of injects) {
-    if (!item || !item.text) continue;
+    const text = item && item.text ? String(item.text).trim() : '';
+    if (!text) continue;
     const id = item.id === undefined ? item.text : item.id;
     if (seen.has(id)) continue;
     seen.add(id);
-    lines.push(String(item.text).trim());
+    lines.push(text);
   }
   return lines.join('\n');
 }
@@ -419,7 +420,7 @@ export function fill(template, vars) {
 
 function roundScore(value) {
   const r = Math.round(value * 10) / 10;
-  return Number.isInteger(r) ? String(r) : r.toFixed(1).replace('.', ',');
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
 function idsOf(list) {

@@ -484,10 +484,11 @@ function personCard(host, p, ctx) {
 }
 
 function openPortrait(t, X) {
-  if (mounted.portrait) mounted.portrait.remove();
+  if (mounted.portraitClose) mounted.portraitClose();
   const close = () => {
     if (mounted.portrait) mounted.portrait.remove();
     mounted.portrait = null;
+    mounted.portraitClose = null;
     document.removeEventListener('keydown', onKey);
   };
   const onKey = (e) => { if (e && e.key === 'Escape') close(); };
@@ -506,6 +507,7 @@ function openPortrait(t, X) {
   document.addEventListener('keydown', onKey);
   (document.getElementById('movingDivs') || document.body).append(box);
   mounted.portrait = box;
+  mounted.portraitClose = close;
   return box;
 }
 

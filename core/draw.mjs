@@ -118,6 +118,11 @@ export function promptForm(route, sdSource = '', custom = null) {
   return 'text';
 }
 
+export function customReady(c) {
+  const m = c && CUSTOM_MODES[c.mode];
+  return Boolean(m) && Boolean(normalizeKey(c.key)) && (Boolean(c.endpoint) || !m.needsEndpoint);
+}
+
 export function availableRoutes(env = {}) {
   const secrets = env.secrets || {};
   const out = [];
@@ -127,7 +132,7 @@ export function availableRoutes(env = {}) {
   if (googleSource(secrets)) out.push('gemini');
   if (hasSecret(secrets, SECRETS.OPENROUTER)) out.push('openrouter');
   if (googleSource(secrets)) out.push('imagen');
-  out.push('custom');
+  if (customReady(env.custom)) out.push('custom');
   return out;
 }
 
@@ -244,7 +249,7 @@ export const DRAW_TEXT = {
   timeout: 'Провайдер не ответил за {seconds} секунд. Попробуйте ещё раз позже.',
   aborted: 'Рисование отменено.',
   provider: 'Провайдер отказал: {why}',
-  noRoute: 'Чтобы рисовать портреты, подключите генерацию картинок в таверне (NovelAI, OpenAI, Gemini или OpenRouter).',
+  noRoute: 'Чтобы рисовать портреты, подключите генерацию картинок в таверне (NovelAI, OpenAI, Gemini или OpenRouter) или впишите свой адрес и ключ в настройках Академии, раздел рисования.',
   tavernEmpty: 'Генерация картинок таверны ничего не вернула. Подробности — во всплывашке таверны; проверьте её настройки «Генерация изображений».',
   notImage: 'Генерация таверны вернула не картинку (видео?) — для портрета выберите в таверне модель картинок.',
   noText: 'Модель ответила текстом, а не картинкой: {why}',
@@ -342,6 +347,8 @@ export function errorWhy(err) {
   return '';
 }
 
+const NO_KEY_RE = /api[\s_-]?key|no key|secret|credential|not (?:set|found|configured)|missing/i;
+
 const FILTER_RE = /moderation|safety|content[_ ]?policy|blocked|prohibited|violat|not allowed|IMAGE_SAFETY|personGeneration/i;
 
 export function httpFailure(route, status, text = '') {
@@ -353,7 +360,7 @@ export function httpFailure(route, status, text = '') {
     why = typeof parsed === 'string' ? parsed : errorWhy(parsed);
   } catch {}
   if (FILTER_RE.test(why)) return fail('filter', DRAW_TEXT.filter);
-  if (status === 400 || status === 401 || status === 403) return fail('no-key', fill(DRAW_TEXT.noKey, { provider }));
+  if (status === 401 || status === 403 || (status === 400 && NO_KEY_RE.test(why))) return fail('no-key', fill(DRAW_TEXT.noKey, { provider }));
   const plain = why && !/^<!doctype|^<html|^internal server error$/i.test(why);
   return fail('provider', fill(DRAW_TEXT.provider, {
     why: plain ? why.slice(0, 200) : `сервер таверны ответил ${status} — подробности в его консоли`,
@@ -370,10 +377,6 @@ export function abortedFailure() {
 
 export function networkFailure() {
   return fail('network', DRAW_TEXT.network);
-}
-
-export function noKeyFailure(route) {
-  return fail('no-key', fill(DRAW_TEXT.noKey, { provider: ROUTE_PROVIDER[route] || route }));
 }
 
 export function isImagePath(path) {
@@ -453,17 +456,19 @@ const NAISTERA_PATH = /\/api\/generate$/;
 
 const naisteraRoot = (endpoint) => baseOf('naistera', endpoint).replace(NAISTERA_PATH, '');
 
-const chatRoot = (endpoint) => {
-  const b = normalizeEndpoint(endpoint);
-  return /\/(?:api\/)?v1$/.test(b) ? b : `${b}/v1`;
-};
+const withVersion = (b) => (/\/v\d+(?:alpha|beta)?\d*$/i.test(b) ? b : `${b}/v1`);
 
-const openaiRoot = (endpoint) => baseOf('openai', endpoint).replace(/\/v1$/, '');
+const chatRoot = (endpoint) => withVersion(normalizeEndpoint(endpoint));
+
+const openaiRoot = (endpoint) => withVersion(baseOf('openai', endpoint));
 
 const geminiRoot = (endpoint) => baseOf('gemini', endpoint).replace(/\/(?:v1beta|v1)$/, '');
 
 const isGoogleHost = (base) => {
-  try { return new URL(base).hostname.endsWith('googleapis.com'); } catch { return false; }
+  try {
+    const host = new URL(base).hostname.toLowerCase();
+    return host === 'googleapis.com' || host.endsWith('.googleapis.com');
+  } catch { return false; }
 };
 
 const bearer = (key) => ({ Authorization: `Bearer ${key}` });
@@ -493,7 +498,7 @@ export function customRequest(mode, o = {}) {
       const body = { model, prompt: text, n: 1, size: '1024x1024' };
       if (/gpt-image/i.test(model)) body.quality = 'medium';
       else body.response_format = 'b64_json';
-      return { url: `${openaiRoot(o.endpoint)}/v1/images/generations`, method: 'POST', headers: { ...bearer(key), ...JSON_TYPE }, body };
+      return { url: `${openaiRoot(o.endpoint)}/images/generations`, method: 'POST', headers: { ...bearer(key), ...JSON_TYPE }, body };
     }
     case 'chat':
       return {
@@ -581,7 +586,7 @@ export function customModelsRequest(mode, o = {}) {
     case 'naistera':
       return { url: `${naisteraRoot(o.endpoint)}/api/models`, headers: key ? bearer(key) : {} };
     case 'openai':
-      return { url: `${openaiRoot(o.endpoint)}/v1/models`, headers: bearer(key) };
+      return { url: `${openaiRoot(o.endpoint)}/models`, headers: bearer(key) };
     case 'chat':
       return { url: `${chatRoot(o.endpoint)}/models`, headers: bearer(key) };
     case 'gemini': {

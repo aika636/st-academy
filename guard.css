@@ -96,8 +96,10 @@
   .academy-panel .ad-head .academy-grab, .academy-panel .ad-head .academy-close { color: inherit !important; }
   .academy-panel .ad-head .academy-grab:hover, .academy-panel .ad-head .academy-close:hover { color: inherit !important; }
   .academy-panel .ad-head .academy-subtitle { color: inherit !important; }
+  .ad-tab .academy-hint:not(:hover):not(:focus-visible) { color: inherit !important; }
   .ad-page .academy-card, .ad-page .academy-repair { color: var(--ad-ink) !important; }
   .ad-page .academy-jump, .ad-page .academy-pause { background: var(--ad-note) !important; border: var(--ad-note-border, var(--ad-rule-w) var(--ad-rule-style) var(--ad-note-line)) !important; box-shadow: none !important; }
+  .ad-sticker .academy-hint, .ad-sticker .academy-holiday-own { color: var(--ad-sticker-ink) !important; }
   .ad-gr-extra { color: var(--ad-doc-soft) !important; }
   .ad-gr-att { color: var(--ad-bad) !important; }
   .ad-gr-row.ad-gr-debt { box-shadow: inset 3px 0 0 var(--ad-bad) !important; }

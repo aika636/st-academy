@@ -1,7 +1,8 @@
 import { clamp, cloneState, findSubject, pushJournal } from './state.mjs';
-import { addGrade, debtMemo, restoreDebt } from './gradebook.mjs';
+import { addGrade, debtMemo, restoreDebt, setDebt } from './gradebook.mjs';
 import { mark } from './attendance.mjs';
-import { changeRelation, findPerson } from './relations.mjs';
+import { applyRelationDeltas, changeRelation, findPerson } from './relations.mjs';
+import { changeReputation } from './reputation.mjs';
 import { SCENE_KINDS, SCENE_RECEIPTS, applySceneEvent, revertSceneEvent } from './scene.mjs';
 import { applyAcademicCompletion } from './academic-completion.mjs';
 import { planEvent, planPause } from './holidays.mjs';
@@ -41,7 +42,7 @@ export function applyCorrection(state, ev, preset, opts = {}) {
     const prev = debtMemo(subject);
     const r = addGrade(state, { subjectId: ev.subjectId, value: ev.value, day }, preset);
     if (!r.applied) return { state: r.state, receipt: { kind: 'grade', subjectId: ev.subjectId, value: String(ev.value), day, refused: r.reason === 'unknown-value' ? 'такой оценки нет в шкале' : `нет в списке ${subjectWord(preset, 'genMany')}` } };
-    return { state: r.state, receipt: { kind: 'grade', subjectId: ev.subjectId, value: String(ev.value), day, prev } };
+    return { state: r.state, receipt: { kind: 'grade', subjectId: ev.subjectId, value: String(ev.value), day, prev, bg: subject.bg || 0 } };
   }
 
   if (ev.kind === 'rel') {
@@ -75,9 +76,24 @@ export function applyCorrection(state, ev, preset, opts = {}) {
     const r = mark(state, { subjectId: ev.subjectId, status: ev.status, day, periodIndex: null }, preset);
     const placed = (r.state.attendance.records || []).some((x) => x.day === day && x.subjectId === ev.subjectId && x.status === ev.status);
     if (!placed) return { state: r.state, receipt: null };
+    const fx = r.effects;
+    let next = applyRelationDeltas(r.state, fx.relation, preset).state;
+    for (const id of fx.debt) next = setDebt(next, id, true, preset);
+    if (fx.reputation) next = changeReputation(next, { delta: fx.reputation, reason: 'attendance' }, preset).state;
+    const relations = [...new Set(fx.relation.map((x) => x.teacherId))].map((teacherId) => ({
+      teacherId, applied: Number((findPerson(next, teacherId) || {}).relation) - Number((findPerson(state, teacherId) || {}).relation) || 0,
+    })).filter((x) => x.applied);
+    const debts = (next.subjects || []).flatMap((sub) => {
+      const was = findSubject(state, sub.id);
+      return was && JSON.stringify(debtMemo(was)) !== JSON.stringify(debtMemo(sub)) ? [{ subjectId: sub.id, prev: debtMemo(was), after: debtMemo(sub) }] : [];
+    });
     return {
-      state: r.state,
-      receipt: { kind: 'attendance', subjectId: ev.subjectId, status: ev.status, day, prev: prev ? { ...prev } : null },
+      state: next,
+      receipt: {
+        kind: 'attendance', subjectId: ev.subjectId, status: ev.status, day, prev: prev ? { ...prev } : null,
+        relations, debts,
+        reputation: { applied: Number(next.reputation.value) - Number(state.reputation.value) || 0, prev: { ...state.reputation }, after: { ...next.reputation } },
+      },
     };
   }
 
@@ -125,6 +141,7 @@ export function revertCorrection(state, receipt, preset) {
     if (receipt.prev) {
       restoreDebt(subject, receipt.prev);
     }
+    if (receipt.bg > 0 && !subject.bg) subject.bg = receipt.bg;
     pushJournal(next, {
       kind: 'debug', text: `correction undone: grade ${receipt.subjectId}=${receipt.value}`, data: { undo: 'grade', subjectId: receipt.subjectId },
     }, preset);
@@ -175,8 +192,30 @@ export function revertCorrection(state, receipt, preset) {
       if (x.subjectId === receipt.subjectId && x.status === receipt.status && (!receipt.day || x.day === receipt.day)) { at = i; break; }
     }
     if (at < 0) return next;
+    const counted = (st) => st === 'present' || st === 'late';
+    const subject = findSubject(next, receipt.subjectId);
+    if (subject && subject.bg > 0 && counted(receipt.status) && !(receipt.prev && counted(receipt.prev.status))) {
+      subject.bg -= 1;
+      if (!subject.bg) delete subject.bg;
+    }
     if (receipt.prev) records[at] = { ...receipt.prev };
     else records.splice(at, 1);
+    for (const x of receipt.relations || []) {
+      const person = findPerson(next, x.teacherId);
+      const scale = (preset && preset.relations) || {};
+      if (person) person.relation = clamp(person.relation - x.applied, scale.min, scale.max);
+    }
+    for (const x of receipt.debts || []) {
+      const sub = findSubject(next, x.subjectId);
+      if (sub && JSON.stringify(debtMemo(sub)) === JSON.stringify(x.after)) restoreDebt(sub, x.prev);
+    }
+    const rep = receipt.reputation;
+    if (rep && rep.applied) {
+      const scale = (preset && preset.reputation) || {};
+      const same = JSON.stringify(next.reputation) === JSON.stringify(rep.after);
+      next.reputation.value = clamp(next.reputation.value - rep.applied, scale.min, scale.max);
+      if (same) { next.reputation.warned = rep.prev.warned; next.reputation.expelled = rep.prev.expelled; }
+    }
     return next;
   }
 

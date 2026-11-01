@@ -18,7 +18,7 @@
   --ad-sticker: #f4ecd2; --ad-sticker-ink: #2a2614; --ad-sticker-line: #1f4a36;
   --ad-doc: #fffdf4; --ad-doc-ink: #1d2a24; --ad-doc-soft: #4a5a51; --ad-doc-line: #5f7a6a; --ad-stamp: #2d5a86;
   --ad-inner: var(--ad-page); --ad-inner-ink: #2a281c; --ad-inner-line: rgba(90, 80, 40, .32);
-  --ad-fam-study: #2d5a86; --ad-fam-people: #a8433a; --ad-fam-attend: #5c7a2f; --ad-fam-secret: #6e4a8a;
+  --ad-fam-study: #2d5a86; --ad-fam-people: #a8433a; --ad-fam-attend: #51702a; --ad-fam-secret: #6e4a8a;
   --ad-good: #25663a; --ad-bad: #a3321f;
   --ad-emb-fg: #DDBB69; --ad-emb-bg: #6D263B; --ad-emb-ac: #F5E8CB; --ad-scheme: light;
 

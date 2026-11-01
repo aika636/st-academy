@@ -15,7 +15,7 @@ export const PANEL_TEXT = {
   cancelledTavern: 'Разбор отменён. Если запрос ушёл через подключение таверны, модель может дописать его до конца, но ответ будет отброшен.',
   failCut: 'Секретарь не договорил: ответ оборвался раньше метки. Нажмите «Разобрать заново».',
   failRefused: 'Секретарь ответил не так, как нужно. Нажмите «Разобрать заново».',
-  failRefusedMany: 'Секретарь два раза подряд отказался разбирать этот ответ или ответил не по форме (попыток: {n}). Нажмите «Разобрать заново» или попробуйте позже.',
+  failRefusedMany: 'Секретарь отказался разбирать этот ответ или ответил не по форме (попыток: {n}). Нажмите «Разобрать заново» или попробуйте позже.',
   slow: 'Секретарь ждёт ответа модели дольше обычного — запрос мог встать в очередь. Можно отменить и разобрать позже.',
   afterMolva: 'Секретарь читает ответ… (слухи ещё пишутся, запрос может ждать своей очереди)',
   saving: 'Записываю разбор…',
@@ -26,7 +26,7 @@ export const PANEL_TEXT = {
   undoReply: 'Откатить ход целиком',
   helpTitle: 'Что делают кнопки',
   undoReplyHint: 'Откатывает дату, время и всё, что Академия посчитала по этому ответу. Сам текст остаётся; заметки, роли и настройки не трогаются.',
-  undoAllHint: 'Снимает только разбор секретаря по этому ответу (оценки, отношения, слухи). Дата и время хода остаются.',
+  undoAllHint: 'Снимает разбор секретаря по этому ответу (оценки, отношения, слухи); если ответ разбирали заново, возвращает прежний разбор. Дата и время хода остаются.',
   draft: 'Черновик — ещё не сохранён',
   save: 'Сохранить',
   discard: 'Не сохранять',
@@ -136,8 +136,10 @@ export function rowText(row, words = {}) {
 
 export const CHANGE_WORDS = ['изменение', 'изменения', 'изменений'];
 
+const TALK_KINDS = new Set(['loud', 'react', 'reply', 'other']);
+
 export function changeCount(view) {
-  return ((view && view.tokens) || []).filter((t) => t && (typeof t === 'string' || t.kind !== 'loud')).length;
+  return ((view && view.tokens) || []).filter((t) => t && (typeof t === 'string' || !TALK_KINDS.has(t.kind))).length;
 }
 
 export function draftLabel(view) {
@@ -207,6 +209,12 @@ const PANEL_CLASS = 'ad-mpanel';
 const open = new Set();
 const saved = new Set();
 const jumpErrors = new Map();
+
+export function forgetPanelState() {
+  open.clear();
+  saved.clear();
+  jumpErrors.clear();
+}
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -306,8 +314,8 @@ function buildPanel(host, mesId, view, look) {
   };
 
   const flip = () => {
-    if (open.has(mesId)) open.delete(mesId);
-    else open.add(mesId);
+    if (content.hidden) open.add(mesId);
+    else open.delete(mesId);
     content.hidden = !open.has(mesId);
     footer.hidden = !open.has(mesId) || !footer.children.length;
     panelNode.classList.toggle('ad-open', open.has(mesId));
@@ -408,7 +416,9 @@ function buildPanel(host, mesId, view, look) {
         disabled: busy,
         onclick: () => {
           li.classList.add('ad-struck');
-          Promise.resolve(host.dropToken(mesId, t.index)).catch((err) => {
+          Promise.resolve(host.dropToken(mesId, t.index)).then((res) => {
+            if (res && res.ok === false) li.classList.remove('ad-struck');
+          }).catch((err) => {
             li.classList.remove('ad-struck');
             console.warn('[academy] действие плашки не удалось:', err);
           });

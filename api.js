@@ -40,7 +40,7 @@ export function isRetryableStatus(status) {
 }
 
 export function isGatewayText(text) {
-  return /bad gateway|gateway time-?out|upstream (?:connect|request|timed)|\b50[234]\b/i.test(String(text == null ? '' : text));
+  return /bad gateway|gateway time-?out|upstream (?:connect|request|timed)|(?:\b(?:http|status|error|code)\W{0,3}|^\W*)50[234]\b|\b50[234]\s+(?:bad|gateway|service|time)/i.test(String(text == null ? '' : text));
 }
 
 function isGatewayBody(data) {
@@ -55,7 +55,7 @@ function budgetOf(value, fallback) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|[\w-]+\.local)(:\d+)?(\/|$)/i;
+const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|\[::1\]|[\w-]+\.local)(:\d+)?(\/|$)/i;
 
 export function normalizeBase(endpoint) {
   let s = String(endpoint == null ? '' : endpoint).trim();
@@ -77,14 +77,23 @@ export function normalizeBase(endpoint) {
   return s;
 }
 
-export function chatUrl(endpoint) {
+const VERSION_SEGMENT = /\/v\d+(?:alpha|beta)?\d*(?:\/|$)/i;
+
+export function apiRoot(endpoint) {
   const base = normalizeBase(endpoint);
-  return base ? `${base}/v1/chat/completions` : '';
+  if (!base) return '';
+  const path = base.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+  return VERSION_SEGMENT.test(path) ? base : `${base}/v1`;
+}
+
+export function chatUrl(endpoint) {
+  const root = apiRoot(endpoint);
+  return root ? `${root}/chat/completions` : '';
 }
 
 export function modelsUrl(endpoint) {
-  const base = normalizeBase(endpoint);
-  return base ? `${base}/v1/models` : '';
+  const root = apiRoot(endpoint);
+  return root ? `${root}/models` : '';
 }
 
 export function hasOwnEndpoint(api) {
@@ -317,8 +326,9 @@ export function isTruncatedReason(reason) {
 
 export function looksTruncated(text) {
   const s = String(text == null ? '' : text);
-  if (!/[{[]/.test(s)) return false;
-  return balancedBlock(s) === '';
+  const at = s.search(/^[ \t]*[{[]/m);
+  if (at < 0) return false;
+  return balancedBlock(s.slice(at)) === '';
 }
 
 function isTruncated(data, text) {
@@ -397,6 +407,7 @@ export function safeReason(text, max = 120) {
   let t = String(text || '').trim();
   if (/^[{[<]/.test(t)) return '';
   t = t.replace(/\b(?:https?:\/\/|wss?:\/\/|www\.)\S+/gi, '').replace(/\bBearer\s+\S+/gi, '')
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, '').replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|ai|dev|app|ru|cn|co|me|xyz|cloud|local)(?::\d+)?\b/gi, '')
     .replace(/\b(?:sk|pk|key|AIza|gsk|xai)[-_A-Za-z0-9]{12,}/g, '').replace(/\b[A-Za-z0-9_-]{28,}\b/g, '')
     .replace(/\s+/g, ' ').replace(/\s+([.,;:])/g, '$1').trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
@@ -544,7 +555,10 @@ async function requestOnce(url, init, { timeout, signal, model }) {
 
   try {
     const res = await fetchImpl(url, { ...init, signal: ctl.signal });
-    const raw = await res.text().catch(() => '');
+    const raw = await res.text().catch((e) => {
+      if (ctl.signal.aborted) throw e;
+      return '';
+    });
     let data;
     try { data = raw ? JSON.parse(raw) : null; } catch { data = raw; }
     if (!res.ok) return classifyError({ status: res.status, body: data, url, model });
@@ -570,7 +584,7 @@ export async function listModels(api, opts = {}) {
     };
   }
   const url = modelsUrl(api && api.endpoint);
-  if (!url) return { ok: false, code: 'no-endpoint', message: 'Адрес не задан: вписать endpoint.', status: null, detail: '' };
+  if (!url) return { ok: false, code: 'no-endpoint', message: 'Адрес не задан: впишите его в настройках.', status: null, detail: '' };
   const bad = keyProblem(api);
   if (bad) return bad;
   const direct = await request(url, { method: 'GET', headers: headersFor(api) }, {
@@ -602,11 +616,11 @@ async function listModelsViaTavern(api, opts = {}) {
   if (!c || typeof c.getRequestHeaders !== 'function') return null;
   let headers;
   try { headers = c.getRequestHeaders(); } catch { return null; }
-  const base = normalizeBase(api && api.endpoint);
-  if (!base) return null;
+  const root = apiRoot(api && api.endpoint);
+  if (!root) return null;
   const body = {
     chat_completion_source: 'openai',
-    reverse_proxy: `${base}/v1`,
+    reverse_proxy: root,
     proxy_password: sanitizeApiKey(api && api.key).key,
   };
   const res = await request(TAVERN_STATUS_URL, { method: 'POST', headers, body: JSON.stringify(body) }, {
@@ -632,6 +646,35 @@ async function listModelsViaTavern(api, opts = {}) {
   return { ok: true, data, status: res.status };
 }
 
+export function isReasoningModel(model) {
+  const name = String(model || '').trim().replace(/^[^/\s]+\//, '');
+  return /^(?:o\d|gpt-5)/i.test(name);
+}
+
+const PARAM_REJECT = /\b(?:max_tokens|max_completion_tokens|temperature)\b/i;
+
+export function chatBody(model, messages, { temperature, maxTokens, reasoning } = {}) {
+  const body = { model, messages };
+  if (reasoning === undefined ? isReasoningModel(model) : reasoning) {
+    body.max_completion_tokens = maxTokens;
+  } else {
+    body.temperature = temperature;
+    body.max_tokens = maxTokens;
+  }
+  return body;
+}
+
+async function postChat(url, api, messages, params, opts) {
+  const send = (reasoning) => request(url, {
+    method: 'POST', headers: headersFor(api), body: JSON.stringify(chatBody(api.model, messages, { ...params, reasoning })),
+  }, opts);
+  const first = isReasoningModel(api.model);
+  const res = await send(first);
+  if (res.ok || res.status !== 400 || !PARAM_REJECT.test(String(res.detail || ''))) return res;
+  if (opts.signal && opts.signal.aborted) return res;
+  return send(!first);
+}
+
 export async function testConnection(api, opts = {}) {
   if (resolveSource(api) === 'tavern') {
     const res = await tavernComplete(opts.ctx, {
@@ -642,7 +685,7 @@ export async function testConnection(api, opts = {}) {
   }
   const url = chatUrl(api && api.endpoint);
   if (!url) {
-    return { ok: false, code: 'no-endpoint', message: 'Адрес не задан: вписать endpoint.', status: null, detail: '' };
+    return { ok: false, code: 'no-endpoint', message: 'Адрес не задан: впишите его в настройках.', status: null, detail: '' };
   }
   const model = (api && api.model) || '';
   if (!model) {
@@ -650,13 +693,7 @@ export async function testConnection(api, opts = {}) {
   }
   const bad = keyProblem(api);
   if (bad) return bad;
-  const body = {
-    model,
-    messages: [{ role: 'user', content: 'ping' }],
-    max_tokens: 1,
-    temperature: 0,
-  };
-  const res = await request(url, { method: 'POST', headers: headersFor(api), body: JSON.stringify(body) }, {
+  const res = await postChat(url, { ...api, model }, [{ role: 'user', content: 'ping' }], { maxTokens: 1, temperature: 0 }, {
     timeout: opts.timeout || TIMEOUTS.test,
     signal: opts.signal,
     model,
@@ -716,8 +753,7 @@ async function completeOnce(api, req) {
     if (system) messages.push({ role: 'system', content: system });
     messages.push({ role: 'user', content: user });
     const budget = budgetOf(req.maxTokens, TOKEN_BUDGETS.default);
-    const body = { model: api.model, messages, temperature: req.temperature ?? 0.7, max_tokens: budget };
-    const res = await request(url, { method: 'POST', headers: headersFor(api), body: JSON.stringify(body) }, {
+    const res = await postChat(url, api, messages, { temperature: req.temperature ?? 0.7, maxTokens: budget }, {
       timeout: req.timeout || TIMEOUTS.complete,
       signal,
       model: api.model,
@@ -986,7 +1022,7 @@ export function activeBookNames(ctx) {
   const out = [];
   const add = (v) => {
     const name = cardStr(v);
-    if (!name || name.startsWith('Академия — ') || name.startsWith('Academy ')) return;
+    if (!name || name.startsWith('Академия — ') || /^Academy .*\d{4}-\d{1,2}-\d{1,2}/.test(name)) return;
     if (!out.includes(name)) out.push(name);
   };
   try {
@@ -1197,7 +1233,10 @@ export async function findLorePeople(preset, api, ctx, opts = {}) {
         timeout: opts.timeout,
         maxTokens: budgetOf(opts.maxTokens, TOKEN_BUDGETS.lorePeople),
       });
-      if (!res.ok) return { ok: false, code: res.code, error: res.message };
+      if (!res.ok) {
+        if (!people.length || res.code === 'aborted') return { ok: false, code: res.code, error: res.message };
+        return { ok: true, people, books, scanned: entries.length, kept: kept.length, batches: batches.length, failed: failed + 1, partial: true };
+      }
       const data = extractJson(res.text);
       if (data !== undefined) found = parseLorePeople(res.text, batch);
       else if (res.truncated) break;

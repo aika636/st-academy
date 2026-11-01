@@ -30,6 +30,7 @@
   border-radius: 50%;
   border: 1px solid var(--academy-line);
   background-color: var(--academy-bg);
+  -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
   backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
   color: var(--academy-ink);
   box-shadow: 0 2px 8px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.5));
@@ -79,6 +80,7 @@
   max-height: 78vh;
   color: var(--academy-ink);
   background-color: var(--academy-bg);
+  -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
   backdrop-filter: blur(var(--SmartThemeBlurStrength, 10px));
   border: 1px solid var(--academy-line);
   border-radius: var(--academy-radius);
@@ -1625,6 +1627,10 @@
   right: 4px;
 }
 
+.ad-tab .academy-hint:not(:hover):not(:focus-visible) {
+  color: inherit;
+}
+
 .ad-tab .academy-hint {
   position: absolute;
   top: 1px;
@@ -1687,6 +1693,11 @@
   margin-left: 4px;
   font-size: 0.8em;
   opacity: 0.7;
+}
+
+.ad-sticker .academy-hint,
+.ad-sticker .academy-holiday-own {
+  color: var(--ad-sticker-ink);
 }
 
 .ad-gr-extra {

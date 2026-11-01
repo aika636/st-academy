@@ -38,7 +38,7 @@ const ROWS = [
   ['ghost', 'chaos', '👻', 'rare', 1, 'state', 'Стать призраком', 'Прогуляйте десять занятий.', 'Вас уже вычеркнули из списка живых.'],
   ['trespass', 'chaos', '🚪', 'rare', 1, 'ach', 'Пролезть куда нельзя', 'Проникните туда, куда вход запрещён.', 'Табличка «Посторонним вход воспрещён» плачет.'],
   ['breakForFriend', 'chaos', '🔓', 'rare', 0, 'ach', 'Нарушить ради своих', 'Нарушьте правило, чтобы помочь другому, — и помогите.', 'Устав пострадал, друг — нет.'],
-  ['rewriteRules', 'chaos', '📜', 'legendary', 1, 'ach', 'Переписать правила', 'Натворите такого, что из-за вас поменяют правила.', 'В уставе теперь есть пункт имени вас.'],
+  ['rewriteRules', 'chaos', '📜', 'legendary', 1, 'ach', 'Переписать правила', 'Натворите такого, что из-за вас поменяют правила.', 'В уставе теперь есть пункт вашего имени.'],
   ['onTheEdge', 'chaos', '⚠️', 'rare', 1, 'state', 'Поиграть с отчислением', 'Получите последнее предупреждение.', 'Вас знают в лицо там, куда лучше не попадать.'],
   ['gossip', 'fame', '🗣️', 'common', 0, 'code', 'Попасть в сплетни', 'Станьте темой разговоров в общем чате.', 'Теперь обсуждают не только меню.'],
   ['wrongRumor', 'fame', '🌀', 'rare', 0, 'ach', 'Узнать о себе новое', 'Услышьте о себе слух, который переврал всё.', 'Версия для публики, с бонусными сценами.'],
@@ -320,7 +320,7 @@ export function syncFeats(state, { src = '' } = {}) {
 }
 
 const CHECKS = {
-  jealous: (g) => `the card character openly shows jealousy of ${g('her', 'him')} in front of witnesses: gets angry, puts a rival in place, leads ${g('her', 'him')} away, makes a scene over ${g('her', 'his')} deed or someone else's attention to ${g('her', 'him')}. The jealousy is that character's reaction but ${g('her', 'his')} achievement.`,
+  jealous: (g) => `the card character openly shows jealousy of ${g('her', 'him')} in front of witnesses: gets angry, puts a rival in place, leads ${g('her', 'him')} away, makes a scene over ${g('her', 'his')} deed or someone else's attention to ${g('her', 'him')}. The jealousy must be that character's own reaction; it counts as an achievement of the player character, not of the card character.`,
   correctTeacher: (g) => `${g('she', 'he')} pointed out a teacher's mistake and in the narrator's reply the teacher admitted ${g('her', 'his')} rightness.`,
   kissTeacher: (g) => `${g('she', 'he')} kissed a teacher or the teacher kissed ${g('her', 'him')}, even on the cheek or on a dare.`,
 };

@@ -1,4 +1,6 @@
 import { PRESET_MAX_BYTES } from '../core/preset.mjs';
+import { heroWords } from '../core/gender.mjs';
+import { ROUTE_LABELS } from '../core/draw.mjs';
 import { personFromLine, personLine } from '../core/card-cast.mjs';
 import {
   fill, KEY_NOTE, PRESET_TEXT, extraLabels, uiLabels, mounted, el, clear, runAction, setStatus, section, sectionScope, sectionOpen, formatDate,
@@ -250,7 +252,9 @@ export function bullyHeatFacts(b) {
   const c = b.change;
   if (c) {
     const when = formatDate(c.day);
-    if (c.why === 'press') facts.push(`Накал вырос с ${c.from} до ${c.to} (${when}): два учебных дня давления без отступления задиры.`);
+    if (c.why === 'press' && c.from === c.to) facts.push(`Накал держится на ${c.to} (${when}): давление продолжается, выше некуда.`);
+    else if (c.why === 'truce' && c.from === c.to) facts.push(`Перемирие (${when}): накал уже на минимуме кампании.`);
+    else if (c.why === 'press') facts.push(`Накал вырос с ${c.from} до ${c.to} (${when}): два учебных дня давления без отступления задиры.`);
     else if (c.why === 'truce') facts.push(`Накал снизился с ${c.from} до ${c.to} (${when}): перемирие.`);
     else if (c.from === c.to) facts.push(`Давление сдержано (${when}); достигнут минимум этой кампании.`);
     else facts.push(`Накал снизился с ${c.from} до ${c.to} (${when}): два дня подряд задира вынужденно отступал.`);
@@ -262,6 +266,7 @@ export function bullyHeatFacts(b) {
 
 export function renderBullyingBlock(host, view) {
   const b = view.bullying;
+  const W = heroWords(safe(() => host.getHeroGender(), 'f') === 'm' ? 'm' : 'f');
   const status = el('div', { class: 'academy-status' });
   if (!b || !b.available) {
     return section('Травля на курсе', [el('p', { class: 'academy-note', text: 'Травля настраивается, когда в чате заведён семестр.' })]);
@@ -312,8 +317,8 @@ export function renderBullyingBlock(host, view) {
     },
   });
   return section('Травля на курсе', [
-    el('label', { class: 'academy-check' }, [on, el('span', { text: 'Травля героини (героя) на курсе' })]),
-    el('p', { class: 'academy-note', text: 'Зачинщик изводит героиню почти каждый учебный день — от насмешек до избиений; накал растёт, пока давление идёт без отступления задиры. Рассказчик получает попытку дня и сам выбирает форму; секретарь отмечает, что было на деле; последствия остаются в ленте, делах и хронике.' }),
+    el('label', { class: 'academy-check' }, [on, el('span', { text: `Травля ${W.heroGen} на курсе` })]),
+    el('p', { class: 'academy-note', text: `Зачинщик изводит ${W.heroAcc} почти каждый учебный день — от насмешек до избиений; накал растёт, пока давление идёт без отступления задиры. Рассказчик получает попытку дня и сам выбирает форму; секретарь отмечает, что было на деле; последствия остаются в ленте, делах и хронике.` }),
     el('p', { class: 'academy-note', text: who }),
     ...facts.map((t) => el('p', { class: 'academy-note', text: t })),
     ...(b.lead && b.help ? [el('details', { class: 'academy-note' }, [el('summary', { text: 'Как устроен накал' }), ...b.help.map((t) => el('p', { text: t }))])] : []),
@@ -321,7 +326,7 @@ export function renderBullyingBlock(host, view) {
     el('label', { class: 'academy-field' }, [el('span', { text: 'Задира' }), mode]),
     b.mode === 'self'
       ? el('p', { class: 'academy-note', text: 'Зачинщика и подпевал вы назначаете сами: в карточке человека, вкладка «Люди».' })
-      : el('p', { class: 'academy-note', text: 'Подбирает модель по мотиву и доступу к героине; друзей героини и названных ниже она не берёт. Выбор держится, пока человек на курсе.' }),
+      : el('p', { class: 'academy-note', text: `Подбирает модель по мотиву и доступу к ${W.heroDat}; друзей ${W.heroGen} и названных ниже она не берёт. Выбор держится, пока человек на курсе.` }),
     el('label', { class: 'academy-check' }, [npc, el('span', { text: 'Можно создавать своих NPC (если никто из известных не годится)' })]),
     el('label', { class: 'academy-field' }, [el('span', { text: 'Кто точно не травит' }), skip]),
     ...(b.mode === 'self' ? [] : [el('div', { class: 'academy-row academy-row-buttons' }, [again])]),
@@ -435,10 +440,17 @@ export function renderPresetBlock(host, view) {
     const id = select.value;
     const res = await runAction(button, status, () => call(host, 'deletePreset', id, { confirm }), T.deleted);
     if (res && res.needsConfirm) {
+      setStatus(status, 'ok', '');
       askConfirm(changeBox, U, {
         reasons: res.reasons || [],
         current: res.current,
         incoming: null,
+        question: {
+          title: fill(T.deleteConfirm, { name: nameOf(id) }),
+          note: (res.reasons || []).join(' '),
+          yes: T.deleteYes,
+          no: T.cancel,
+        },
         onYes: (btn) => remove(btn, true),
         onNo: () => setStatus(status, 'ok', U.importCancelled),
       });
@@ -585,8 +597,8 @@ function renderPresetImport(host, U, status, confirmBox, scope) {
         : null,
       res.full ? el('p', { class: 'academy-warn', text: fill(T.full, { max: res.max || 20 }) }) : null,
       el('div', { class: 'academy-row academy-row-buttons' }, [
-        el('div', { class: 'menu_button academy-btn academy-btn-main', text: T.addApply, onclick: (e) => add(e.currentTarget, text, true) }),
-        el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.add, onclick: (e) => add(e.currentTarget, text, false) }),
+        res.full ? null : el('div', { class: 'menu_button academy-btn academy-btn-main', text: T.addApply, onclick: (e) => add(e.currentTarget, text, true) }),
+        res.full ? null : el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.add, onclick: (e) => add(e.currentTarget, text, false) }),
         el('div', { class: 'menu_button academy-btn academy-btn-small', text: T.cancel, onclick: () => { reset(); setStatus(status, 'ok', T.cancelled); } }),
       ]),
     ].filter(Boolean));
@@ -761,6 +773,7 @@ export function renderTransferBlock(host, view) {
   const load = async (text, button, confirm) => {
     const res = await runAction(button, status, () => call(host, 'importState', text, { confirm }), U.importOk);
     if (res && res.needsConfirm) {
+      setStatus(status, 'ok', '');
       askConfirm(confirmBox, U, {
         reasons: res.reasons || [],
         current: res.current,
@@ -850,7 +863,7 @@ function askConfirm(box, U, { reasons, current, incoming, onYes, onNo, onView = 
   }
   const yes = el('div', {
     class: 'menu_button academy-btn academy-btn-main',
-    text: question ? PRESET_TEXT.switchYes : U.importConfirmYes,
+    text: question ? (question.yes || PRESET_TEXT.switchYes) : U.importConfirmYes,
     tabindex: '0',
     role: 'button',
     onclick: (e) => { box.hidden = true; onYes(e.currentTarget); },
@@ -868,7 +881,7 @@ function askConfirm(box, U, { reasons, current, incoming, onYes, onNo, onView = 
     }) : null,
     el('div', {
       class: 'menu_button academy-btn academy-btn-small',
-      text: question ? PRESET_TEXT.switchNo : U.importConfirmNo,
+      text: question ? (question.no || PRESET_TEXT.switchNo) : U.importConfirmNo,
       onclick: () => { box.hidden = true; onNo(); },
     }),
   ]));
@@ -1082,11 +1095,15 @@ export function renderDrawBlock(host, preset, settings) {
     return section(X.drawSection, [
       el('p', { class: 'academy-note academy-draw-none', text: info.hint || X.drawNoRoute }),
       el('p', { class: 'academy-note', text: X.drawKeysNote }),
+      ...(info.custom ? renderCustomFields(host, X, info.custom, select) : []),
     ]);
   }
-  const custom = info.route === 'custom' && info.custom ? info.custom : null;
+  const wantsCustom = info.route === 'custom' || info.wanted === 'custom';
+  const custom = wantsCustom && info.custom ? info.custom : null;
+  const routes = info.available.some((r) => r.id === 'custom') ? info.available
+    : [...info.available, { id: 'custom', label: ROUTE_LABELS.custom }];
   const children = [
-    select(X.drawRouteField, info.available, info.route,
+    select(X.drawRouteField, routes, wantsCustom ? 'custom' : info.route,
       (v) => safe(() => host.setSettings({ draw: { route: v } }), null), 'academy-draw-route'),
   ];
   if (custom) {

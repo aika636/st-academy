@@ -63,7 +63,7 @@ export function classmateStart(preset) {
 }
 
 export const TO_HERO = ['близкий', 'друг', 'влюблён', 'нейтрально', 'недолюбливает', 'враг', 'задира'];
-const TO_HERO_WORDS = [[/^(?:близк|close|family|семь)/, 'близкий'], [/^(?:друг|подруг|friend)\w{0,2}$/, 'друг'], [/^(?:влюбл|love|crush)/, 'влюблён'],
+const TO_HERO_WORDS = [[/^(?:близк|close|family|семь)/, 'близкий'], [/^(?:друг(?:а|у|и|ом|е|ов|ам)?|подруг(?:а|у|и|ой|е|ам)?|друзь(?:я|ям|ей|ями|ях)|friend\w{0,2})$/, 'друг'], [/^(?:влюбл|love|crush)/, 'влюблён'],
   [/^(?:нейтр|neutral)/, 'нейтрально'], [/^(?:недолюб|dislike)/, 'недолюбливает'], [/^(?:враг|enemy)/, 'враг'], [/^(?:задир|bully)/, 'задира']];
 
 export function normalizeToHero(raw) {
@@ -423,6 +423,16 @@ export function removeClassmate(state, id) {
   const [removed] = list.splice(i, 1);
   for (const c of list) if (c.tie && c.tie.to === id) delete c.tie;
   if (state.relStreak && typeof state.relStreak === 'object') delete state.relStreak[id];
+  const inv = state.invites;
+  if (inv && typeof inv === 'object') {
+    if (inv.pending && inv.pending.personId === id) inv.pending = null;
+    for (const key of ['going', 'asked', 'done']) if (Array.isArray(inv[key])) inv[key] = inv[key].filter((x) => !x || x.withId !== id);
+  }
+  const bul = state.bullying;
+  if (bul && typeof bul === 'object') {
+    if (bul.ally === id) bul.ally = '';
+    if (bul.pending && Array.isArray(bul.pending.crew)) bul.pending.crew = bul.pending.crew.filter((x) => x !== id);
+  }
   return { ok: true, removed };
 }
 
@@ -463,7 +473,7 @@ export function confirmCandidate(state, id, preset, opts = {}) {
   const [cand] = list.splice(i, 1);
   const { id: _drop, ...fields } = cand;
   const res = addClassmate(state, { ...fields, locked: false }, preset, { stop: opts.stop });
-  if (!res.ok) return null;
+  if (!res.ok) { list.splice(i, 0, cand); return null; }
   return state.classmates.find((c) => c.id === res.id) || null;
 }
 

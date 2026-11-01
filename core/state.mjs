@@ -80,6 +80,7 @@ export function defaultStartDay(preset, today = new Date(), year) {
 }
 
 export function normalizeSubject(raw) {
+  raw = raw && typeof raw === 'object' ? raw : {};
   return {
     id: String(raw.id || '').trim(),
     name: String(raw.name || raw.id || '').trim(),
@@ -89,7 +90,7 @@ export function normalizeSubject(raw) {
       ? { examKinds: raw.examKinds.map(String) }
       : {}),
     grades: Array.isArray(raw.grades)
-      ? raw.grades.map((g) => ({
+      ? raw.grades.filter((g) => g && typeof g === 'object').map((g) => ({
         value: String(g.value),
         day: String(g.day || ''),
         ...(g.bg ? { bg: true } : {}),
@@ -319,6 +320,7 @@ export function normalizeLoreSkipped(raw) {
 export { PORTRAIT_MAX, isPortrait, normalizePortrait } from './portraits.mjs';
 
 export function normalizeTeacher(raw, preset) {
+  raw = raw && typeof raw === 'object' ? raw : {};
   const start = preset && preset.relations ? preset.relations.start : 0;
   return {
     id: String(raw.id || '').trim(),
@@ -480,8 +482,8 @@ export function migrate(state, preset) {
   out.canonVocab = cleanCanonVocab(out.canonVocab);
   out.canonLayer = cleanCanonLayer(out.canonLayer);
   out.calendar = { ...createState(preset).calendar, ...(out.calendar || {}) };
-  out.subjects = Array.isArray(out.subjects) ? out.subjects.map(normalizeSubject) : [];
-  out.teachers = Array.isArray(out.teachers) ? out.teachers.map((t) => normalizeTeacher(t, preset)) : [];
+  out.subjects = Array.isArray(out.subjects) ? out.subjects.filter((x) => x && typeof x === 'object').map(normalizeSubject) : [];
+  out.teachers = Array.isArray(out.teachers) ? out.teachers.filter((x) => x && typeof x === 'object').map((t) => normalizeTeacher(t, preset)) : [];
   out.schedule = out.schedule && typeof out.schedule === 'object' ? out.schedule : {};
   out.attendance = { records: Array.isArray(out.attendance && out.attendance.records) ? out.attendance.records : [] };
   out.reputation = {
@@ -612,8 +614,16 @@ export function joinSentences(parts) {
 
 export const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
-export const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
-export const isTime = (v) => typeof v === 'string' && /^\d{2}:\d{2}$/.test(v);
+export const isDay = (v) => {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const y = Number(v.slice(0, 4));
+  const m = Number(v.slice(5, 7));
+  const d = Number(v.slice(8, 10));
+  if (m < 1 || m > 12 || d < 1) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  return d <= (m === 2 ? (leap ? 29 : 28) : [4, 6, 9, 11].includes(m) ? 30 : 31);
+};
+export const isTime = (v) => typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
 function numberOr(v, fallback) {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;

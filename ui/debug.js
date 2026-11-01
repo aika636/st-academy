@@ -4,6 +4,9 @@ import { DOCTOR_TEXT } from './doctor.js';
 
 export const DEBUG_JOURNAL = 12;
 
+const RUN_SOURCE = { received: 'ответ', analysis: 'разбор', manual: 'вручную', swipe: 'свайп', edited: 'правка' };
+const RUN_MODE = { auto: 'авто', context: 'из контекста', marker: 'своя метка' };
+
 export const DEBUG_TEXT = {
   section: 'Отладка',
   toggle: 'Режим отладки: разбор последнего ответа отдельной вкладкой',
@@ -28,8 +31,8 @@ export const DEBUG_TEXT = {
   divergenceTitle: 'Расхождения с моделью',
   divergence: '{subject}: посчитано {computed}, модель написала {said}.',
   divergenceUnread: '{subject}: модель написала {said}, разобрать не удалось — посчитанное осталось.',
-  divergenceDice: '{subject}: посчитано {computed}, кубик соседа решил {said}.',
-  divergenceDiceUnread: '{subject}: кубик соседа дал {said}, в шкалу не легло — посчитанное осталось.',
+  divergenceDice: '{subject}: посчитано {computed}, кубик из чата решил {said}.',
+  divergenceDiceUnread: '{subject}: кубик из чата дал {said}, в шкалу не легло — посчитанное осталось.',
   noDivergence: 'Расхождений посчитанного с версией модели не было.',
   molvaTitle: 'Последний выпуск слухов',
   molvaHead: 'Строк нужного вида в ответе: {rows}; легло постов {posts}, ответов {replies}{tail}.',
@@ -82,7 +85,7 @@ export function debugView(run, state, preset, settings) {
     enabled: true,
     hasRun: true,
     noRun: '',
-    head: fill(T.head, { mesId: run.mesId, source: run.source || 'received', mode: d.mode || '—' }),
+    head: fill(T.head, { mesId: run.mesId, source: RUN_SOURCE[run.source || 'received'] || run.source, mode: RUN_MODE[d.mode] || d.mode || '—' }),
     source: d.source
       ? fill(T.sourceOn, { source: SOURCE_LABEL[d.source] || d.source, moved: d.moved ? T.moved : T.notMoved })
       : fill(T.sourceOff, { moved: d.moved ? T.moved : T.notMoved }),
@@ -146,7 +149,7 @@ export function describeApplied(item, vocab, ctx = {}) {
       const head = `контрольное: ${item.subjectId || ''} — ${item.value || item.outcome || ''}`.trim();
       const later = item.announceOn ? `; объявят ${item.announceOn}` : '';
       const ext = item.external && typeof item.external === 'object'
-        ? `; кубик соседа: ${TIER_TEXT[item.external.tier] || item.external.tier || '?'}`
+        ? `; кубик из чата: ${TIER_TEXT[item.external.tier] || item.external.tier || '?'}`
           + `${Number.isFinite(item.external.roll) ? ` ${item.external.roll}` : ''}`
           + `${Number.isFinite(item.external.dc) ? ` из ${item.external.dc}` : ''}`
           + `${item.external.value ? ` → ${item.external.value}` : ''}`
@@ -176,7 +179,7 @@ export function describeApplied(item, vocab, ctx = {}) {
     case 'phone-turn': return 'ход в телефоне: сцена на паузе, прогулы не выводятся';
     case 'time-dropped': return `время из метки не проведено (${item.reason === 'phone-turn' ? 'ход в телефоне' : item.reason})`;
     case 'daypart': return `время суток: ${item.daypart}`;
-    case 'time-held': return `прыжок придержан до решения: ${item.day}${item.jump ? ` (${item.jump > 0 ? '+' : ''}${item.jump} дн.)` : ''}${item.via ? ` (${item.via})` : ''}`;
+    case 'time-held': return `скачок придержан до решения: ${item.day}${item.jump ? ` (${item.jump > 0 ? '+' : ''}${item.jump} дн.)` : ''}${item.via ? ` (${item.via})` : ''}`;
     case 'exams-dated': return `назначено по календарю: ${item.added} — ${item.day}`;
     case 'event': return `в планы: ${item.name} — ${item.from}`;
     case 'event-known': return `уже в планах: ${item.name}`;

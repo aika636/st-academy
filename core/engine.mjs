@@ -90,7 +90,7 @@ function timeSkipOf(state, preset, cue) {
   const days = cue && typeof cue === 'object' && Number.isFinite(cue.days) ? cue.days : null;
   let cap = timeSkipCap(preset, days);
   const exam = examAhead(state, preset, cap);
-  if (exam) cap = Math.max(jumpCapOf(preset), Math.min(cap, exam.days));
+  if (exam) cap = Math.max(jumpCapOf(preset), Math.min(cap, exam.days - 1));
   return {
     days,
     cap,
@@ -192,11 +192,15 @@ export function applyResponse(state, text, preset, opts = {}) {
       examDay: skip.exam ? skip.exam.day : null,
     });
   }
-  const fromDay = s.calendar.day;
-  const fromPos = posOf(s, preset);
+  let fromDay = s.calendar.day;
+  let fromPos = posOf(s, preset);
   const fromTime = s.calendar.precision === 'datetime' ? s.calendar.time : null;
   const moveRes = applyTime(s, src, parsed, mode, preset, { ...opts, skip, phoneTurn: Boolean(opts.phoneTurn) });
   s = moveRes.state;
+  if (moveRes.rebased) {
+    fromDay = s.calendar.day;
+    fromPos = posOf(s, preset);
+  }
   out.notes.push(...moveRes.notes);
   out.debug.source = moveRes.source;
   out.debug.via = moveRes.via;
@@ -521,8 +525,8 @@ export function manualTime(state, { day, time, shift, count = false } = {}, pres
   let s = cloneState(state);
   const reasons = [];
   let applied = false;
-  const fromDay = s.calendar.day;
-  const fromPos = posOf(s, preset);
+  let fromDay = s.calendar.day;
+  let fromPos = posOf(s, preset);
   let unit = null;
 
   if (day !== undefined || time !== undefined) {
@@ -534,6 +538,10 @@ export function manualTime(state, { day, time, shift, count = false } = {}, pres
     reasons.push(r.reason);
     applied = applied || r.applied;
     if (r.applied) unit = 'absolute';
+    if (r.rebased) {
+      fromDay = s.calendar.day;
+      fromPos = posOf(s, preset);
+    }
   }
 
   if (shift !== undefined && shift !== null) {
@@ -731,6 +739,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
   let unit = null;
   let source = null;
   let via = null;
+  let rebased = false;
 
   const read = readTime(text, {
     mode,
@@ -777,6 +786,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
     if (r.applied) {
       moved = true;
       unit = 'absolute';
+      if (r.rebased) rebased = true;
       applied.push({ kind: 'time', source: who, via, day: hit.day, time: hit.time, matched: hit.matched });
     } else {
       notes.push(r.reason);
@@ -827,7 +837,7 @@ function applyTime(state, text, parsed, mode, preset, opts) {
     s.calendar.heldJump = null;
     if (!(s.calendar.dismissedJump && s.calendar.dismissedJump.era)) delete s.calendar.dismissedJump;
   }
-  return { state: s, moved, unit, source, via, notes, applied, held };
+  return { state: s, moved, unit, source, via, notes, applied, held, rebased };
 }
 
 export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}) {
@@ -862,7 +872,11 @@ export function sweepAttendance(state, fromDay, fromPos, unit, preset, opts = {}
       s = present(s, fromDay, fromPos, posOf(s, preset));
       return { state: s, missed, effects, summary: null, counted: presentCount };
     }
+    if (s.calendar.day < fromDay) return { state: s, missed, effects, summary: null, counted: presentCount };
     s = present(s, fromDay, fromPos, Infinity);
+    for (let day = addDays(fromDay, 1); day < s.calendar.day; day = addDays(day, 1)) {
+      if (isStudyDay(preset, day, s)) s = present(s, day, 0, Infinity);
+    }
     s = present(s, s.calendar.day, 0, posOf(s, preset));
     return { state: s, missed, effects, summary: null, counted: presentCount };
   }

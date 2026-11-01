@@ -160,7 +160,7 @@ export async function timeText(host, args = {}) {
       '  time=10:30 — поставить это время',
       '  days=1 — сдвинуть на столько дней (назад — со знаком минус)',
       `  periods=-2 — ${U.cmdShiftPeriods}`,
-      `  count=yes — ${U.cmdCountArg || 'зачесть пропущенное прогулами'}`,
+      `  count=yes — ${U.cmdCountArg || 'записать пропущенные занятия посещёнными'}`,
     ]);
   }
 
@@ -236,14 +236,14 @@ const yes = (v) => ['yes', 'y', 'true', '1', 'да'].includes(str(v).toLowerCase
 function num(v) {
   const s = str(v);
   if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
+  return /^[+-]?\d+$/.test(s) ? Number(s) : null;
 }
 
 function liveWords(cmd, words, labels) {
   const bind = (target, field, key) => {
     try {
-      Object.defineProperty(target, field, { configurable: true, enumerable: true, get: () => labels()[key] });
+      const kept = target[field];
+      Object.defineProperty(target, field, { configurable: true, enumerable: true, get: () => labels()[key] ?? kept });
     } catch {}
   };
   for (const [name, key] of Object.entries(words)) {
@@ -298,7 +298,7 @@ export function registerCommands(host, context) {
         named('time', 'абсолютное время, ЧЧ:ММ', [T.STRING]),
         named('days', 'сдвиг в днях, можно отрицательный', [T.NUMBER]),
         named('periods', U.cmdShiftPeriods, [T.NUMBER]),
-        named('count', U.cmdCountArg, [T.STRING]),
+        named('count', U.cmdCountArg || 'записать пропущенные занятия посещёнными', [T.STRING]),
         quiet(),
       ].filter(Boolean),
       callback: guard('academy-time', (args) => timeText(host, args), c, '/academy-time'),

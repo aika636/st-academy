@@ -47,9 +47,9 @@ export const DEFAULT_PREP_PHRASES = {
 };
 
 const TRAITS = {
-  perform: /сцен|пет[ьь]|пою|поёт|танц|выступ|концерт|театр|музык|stage|sing|danc|perform|music|theat/iu,
-  company: /одинок|пар[аую](?![а-яё])|любов|влюб|свидан|романт|lonely|love|crush|date|partner|romanc/iu,
-  obtain: /деньг|долг|купит|достат|money|debt|afford|borrow/iu,
+  perform: /сцен|(?<![а-яё])петь|пою|поёт|танц|выступ|концерт|театр|музык|stage|sing|danc|perform|music|theat/iu,
+  company: /одинок|(?<![а-яё])пар[аую](?![а-яё])|любов|влюб|свидан|романт|lonely|love|crush|date|partner|romanc/iu,
+  obtain: /деньг|долг(?!о(?![вм]))|купит|достат|money|debt|afford|borrow/iu,
   avoid: /стесн|застенч|тревож|толп|shy|anxious|crowd|avoid/iu,
   recruit: /клуб|кружок|команд|староста|председ|организ|club|team|captain|organi[sz]/iu,
   help: /не успева|не справ|помо|behind|overwhelm|help/iu,

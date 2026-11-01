@@ -542,14 +542,15 @@ export function jumpSummary(U, days, counted) {
   if (!counted) return fill(U.jumpAcceptedNone, { days, plural: dayWord });
   const forms = (str) => String(str || '').split('|');
   const [u1, u2, u5] = forms(U.jumpUnits);
-  const [d1, d2] = forms(U.jumpDone);
+  const [d1, d2, d5] = forms(U.jumpDone);
   const one = counted % 10 === 1 && counted % 100 !== 11;
+  const few = counted % 10 >= 2 && counted % 10 <= 4 && (counted % 100 < 12 || counted % 100 > 14);
   return fill(U.jumpAcceptedMissed, {
     days,
     plural: dayWord,
     count: counted,
     unit: plural(counted, u1, u2 || u1, u5 || u2 || u1),
-    done: one ? d1 : (d2 || d1),
+    done: one ? d1 : few ? (d2 || d1) : (d5 || d2 || d1),
   });
 }
 
@@ -648,7 +649,10 @@ function manualTimeBlock(host, view, U) {
         el('div', {
           class: 'menu_button academy-btn',
           text: 'Применить',
-          onclick: (e) => send({ day: day.value || null, time: time.value || null }, e.currentTarget),
+          onclick: (e) => {
+            if (!day.value && !time.value) return;
+            send({ day: day.value || null, time: time.value || null }, e.currentTarget);
+          },
         }),
         el('div', {
           class: 'menu_button academy-btn',

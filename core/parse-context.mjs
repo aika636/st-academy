@@ -25,18 +25,18 @@ const NOTL = `(?<![${L}])`;
 const ENDL = `(?![${L}])`;
 
 const MONTHS = [
-  { n: 1, re: 'январ[ьяем]|янв' },
-  { n: 2, re: 'феврал[ьяем]|фев' },
+  { n: 1, re: 'январ(?:ь|я|е|ю|ём|ем)|янв' },
+  { n: 2, re: 'феврал(?:ь|я|е|ю|ём|ем)|фев' },
   { n: 3, re: 'март[аеу]|март|мар' },
-  { n: 4, re: 'апрел[ьяем]|апр' },
+  { n: 4, re: 'апрел(?:ь|я|е|ю|ём|ем)|апр' },
   { n: 5, re: 'ма[йяею]' },
-  { n: 6, re: 'июн[ьяем]|июн' },
-  { n: 7, re: 'июл[ьяем]|июл' },
+  { n: 6, re: 'июн(?:ь|я|е|ю|ём|ем)|июн' },
+  { n: 7, re: 'июл(?:ь|я|е|ю|ём|ем)|июл' },
   { n: 8, re: 'август[аеу]|август|авг' },
-  { n: 9, re: 'сентябр[ьяем]|сент|сен' },
-  { n: 10, re: 'октябр[ьяем]|окт' },
-  { n: 11, re: 'ноябр[ьяем]|ноя' },
-  { n: 12, re: 'декабр[ьяем]|дек' },
+  { n: 9, re: 'сентябр(?:ь|я|е|ю|ём|ем)|сент|сен' },
+  { n: 10, re: 'октябр(?:ь|я|е|ю|ём|ем)|окт' },
+  { n: 11, re: 'ноябр(?:ь|я|е|ю|ём|ем)|ноя' },
+  { n: 12, re: 'декабр(?:ь|я|е|ю|ём|ем)|дек' },
   { n: 1, re: 'january|jan' },
   { n: 2, re: 'february|feb' },
   { n: 3, re: 'march|mar' },
@@ -60,13 +60,13 @@ function monthNumber(word) {
 }
 
 const WDAY_WORDS = [
-  { n: 1, re: 'понедельник[аму]?|monday' },
-  { n: 2, re: 'вторник[аму]?|tuesday' },
-  { n: 3, re: 'сред[аыеу]|wednesday' },
-  { n: 4, re: 'четверг[аому]?|thursday' },
-  { n: 5, re: 'пятниц[аыеу]|friday' },
-  { n: 6, re: 'суббот[аыеу]|saturday' },
-  { n: 7, re: 'воскресень[еяю]|sunday' },
+  { n: 1, re: 'понедельник(?:а|у|ом|е)?|monday' },
+  { n: 2, re: 'вторник(?:а|у|ом|е)?|tuesday' },
+  { n: 3, re: 'сред(?:а|ы|е|у|ой)|wednesday' },
+  { n: 4, re: 'четверг(?:а|у|ом|е)?|thursday' },
+  { n: 5, re: 'пятниц(?:а|ы|е|у|ей)|friday' },
+  { n: 6, re: 'суббот(?:а|ы|е|у|ой)|saturday' },
+  { n: 7, re: 'воскресень(?:е|я|ю|ем)|sunday' },
 ];
 const WDAY_WORD_RE = new RegExp(
   `${NOTL}(${WDAY_WORDS.map((w) => w.re).join('|')})${ENDL}`, 'iu',
@@ -104,22 +104,25 @@ const LABEL_RE = new RegExp(
 const CLOCK_RE = new RegExp(`(?<![\\d${L}.:])([01]?\\d|2[0-3]):([0-5]\\d)(?!\\d|:\\d|\\.\\d)`, 'u');
 const AMPM_RE = /(?<![\d:.])(\d{1,2})(?::([0-5]\d))?\s?([ap])\.?\s?m\.?(?![a-z])/i;
 
-const DATE_YMD_RE = /(?<![\d.,:/-])(\d{4})([./-])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01])(?![\d./-])/;
-const DATE_NUM_RE = /(?<![\d.,:/])(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](\d{4}|\d{3}|\d{2})(?![\d.])/;
-const DATE_SHORT_RE = /(?<![\d.,:/])(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])(?![\d./])/;
+const DATE_YMD_RE = /(?<![\d.,:/-])(\d{4})([./-])(0?[1-9]|1[0-2])\2(0?[1-9]|[12]\d|3[01])(?!\d|[./-]\d)/;
+const DATE_NUM_RE = /(?<![\d.,:/])(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](\d{4}|\d{3}|\d{2})(?!\d|\.\d)/;
+const DATE_SHORT_RE = /(?<![\d.,:/])(0?[1-9]|[12]\d|3[01])\.(0?[1-9]|1[0-2])(?!\d|[./]\d)/;
 const DATE_DMY_RE = new RegExp(
-  `${NOTL}(\\d{1,2})\\s+(${MONTH_ALT})\\.?${ENDL}(?:\\s*,?\\s*(\\d{4}))?`, 'iu',
+  `${NOTL}(?<!\\d)(\\d{1,2})\\s+(${MONTH_ALT})\\.?${ENDL}(?:\\s*,?\\s*(\\d{4}))?`, 'iu',
 );
 const DATE_MDY_RE = new RegExp(
-  `${NOTL}(${MONTH_ALT})\\.?${ENDL}\\s+(\\d{1,2})(?:\\s*,?\\s*(\\d{4}))?`, 'iu',
+  `${NOTL}(${MONTH_ALT})\\.?${ENDL}\\s+(\\d{1,2})(?!\\d)(?:\\s*,?\\s*(\\d{4}))?`, 'iu',
 );
 
-const DAYNUM_RE = new RegExp(`${NOTL}(?:день|day|сутки)\\s*[№#]?\\s*(\\d{1,3})(?![\\d:.])`, 'iu');
+const DAYNUM_RE = new RegExp(`${NOTL}(?:день|day|сутки)\\s*[№#]?\\s*(\\d{1,3})(?!\\d|[:.]\\d)`, 'iu');
 
 const NUMWORDS = new Map(Object.entries({
   'один': 1, 'одну': 1, 'одного': 1, 'два': 2, 'две': 2, 'двух': 2, 'пару': 2,
   'три': 3, 'трёх': 3, 'трех': 3, 'четыре': 4, 'пять': 5, 'шесть': 6,
   'семь': 7, 'восемь': 8, 'девять': 9, 'десять': 10, 'несколько': 2, 'нескольких': 2,
+  'одиннадцать': 11, 'двенадцать': 12, 'тринадцать': 13, 'четырнадцать': 14, 'пятнадцать': 15,
+  'шестнадцать': 16, 'семнадцать': 17, 'восемнадцать': 18, 'девятнадцать': 19, 'двадцать': 20,
+  'тридцать': 30, 'сорок': 40, 'пятьдесят': 50, 'шестьдесят': 60,
 }));
 
 const REL_UNITS = [
@@ -161,7 +164,7 @@ function relUnit(word) {
 function relCount(word) {
   if (!word) return 1;
   if (/^\d+$/.test(word)) return Number(word);
-  return NUMWORDS.get(word.toLowerCase()) ?? 1;
+  return NUMWORDS.get(word.toLowerCase()) ?? null;
 }
 
 export function resolveTwoDigitYear(yy, ref) {
@@ -223,7 +226,7 @@ export function parseContext(text, opts = {}) {
         const m = line.match(rule.re);
         if (!m) continue;
         const rel = rule.take(m);
-        if (!rel.unit) continue;
+        if (!rel.unit || !rel.n) continue;
         return {
           day: null, time: null, daypart: null, weekday: null,
           confidence: 0.2, source: 'relative', matched: m[0], dateParts: null,
@@ -256,8 +259,8 @@ function scanTime(line) {
   if (m) {
     let h = Number(m[1]);
     const tail = line.slice(m.index + m[0].length, m.index + m[0].length + 5);
-    const ap = tail.match(/^\s?([ap])\.?\s?m\.?/i);
-    if (ap) h = to24(h, ap[1]);
+    const ap = tail.match(/^\s?([ap])\.?\s?m(?![a-z])\.?/i);
+    if (ap && h <= 12) h = to24(h, ap[1]);
     return hhmm(h, Number(m[2]));
   }
   const a = line.match(AMPM_RE);

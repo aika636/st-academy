@@ -224,6 +224,8 @@ function panelApi(host) {
       if (mounted.panel) mounted.panel.remove();
       if (mounted.button) mounted.button.remove();
       if (mounted.spreadObserver) mounted.spreadObserver.disconnect();
+      if (mounted.outsideClose) document.removeEventListener('pointerdown', mounted.outsideClose);
+      mounted.outsideClose = null;
       mounted.spreadObserver = null;
       mounted.spread = false;
       mounted.panel = null;
@@ -297,6 +299,7 @@ function closePanel() {
 export function renderPanel(host) {
   const h = host || mounted.host;
   if (!mounted.panel || !h) return;
+  setSectionScope('panel');
 
   const preset = safe(() => h.getPreset(), null) || {};
   const settings = safe(() => h.getSettings(), null) || {};
@@ -582,7 +585,7 @@ function dragBy(handle, target, host, kind, onTap) {
       const patch = kind === 'button'
         ? { ui: { buttonX: Math.round(rect.left), buttonY: Math.round(rect.top) } }
         : { ui: { panelX: Math.round(rect.left), panelY: Math.round(rect.top) } };
-      safe(() => host.setSettings(patch), null);
+      safe(() => host.setSettings(patch, { quiet: true }), null);
     } else if (typeof onTap === 'function') {
       onTap();
     }
@@ -654,13 +657,15 @@ function swipeToClose(panel) {
 }
 
 function outsideToClose(panel) {
-  document.addEventListener('pointerdown', (e) => {
+  if (mounted.outsideClose) document.removeEventListener('pointerdown', mounted.outsideClose);
+  mounted.outsideClose = (e) => {
     if (!panel.classList.contains('academy-open')) return;
     if (panel.contains(e.target)) return;
     if (mounted.button && mounted.button.contains(e.target)) return;
     if (e.target && (e.target.isConnected === false || (e.target.closest && e.target.closest('dialog, .popup, #toast-container, .academy-portrait-overlay, .academy-hint-pop')))) return;
     closePanel();
-  });
+  };
+  document.addEventListener('pointerdown', mounted.outsideClose);
 }
 
 export function mountSettings(host) {
@@ -690,6 +695,10 @@ export function mountSettings(host) {
 function renderSettingsBlock(host) {
   if (!mounted.settings) return;
   setSectionScope('drawer');
+  try { drawSettingsBlock(host); } finally { setSectionScope('panel'); }
+}
+
+function drawSettingsBlock(host) {
   const content = clear(mounted.settings.querySelector('.inline-drawer-content'));
   const state = safe(() => host.getState(), null);
   const preset = safe(() => host.getPreset(), {}) || {};

@@ -9,6 +9,7 @@ import {
   uiLabels, fill, stateHealth, formatDate, formatDateOn, termTitle, formatScore, capNumbers, capitalize, plural,
   extraLabels, el, renderEmpty, svgIcon, mounted,
 } from './common.js';
+import { subjectWord, upFirst } from '../core/words.mjs';
 import { milestonesView } from './achievements.js';
 import { relationScore } from './people.js';
 
@@ -96,7 +97,7 @@ export function gradebookView(state, preset) {
     seal: preset.displayName || '',
     strip: raw.filter((n) => n.key === 'debts' || n.key === 'exams').map((n) => n.text),
     legend,
-    legendTitle: `Шкала: ${vocab.score || 'оценки'}`,
+    legendTitle: extraLabels(preset).gradeLegend,
     badMarks,
     marginDate: marginDateOf(state),
     debts: tails,
@@ -239,7 +240,7 @@ export function renderGradebook(host, view, preset) {
   else {
     if (noGradesAtAll) body.push(el('div', { class: 'ad-silent', text: U.noGradesAll }));
     body.push(el('div', { class: 'ad-gr' }, [
-      el('div', { class: 'ad-gr-head', 'aria-hidden': 'true' }, [el('span', { text: 'Дисциплина' }), el('span', { text: 'Отметка' })]),
+      el('div', { class: 'ad-gr-head', 'aria-hidden': 'true' }, [el('span', { text: upFirst(subjectWord(preset)) }), el('span', { text: X.gradeColumn })]),
       ...rows.map((s) => subjectRow(s, U, X, noGradesAtAll)),
     ]));
     if (folded.size) {

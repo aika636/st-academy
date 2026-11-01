@@ -2,7 +2,7 @@ import { heroWords, presetGender } from './gender.mjs';
 import {
   cloneState, pushJournal, pushPending, findSubject, teacherOfSubject, clamp, isDay,
 } from './state.mjs';
-import { addDays, diffDays, mondayOf, termAt, termsOf, phaseOf, dayOfWeek } from './time.mjs';
+import { addDays, diffDays, mondayOf, termAt, termsOf, phaseOf, weekdayIn } from './time.mjs';
 import { addGrade, subjectScore, stampDebt, debtReasons, DEBT_EXAM, DEBT_MISSED, DEBT_RETAKE, DEBT_SKIPS, DEBT_GRADE } from './gradebook.mjs';
 
 export const DEFAULTS = {
@@ -21,12 +21,12 @@ export const DEFAULT_PHRASES = {
   exhausted: 'Already happened: {subject} — {value} ({teacher}). Attempts exhausted, the debt remains. Play it as past.',
   permissionAuto: '{examPeriod}: {subject} — average grade {score}, {auto} is possible. Do not play out a failure from nowhere.',
   permissionNoAuto: '{examPeriod}: {subject} — average grade {score}, {auto} is not possible; {teacher} examines as usual. Do not play out a brilliant pass without a trial.',
-  permissionRisk: '{examPeriod}: {subject} — average grade {score}, the pass is in doubt; {teacher} may send to retake. Do not play out a success, the system decides it.',
+  permissionRisk: '{examPeriod}: {subject} — average grade {score}, the pass is in doubt; {teacher} may assign a retake. Do not play out a success, the system decides it.',
   divergence: 'Расхождение по {subject}: посчитано {computed}, отыграно {said}. Принята версия модели.',
   scheduled: '{examPeriod}: назначено {count}.',
   scheduledKind: '{kind}: назначено {count}.',
-  missed: '{examPeriod} закончена: {subject} — не сдано, {debt} остаётся.',
-  tail: '{examPeriod} закончена: {subject} — не сдано, {debt}; {due}.',
+  missed: '{examPeriod} позади: {subject} — не сдано, {debt} остаётся.',
+  tail: '{examPeriod} позади: {subject} — не сдано, {debt}; {due}.',
   debtSkips: 'прогулы',
   debtGrade: 'оценка ниже проходной',
   debtExam: 'попытки исчерпаны',
@@ -421,22 +421,6 @@ function daysLeftOf(state, preset) {
   return left < 0 ? null : left;
 }
 
-export function normalizeScore(preset, score) {
-  const points = (gradesOf(preset).values || []).filter(isPointScale).map((v) => v.points);
-  if (points.length < 2) return clamp(numberOr(score, 0), 0, 1);
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  return clamp((numberOr(score, min) - min) / (max - min), 0, 1);
-}
-
-export function normalizeRelation(preset, relation) {
-  const r = (preset && preset.relations) || {};
-  const min = numberOr(r.min, 0);
-  const max = numberOr(r.max, 0);
-  if (max <= min) return clamp(numberOr(relation, 0), 0, 1);
-  return clamp((numberOr(relation, numberOr(r.start, min)) - min) / (max - min), 0, 1);
-}
-
 export function dcParams(preset) {
   const own = (examsOf(preset).dc && typeof examsOf(preset).dc === 'object') ? examsOf(preset).dc : {};
   const pick = (key, min = 0) => {
@@ -585,7 +569,7 @@ export function applyOutcome(state, { examId, value, day, reason, check }, prese
   item.outcome = String(value);
   item.attempts = numberOr(item.attempts, 0) + 1;
   if (when) item.day = when;
-  const announceOn = reason === 'auto' ? null : announceDay(preset, item.kind, when);
+  const announceOn = reason === 'auto' ? null : announceDay(preset, item.kind, when, next);
   delete item.announced;
   delete item.announceOn;
   if (announceOn) {
@@ -682,13 +666,13 @@ export function announceRule(preset, kindId) {
   return null;
 }
 
-export function announceDay(preset, kindId, day) {
+export function announceDay(preset, kindId, day, state = null) {
   const rule = announceRule(preset, kindId);
   if (!rule || !isDay(day)) return null;
   if (rule.weekday) {
     for (let k = 1; k <= 7; k += 1) {
       const d = addDays(day, k);
-      if (dayOfWeek(d) === rule.weekday) return d;
+      if (weekdayIn(state, d) === rule.weekday) return d;
     }
     return null;
   }
@@ -699,7 +683,7 @@ export function announceDay(preset, kindId, day) {
   let d = day;
   for (let guard = 0; left > 0 && guard < MAX_ANNOUNCE_DAYS * 7; guard += 1) {
     d = addDays(d, 1);
-    if (study.includes(dayOfWeek(d))) left -= 1;
+    if (study.includes(weekdayIn(state, d))) left -= 1;
   }
   return left > 0 ? addDays(day, rule.studyDays) : d;
 }

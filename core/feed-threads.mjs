@@ -186,7 +186,7 @@ function clip(s, max) {
 function eventEnd(holiday, start) {
   if (holiday.dated && /^\d{4}-\d{2}-\d{2}$/.test(String(holiday.to))) return holiday.to;
   if (holiday.shift !== undefined) {
-    return Number.isInteger(holiday.days) ? addDays(start, Math.min(holiday.days - 1, 30)) : start;
+    return Number.isInteger(holiday.days) ? addDays(start, Math.min(Math.max(holiday.days, 1) - 1, 30)) : start;
   }
   const from = String(holiday.from || '');
   const to = String(holiday.to || '');
