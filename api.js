@@ -419,7 +419,7 @@ export function secretaryFailure(res = {}) {
   const st = res.status ? ` (${res.status})` : '';
   const retry = ' Нажмите «Разобрать заново».';
   if (res.code === 'empty') return `${head}: пустой ответ.${retry}`;
-  if (res.code === 'timeout') return `${head}: время вышло.${retry}`;
+  if (res.code === 'timeout') return `${head}: модель думает слишком долго. Выберите для секретаря модель побыстрее, без рассуждений.${retry}`;
   if (res.code === 'network') return `${head}: нет связи с моделью. Проверьте сеть и адрес.${retry}`;
   if (res.code === 'gateway') return `${head}: шлюз модели недоступен.${retry}`;
   if (res.code === 'rate' || res.status === 402) return `${head}: квота исчерпана${st}. Подождите или смените ключ.${retry}`;

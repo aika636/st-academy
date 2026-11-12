@@ -2635,7 +2635,7 @@ async function autoMolva(mesId, mark) {
   if (!res.ok) console.warn(`[${MODULE}] слухи: ${res.error}`);
 }
 
-const ANALYSIS_TIMEOUT = 120000;
+const ANALYSIS_TIMEOUT = 240000;
 const SLOW_MS = 25000;
 const ANALYSIS_ATTEMPTS = 2;
 
