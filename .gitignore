@@ -1,3 +1,8 @@
+# Локальные файлы разработки
+CLAUDE.md
+AGENTS.md
+.dev/
+
 /*
 !/.gitignore
 !/.gitattributes
@@ -22,3 +27,4 @@
 !/materials/
 !/presets/
 !/fonts/
+!/docs/
