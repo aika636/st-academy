@@ -184,13 +184,18 @@ function fitTabs(panel) {
   const tabs = panel && panel.querySelector ? panel.querySelector('.dia-tabs') : null;
   if (!tabs || typeof tabs.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
   tabs.removeAttribute('data-wrap');
+  const labels = [...tabs.querySelectorAll('.dia-tab')];
+  const active = labels.find((b) => b.getAttribute('aria-current') === 'page');
+  if (active) { active.style.removeProperty('--ad-tab-fs'); active.style.removeProperty('font-weight'); }
   if (mounted.spread) { tabs.style.removeProperty('--ad-tab-fs'); return; }
   const max = parseFloat(getComputedStyle(tabs).getPropertyValue('--ad-tab-fs-max')) || 13.5;
   const min = 11;
-  const labels = [...tabs.querySelectorAll('.dia-tab')];
-  const over = () => labels.some((b) => {
+  // The active tab is bolder; measure it at the regular weight so the layout doesn't depend on which tab is open.
+  const idle = labels.find((b) => b !== active);
+  if (active && idle) active.style.fontWeight = getComputedStyle(idle).fontWeight;
+  const fits = (b) => {
     const l = b.querySelector('.dia-lab');
-    if (!l) return false;
+    if (!l) return true;
     let tw = l.scrollWidth;
     if (typeof document.createRange === 'function') {
       const r = document.createRange();
@@ -200,18 +205,23 @@ function fitTabs(panel) {
     }
     const cs = getComputedStyle(b);
     const inner = b.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
-    return tw > inner - 1;
-  });
+    return tw <= inner - 1;
+  };
+  const over = () => labels.some((b) => !fits(b));
   const shrink = (from) => {
     let size = from;
     tabs.style.setProperty('--ad-tab-fs', `${size}px`);
     while (over() && size > min) { size -= 0.25; tabs.style.setProperty('--ad-tab-fs', `${size}px`); }
+    return size;
   };
-  shrink(max);
+  let size = shrink(max);
   if (over()) {
     tabs.setAttribute('data-wrap', '1');
-    shrink(Math.min(max, 12.5));
+    size = shrink(Math.min(max, 12.5));
   }
+  if (!active) return;
+  active.style.removeProperty('font-weight');
+  while (!fits(active) && size > 9) { size -= 0.25; active.style.setProperty('--ad-tab-fs', `${size}px`); }
 }
 
 function panelApi(host) {
