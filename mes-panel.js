@@ -15,7 +15,7 @@ export const PANEL_TEXT = {
   cancelledTavern: 'Разбор отменён. Модель может дописать, ответ отбросится.',
   failCut: 'Ответ секретаря оборвался. Повторите разбор.',
   failRefused: 'Не удалось прочитать разбор. Попробуйте ещё раз.',
-  failRefusedMany: 'Не удалось прочитать разбор за две попытки.',
+  failRefusedMany: 'Не удалось прочитать разбор за {n} {tries}.',
   slow: 'Разбор затянулся. Можно нажать «Отменить».',
   afterMolva: 'Слухи ещё пишутся. Разбор может ждать очереди.',
   saving: 'Сохраняю разбор…',
@@ -648,9 +648,10 @@ function confirmTap(host, mesId, kind, btn, action) {
   const key = `${mesId}:${kind}`;
   const at = armed.get(key);
   if (at === undefined) {
-    armed.set(key, Date.now());
+    const now = Date.now();
+    armed.set(key, now);
     if (btn) btn.textContent = PANEL_TEXT.sure;
-    later(() => { if (armed.delete(key)) renderMessagePanels(host); }, ARM_MS);
+    later(() => { if (armed.get(key) === now) { armed.delete(key); renderMessagePanels(host); } }, ARM_MS);
     return;
   }
   if (Date.now() - at < ARM_GUARD_MS) return;

@@ -71,6 +71,7 @@ import * as storage from './storage.js';
 import * as api from './api.js';
 import * as lorebook from './lorebook.js';
 import { PHASE_OK as LORE_OK, PHASE_WAIT as LORE_WAIT, PHASE_ERROR as LORE_ERROR } from './core/lore-status.mjs';
+import { plural } from './core/plural.mjs';
 
 const EXT_NAME = (() => {
   const m = /\/scripts\/extensions\/(.+)\/index\.js/.exec(import.meta.url);
@@ -1908,7 +1909,7 @@ async function analyzeMessage(mesId) {
     if (!parsed.found) {
       if (debugOn()) console.warn(`[${MODULE}] секретарь ответил без метки:`, res.text);
       if (res.truncated) return fail(PANEL_TEXT.failCut);
-      return fail(attempts > 1 ? PANEL_TEXT.failRefusedMany.replace('{n}', attempts) : PANEL_TEXT.failRefused);
+      return fail(attempts > 1 ? PANEL_TEXT.failRefusedMany.replace('{n}', attempts).replace('{tries}', plural(attempts, 'попытку', 'попытки', 'попыток')) : PANEL_TEXT.failRefused);
     }
     const now = chatOf()[mesId];
     if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ изменился во время разбора. Черновик не создан.' };
@@ -2585,7 +2586,7 @@ async function ensureFeedCast({ force = false, auto = false } = {}) {
   const step = castAttempt(live.castFails, { manual: force || !auto });
   live.castFails = step.fails;
   if (!step.go) {
-    const error = 'сборка каста приостановлена после неудач; повтор — «Пересобрать каст» или позже само';
+    const error = 'сборка массовки приостановлена после неудач; повтор — «Пересобрать массовку» или позже само';
     live.molvaDebug = { at: new Date().toISOString(), ok: false, skipped: `каст не собран: ${error}`, raw: '' };
     return { ok: false, error, code: 'paused' };
   }

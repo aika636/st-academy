@@ -363,21 +363,26 @@ export function renderSettings(host) {
   ]));
 
   const guessStatus = el('div', { class: 'academy-status' });
+  const guessText = (res) => {
+    const filled = res && res.survey ? ((res && res.filled) || []).length : 0;
+    return filled ? fill(U.surveyGuessPartly, { count: filled }) : U.surveyGuessEmpty;
+  };
   const guessBtn = el('div', {
     class: 'menu_button academy-btn academy-btn-small',
     text: U.surveyGuess,
     onclick: async (e) => {
       const res = await runAction(e.currentTarget, guessStatus,
-        () => call(host, 'guessSurvey'), U.surveyGuessOk);
+        () => call(host, 'guessSurvey'), guessText);
       if (!res || res.ok === false || !res.survey) return;
       for (const [key, node] of Object.entries(inputs)) {
         const value = str(res.survey[key]);
         if (value && !str(node.value)) node.value = value;
       }
-      await saveDraft(host, collect(inputs));
-      const filled = (res.filled || []).length;
-      setStatus(guessStatus, filled ? 'ok' : 'error',
-        filled ? fill(U.surveyGuessPartly, { count: filled }) : U.surveyGuessEmpty);
+      try { await saveDraft(host, collect(inputs)); } catch (err) {
+        setStatus(guessStatus, 'error', (err && err.message) ? err.message : String(err));
+        return;
+      }
+      setStatus(guessStatus, (res.filled || []).length ? 'ok' : 'error', guessText(res));
     },
   });
 

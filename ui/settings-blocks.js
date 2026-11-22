@@ -218,6 +218,7 @@ export function renderAnalysisBlock(host, view) {
 }
 
 export function renderPaceBlock(host, view) {
+  const W = heroWords(safe(() => host.getHeroGender(), 'f') === 'm' ? 'm' : 'f');
   const group = nextId('academy_pace');
   const status = el('div', { class: 'academy-status' });
   const paces = (view.paces || []).length
@@ -236,7 +237,7 @@ export function renderPaceBlock(host, view) {
     }))
     : el('p', { class: 'academy-note', text: 'Темп отношений можно выбрать после начала семестра.' });
   return section('Темп отношений', [
-    el('p', { class: 'academy-note', text: 'Темп определяет, как быстро меняется отношение персонажей к героине.' }),
+    el('p', { class: 'academy-note', text: `Темп определяет, как быстро меняется отношение персонажей к ${W.heroDat}.` }),
     paces,
     status,
   ]);

@@ -286,6 +286,7 @@ export function readTurns(raw, preset) {
 function extrasOf(t) {
   const out = {};
   if (typeof t.inviteKey === 'string' && t.inviteKey) out.inviteKey = t.inviteKey;
+  if (Number.isInteger(t.swipe) && t.swipe >= 0) out.swipe = t.swipe;
   if (Array.isArray(t.holidayLines)) {
     const lines = t.holidayLines.filter((l) => typeof l === 'string' && l).slice(-6);
     if (lines.length) out.holidayLines = lines;

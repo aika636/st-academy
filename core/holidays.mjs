@@ -128,7 +128,7 @@ const TEXT_KEYS = ['about', 'buzz', 'buzzNear', 'today', 'hook'];
 function withPresetTexts(events, base) {
   return events.map((e) => {
     if (!e.auto || e.pause || TEXT_KEYS.every((k) => e[k])) return e;
-    const src = base.find((h) => sameName(h.name, e.name));
+    const src = base.find((h) => nameKey(h.name) === nameKey(e.name) && (!h.off || e.off));
     if (!src) return e;
     const out = { ...e };
     for (const k of TEXT_KEYS) if (!out[k] && src[k]) out[k] = src[k].slice(0, EVENT_TEXT_MAX[k]);
@@ -344,7 +344,7 @@ export function knownEvent(state, preset, name, from, to = from) {
   }
   if (!others.length) return null;
   for (let day = addDays(from, -3); day <= addDays(last, 3); day = addDays(day, 1)) {
-    const hit = others.find((h) => !h.off && covers(h, day) && sameName(h.name, name));
+    const hit = others.find((h) => !h.off && covers(h, day) && nameKey(h.name) === nameKey(name));
     if (hit) return hit;
   }
   return null;
