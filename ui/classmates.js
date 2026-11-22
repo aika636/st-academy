@@ -162,7 +162,7 @@ function bullyPicker(host, p, X) {
   pick.value = p.bully || '';
   pick.addEventListener('change', async () => {
     const res = await call(host, 'setBullyRole', p.id, pick.value);
-    if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не вышло.');
+    if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не удалось изменить роль в травле.');
     else renderPanel(host);
   });
   return el('label', { class: 'academy-field academy-bully-role' }, [el('span', { text: X.bullyRoleField }), pick, status]);

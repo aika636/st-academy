@@ -99,7 +99,7 @@ export function molvaRefresh(host, preset) {
         });
         renderPanel(host);
       } else if (res) {
-        keepMolvaNote({ kind: 'error', text: String(res.error || 'Не получилось.') });
+        keepMolvaNote({ kind: 'error', text: String(res.error || 'Не удалось обновить слухи.') });
       }
     },
   });
@@ -132,7 +132,7 @@ export function renderCastParts(host, preset) {
         clearMolvaNote();
         const res = await call(host, 'updateFeedMember', m.id, { [key]: input.value });
         if (res && res.ok === false) {
-          setStatus(status, 'error', String(res.error || 'Не сохранилось.'));
+          setStatus(status, 'error', String(res.error || 'Изменение не сохранено. В поле возвращено прежнее значение.'));
           input.value = m[key] || '';
         } else {
           setStatus(status, 'ok', X.mobSaved);

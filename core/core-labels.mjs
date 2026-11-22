@@ -1,5 +1,5 @@
 export const CORE_LABELS = {
-  eventOff: 'Занятий нет (каникулы, карантин, выходной)',
+  eventOff: 'Занятий нет',
   mesPauseSection: 'Занятия: каникулы, закрытие',
   holidayOffResume: '{periods} снова {date}',
   holidayOffMark: 'занятий нет',

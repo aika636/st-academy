@@ -280,7 +280,7 @@ function reactRow(host, it, X, small = false) {
     dataset: { emoji: r.emoji },
     onclick: async () => {
       const res = await call(host, 'feedReact', it.id, r.emoji).catch((err) => ({ ok: false, error: String((err && err.message) || err) }));
-      if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не получилось.');
+      if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не удалось сохранить реакцию.');
       else renderPanel(host);
     },
     ...extra,

@@ -21,9 +21,9 @@ import { renderCastParts } from './cast.js';
 export const SURVEY_FIELDS = [
   { key: 'era', label: 'Эпоха / сеттинг', hint: 'современность, фэнтези, киберпанк, 1980-е' },
   { key: 'country', label: 'Страна / традиция', hint: 'Россия, Япония, Британия, выдуманная' },
-  { key: 'institution', label: 'Тип заведения', hint: 'школа, колледж, вуз, магическая академия' },
+  { key: 'institution', label: 'Тип заведения', hint: 'колледж, вуз, магическая академия' },
   { key: 'faculty', label: 'Направление / факультет', hint: 'медицинский, филфак, боевая магия' },
-  { key: 'year', label: 'Курс / год', hint: '2-й' },
+  { key: 'year', label: 'Курс / год обучения', hint: '2-й' },
   { key: 'canon', label: 'Фандом', hint: 'Гордость и предубеждение', help: 'Мир известного произведения, если играете по нему. Пусто — свой мир.', maxlength: CANON_MAX },
   { key: 'lang', label: 'Язык названий и имён', hint: 'русский' },
 ];
@@ -32,26 +32,26 @@ const LANG_WORDS = { ru: 'русский', en: 'английский', ja: 'яп
 export const langWord = (code) => LANG_WORDS[String(code || '').trim().toLowerCase()] || String(code || '');
 
 export const TIME_MODES = [
-  { id: 'auto', label: 'Авто', hint: 'сначала контекст, при неудаче — метка' },
-  { id: 'context', label: 'Из контекста', hint: 'время уже печатается в постах, инжекта нет' },
-  { id: 'marker', label: 'Своя метка', hint: 'чистые посты, всё идёт служебным блоком' },
+  { id: 'auto', label: 'Авто', hint: 'Сначала ищет время в тексте ответа, затем — в метке.' },
+  { id: 'context', label: 'Из контекста', hint: 'Берёт время только из текста ответа.' },
+  { id: 'marker', label: 'Своя метка', hint: 'Берёт время из служебной метки в ответе рассказчика.' },
 ];
 
 const PACE_HINTS = {
-  slow: 'вверх — на шаг за раз и за день; вниз свободнее',
-  normal: 'вверх — шаг за раз, два за день',
-  fast: 'вверх — два шага за раз, три за день',
+  slow: 'Улучшение — максимум на 1 шаг за раз и за день. Ухудшение может быть резче.',
+  normal: 'Улучшение — максимум на 1 шаг за раз и на 2 за день.',
+  fast: 'Улучшение — максимум на 2 шага за раз и на 3 за день.',
 };
 
 export const PROFILE_VIEW = [
-  { id: '', label: 'обычный' },
-  { id: 'strong', label: 'сильный' },
-  { id: 'hard', label: 'трудный' },
+  { id: '', label: 'обычно' },
+  { id: 'strong', label: 'легко' },
+  { id: 'hard', label: 'трудно' },
 ];
 
 export const EXAM_RULE_VIEW = [
-  { id: 'story', label: 'Сюжет', hint: 'исход тот, что случился в сцене; не сыгранное к концу сессии — остаётся долгом' },
-  { id: 'dice', label: 'Кубик', hint: 'бросок против сложности, если сцена исход не назвала' },
+  { id: 'story', label: 'По сюжету', hint: 'Результат берётся из сцены. Если до конца сессии результата нет, остаётся долг.' },
+  { id: 'dice', label: 'Кубик', hint: 'Если в сцене нет результата, его определит бросок кубика с учётом сложности.' },
 ];
 
 export function rowsFromState(state) {
@@ -395,7 +395,7 @@ export function renderSettings(host) {
       if (res && res.error === 'busy') return;
       renderPanel(host);
       if (res && res.ok !== false && str(survey.canon)) refreshCanonLayer(host);
-      if (res && res.ok === false) setStatus(lastPlanStatus(), 'error', String(res.error || 'Генерация не удалась.'));
+      if (res && res.ok === false) setStatus(lastPlanStatus(), 'error', String(res.error || 'Не удалось составить учебный план.'));
       else if (res && res.ok && Array.isArray(res.warnings) && res.warnings.length) {
         setStatus(lastPlanStatus(), 'error', [res.notice, res.warnings.join(' ')].filter(Boolean).join(' '));
       } else if (res && res.ok && res.partial && res.notice) {
@@ -472,7 +472,7 @@ export function renderSettings(host) {
   mounted.focusStart = false;
   academy.push(section(U.startSection, [
     view.startBlockers.length
-      ? el('p', { class: 'academy-note', text: `Пока нельзя: ${view.startBlockers.join('; ')}.` })
+      ? el('p', { class: 'academy-note', text: `Нельзя начать семестр: ${view.startBlockers.join('; ')}.` })
       : el('p', { class: 'academy-note', text: U.startNote }),
     view.started ? null : el('div', { class: 'academy-row' }, [
       el('label', { class: 'academy-field' }, [
@@ -558,10 +558,10 @@ function refreshCanonLayer(host) {
     if (r && r.ok !== false) {
       try { renderPanel(host); } catch {}
       setStatus(lastPlanStatus(), 'ok', canonDoneText(X, r));
-    } else setStatus(lastPlanStatus(), 'error', `Подписи мира не обновились: ${(r && r.error) || 'запрос не удался'}`);
+    } else setStatus(lastPlanStatus(), 'error', `Слова мира не обновились: ${(r && r.error) || 'запрос не удался'}`);
   }).catch((err) => {
     mounted.canonBusy = false;
-    setStatus(lastPlanStatus(), 'error', `Подписи мира не обновились: ${(err && err.message) || 'запрос не удался'}`);
+    setStatus(lastPlanStatus(), 'error', `Слова мира не обновились: ${(err && err.message) || 'запрос не удался'}`);
   });
 }
 

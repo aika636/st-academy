@@ -70,9 +70,9 @@ export function mountPanel(host) {
     id: ID.panel, class: 'academy-panel dia-diary draggable', role: 'dialog', 'aria-label': 'Академия',
     lang: 'ru',
   }, [
-    el('div', { class: 'dia-resize', title: 'Потянуть, чтобы изменить ширину' }),
-    el('div', { class: 'academy-bar dia-head panelControlBar', title: 'Перетащить · двойной щелчок — в центр' }, [
-      el('div', { class: 'academy-grab drag-grabber fa-solid fa-grip-vertical', title: 'Перетащить · двойной щелчок — в центр' }),
+    el('div', { class: 'dia-resize', title: 'Потяните, чтобы изменить ширину панели.' }),
+    el('div', { class: 'academy-bar dia-head panelControlBar', title: 'Потяните заголовок, чтобы переместить панель. Двойной щелчок вернёт её в центр.' }, [
+      el('div', { class: 'academy-grab drag-grabber fa-solid fa-grip-vertical', title: 'Потяните, чтобы переместить панель. Двойной щелчок вернёт её в центр.' }),
       el('span', { class: 'dia-emblem-box', html: emblemSvg(null) }),
       el('div', { class: 'academy-titles dia-head-text' }, [
         el('div', { class: 'academy-title dia-head-title', text: 'Академия' }),
@@ -418,7 +418,7 @@ export function renderPanel(host) {
     else out = renderToday(h, todayView(state, preset, { heroine: safe(() => h.getHeroine(), '') }), preset);
   } catch (err) {
     out = el('div', { class: 'academy-empty' }, [
-      el('div', { class: 'academy-empty-title', text: 'Панель не смогла отрисоваться' }),
+      el('div', { class: 'academy-empty-title', text: 'Не удалось показать раздел' }),
       el('p', { class: 'academy-note', text: (err && err.message) ? err.message : String(err) }),
       el('div', {
         class: 'menu_button academy-btn',
@@ -438,7 +438,7 @@ export function mountButton(host) {
   const button = el('div', {
     id: ID.button,
     class: 'academy-launcher',
-    title: 'Академия',
+    title: 'Нажмите, чтобы открыть или закрыть панель. Кнопку можно перетащить.',
     role: 'button',
     tabindex: '0',
   }, [el('span', { class: 'academy-launcher-mark' })]);
@@ -526,16 +526,16 @@ function watchViewport(host) {
 
 export function launcherDiagnosis() {
   const b = mounted.button;
-  if (!b || !b.isConnected) return 'Кнопки нет на странице — панель её не создала.';
+  if (!b || !b.isConnected) return 'Кнопка Академии не появилась на странице.';
   const parts = [];
   const style = getComputedStyle(b);
   const r = b.getBoundingClientRect();
   const off = r.right <= 0 || r.bottom <= 0 || r.left >= window.innerWidth || r.top >= window.innerHeight;
-  if (style.display === 'none' && !parts.length) parts.push('она скрыта стилем (display: none)');
-  if (off) parts.push('она за краем экрана');
+  if (style.display === 'none' && !parts.length) parts.push('кнопка скрыта');
+  if (off) parts.push('кнопка за краем экрана');
   const o = fixedOrigin(b);
-  if (Math.abs(o.x) > 1 || Math.abs(o.y) > 1) parts.push(`тема или расширение сдвинули систему координат (${Math.round(o.x)}, ${Math.round(o.y)}) — Академия это учитывает`);
-  parts.push(`место: ${Math.round(r.left)}, ${Math.round(r.top)}; окно ${window.innerWidth}×${window.innerHeight}`);
+  if (Math.abs(o.x) > 1 || Math.abs(o.y) > 1) parts.push(`учтено смещение от темы или расширения (${Math.round(o.x)}, ${Math.round(o.y)})`);
+  parts.push(`положение: ${Math.round(r.left)}, ${Math.round(r.top)}, размер окна: ${window.innerWidth}×${window.innerHeight}`);
   return `Кнопка на странице: ${parts.join('; ')}.`;
 }
 
@@ -728,8 +728,8 @@ function drawSettingsBlock(host) {
     el('p', {
       class: 'academy-note',
       text: enabled
-        ? 'Снимите галочку, чтобы Академия перестала добавлять текст в промпт и разбирать ответы. Семестр в чатах сохранится.'
-        : 'Академия выключена: в промпт ничего не уходит, ответы не разбираются, кнопка скрыта. Семестр в чатах сохранён и вернётся вместе с галочкой.',
+        ? 'Снимите галочку, чтобы Академия перестала передавать сведения рассказчику и разбирать ответы. Семестр в чатах сохранится.'
+        : 'Академия не передаёт сведения рассказчику и не разбирает ответы. Панель закрыта, кнопка скрыта, семестр сохранён.',
     }),
   );
   if (!enabled) return;
@@ -746,7 +746,7 @@ function drawSettingsBlock(host) {
       text: 'Вернуть кнопку',
       onclick: () => {
         const panels = safe(() => (typeof host.panelDiagnosis === 'function' ? host.panelDiagnosis() : ''), '') || '';
-        launcherNote.textContent = `${launcherDiagnosis()} Возвращаю в угол… ${resetLauncher(host)} ${panels}`;
+        launcherNote.textContent = `До сброса: ${launcherDiagnosis()} После сброса: ${resetLauncher(host)} ${panels}`;
       },
     }),
   ]), launcherNote);

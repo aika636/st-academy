@@ -1533,7 +1533,7 @@ function retimeLatestEntry() {
   }
 }
 
-const DAMPED_NOTE = '(повтор за день — не засчитано)';
+const DAMPED_NOTE = '(повтор за тот же день — не засчитано)';
 
 function panelView(mesId) {
   if (!live.preset || !live.state || !live.state.started) return null;
@@ -1720,7 +1720,7 @@ function newNameToken(name, isDraft) {
     }
     return { text: `${head} — добавить в раздел «${part}»?`, brief: head, kind: 'course', candidate: cand.id };
   }
-  return { text: isDraft ? `${head} — добавить можно после сохранения` : head, brief: head, kind: 'course' };
+  return { text: isDraft ? `${head} — добавление доступно после сохранения` : head, brief: head, kind: 'course' };
 }
 
 function enrichFromFound(state, id) {
@@ -1832,7 +1832,7 @@ async function analyzeMessage(mesId) {
   const c = ctx();
   const chat = chatOf();
   const message = chat[mesId];
-  if (!live.state || !live.state.started || !eligible(message)) return { ok: false, error: 'Здесь нечего разбирать.' };
+  if (!live.state || !live.state.started || !eligible(message)) return { ok: false, error: 'Разбор недоступен: семестр не начат или ответ не подходит.' };
   const text = String(message.mes || '');
   const mark = stamp(text);
   const turn = liveTurnOf(mesId, chat);
@@ -1840,7 +1840,7 @@ async function analyzeMessage(mesId) {
 
   const epoch = live.epoch;
   const fail = (error) => {
-    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
+    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился во время разбора. Результат отброшен.' };
     live.analysisErrors.set(mark, error);
     toast('warning', error);
     return { ok: false, error, shown: true };
@@ -1899,7 +1899,7 @@ async function analyzeMessage(mesId) {
       res = await ask();
       parsed = res.ok ? read(res) : null;
     }
-    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился, пока шёл разбор.' };
+    if (live.epoch !== epoch) return { ok: false, error: 'Чат сменился во время разбора. Результат отброшен.' };
     if (ctl.signal.aborted || res.code === 'aborted') {
       live.analysisCancel.set(mark, api.resolveSource(settings) === 'tavern' ? PANEL_TEXT.cancelledTavern : PANEL_TEXT.cancelled);
       return { ok: false, cancelled: true, error: PANEL_TEXT.cancelled };
@@ -1911,7 +1911,7 @@ async function analyzeMessage(mesId) {
       return fail(attempts > 1 ? PANEL_TEXT.failRefusedMany.replace('{n}', attempts) : PANEL_TEXT.failRefused);
     }
     const now = chatOf()[mesId];
-    if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ сменился, пока шёл разбор.' };
+    if (!now || stamp(String(now.mes || '')) !== mark) return { ok: false, error: 'Ответ изменился во время разбора. Черновик не создан.' };
     if (debugOn()) for (const r of parsed.rejected) console.info(`[${MODULE}] секретарь: отвергнуто: ${r.reason} | ${clip(r.raw, 120)}`);
     putLedger({
       ...(entryOf(mark, liveTurnOf(mesId, chatOf())) || { rows: [], day: '', time: '', tokens: null, marker: false }),
@@ -1922,7 +1922,7 @@ async function analyzeMessage(mesId) {
     return { ok: true, tokens: parsed.tokens, rejected: parsed.rejected };
   } catch (err) {
     console.error(`[${MODULE}] разбор ответа упал:`, err);
-    return fail(`Разбор не удался: ${api.safeReason(err && err.message) || 'сбой расширения'}. Нажмите «Разобрать заново».`);
+    return fail(`Разбор не удался: ${api.safeReason(err && err.message) || 'сбой расширения'}. Попробуйте ещё раз.`);
   } finally {
     clearTimeout(slow);
     live.analyzing.delete(mark);
@@ -2310,12 +2310,12 @@ async function handleSwipe(mesId) {
 }
 
 async function undoLastReply() {
-  if (!live.preset || !live.state || !live.state.started) return { ok: false, error: 'Отменять нечего: семестр не начат.' };
+  if (!live.preset || !live.state || !live.state.started) return { ok: false, error: 'Откат недоступен: семестр не начат или пресет не загружен.' };
   const turn = live.turns[live.turns.length - 1];
   if (!turn || turn.stamp === null || live.undoneAt === live.turns.length) {
-    return { ok: false, error: 'Отменять нечего: последний ответ не посчитан или уже отменён.' };
+    return { ok: false, error: 'Откат недоступен: последний ответ не учтён как ход или ход уже откатили.' };
   }
-  if (!turn.before) return { ok: false, error: 'Отменять нечего: снимок хода не читается.' };
+  if (!turn.before) return { ok: false, error: 'Откат недоступен: нет сохранённых данных до этого хода.' };
   const dayOf = (s) => (s && s.calendar ? s.calendar.day : '');
   const rows = turnRows(turn.before, live.state, null);
   const [from, to] = [dayOf(live.state), dayOf(turn.before)];
@@ -2337,7 +2337,7 @@ async function undoLastReply() {
   const parts = rows.slice(0, 3);
   if (rows.length > 3) parts.push(`ещё ${rows.length - 3}`);
   if (from && to && from !== to) parts.push(`дата: ${formatDateOn(from) || from} → ${formatDateOn(to) || to}`);
-  return { ok: true, text: `Отменено: ${parts.length ? parts.join('; ') : 'ответ без записанных перемен'}.` };
+  return { ok: true, text: `Ход откатили: ${parts.length ? parts.join('; ') : 'записанных изменений нет'}.` };
 }
 
 async function handleEdited(mesId) {
@@ -2391,8 +2391,8 @@ function ledgerCalendar(chat, loose = false) {
 }
 
 const REWIND_NOTE = {
-  branch: 'Точный откат ветки недоступен',
-  delete: 'Удалено глубже сохранённых ходов',
+  branch: 'Полный откат для ветки недоступен',
+  delete: 'Полный откат после удаления недоступен',
 };
 
 async function rewindToChat({ branch = false, chatId, epoch } = {}) {
@@ -2468,7 +2468,7 @@ async function rewindToChat({ branch = false, chatId, epoch } = {}) {
   if (!cal) {
     storage.saveTurns(ctx(), live.turns);
     if (branch) await save();
-    toast('warning', `${word}: дата и время не найдены, состояние не менялось.`);
+    toast('warning', `${word}. Дата и время последнего ответа не найдены. Данные Академии остались прежними.`);
     return false;
   }
   const state = cloneState(live.state);
@@ -2479,7 +2479,7 @@ async function rewindToChat({ branch = false, chatId, epoch } = {}) {
   await commit(state);
   if (branch) await save();
   announceRollback(branch ? 'branch' : 'delete');
-  toast('warning', `${word}: дата и время возвращены, а оценки, отношения и лента могли остаться — поправьте вручную, если нужно.`);
+  toast('warning', `${word}. Восстановлены только дата и время. Оценки, отношения и ленту при необходимости поправьте вручную.`);
   setInjects({});
   refreshPanel();
   return true;

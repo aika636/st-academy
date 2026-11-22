@@ -147,14 +147,14 @@ export function todayView(state, preset, opts = {}) {
   const stalled = isStalled(state, preset);
   const idle = Number(cal.idle) || 0;
   const timeMark = stalled
-    ? 'Время в чате давно не двигалось: проверьте, печатается ли дата в ответах.'
+    ? 'Время давно не менялось. Проверьте, есть ли дата в ответах рассказчика.'
     : cal.dismissedJump || cal.heldJump
       ? ''
       : cal.source
         ? (cal.source === 'manual'
           ? (idle === 0
-            ? 'Время в последнем ответе поправлено вручную.'
-            : `Время поправлено вручную ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад.`)
+            ? 'Последнее изменение времени внесено вручную.'
+            : `Время в календаре исправлено вручную ${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} назад.`)
           : idle === 0
             ? (TIME_VIA_LAST[cal.source] || 'Время взято из последнего ответа.')
             : '')
@@ -171,7 +171,7 @@ export function todayView(state, preset, opts = {}) {
     termLine && !termIsWord ? { key: 'term', text: termLine } : null,
     now ? { key: 'ordinal', text: fill(U.slot, { ordinal: now.ordinal }) } : null,
     next ? { key: 'next', text: next.when } : null,
-    stalled ? { key: 'idle', text: `${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} без движения` } : null,
+    stalled ? { key: 'idle', text: `${idle} ${plural(idle, 'ответ', 'ответа', 'ответов')} без изменения времени` } : null,
   ].filter(Boolean);
   const capped = capNumbers(raw, preset);
 
@@ -523,7 +523,7 @@ function verdictCard(r) {
         r.auto ? null : el('span', {
           class: fresh ? 'academy-roll academy-roll-fresh' : 'academy-roll',
           text: String(r.roll),
-          title: `d20 = ${r.roll}, DC ${r.dc}`,
+          title: `Бросок d20: ${r.roll}, порог: ${r.dc}`,
         }),
         el('span', { text: r.head }),
       ]),
@@ -615,7 +615,7 @@ function manualTimeBlock(host, view, U) {
     () => (action === 'manualTime'
       ? call(host, action, { ...patch, count: Boolean(count.checked) })
       : call(host, action)),
-    'Календарь поправлен.',
+    'Календарь обновлён.',
   ).then((res) => {
     if (res && res.ok) {
       const parts = [];
@@ -636,8 +636,8 @@ function manualTimeBlock(host, view, U) {
     el('div', { class: 'academy-repair-body' }, [
       el('p', {
         class: 'academy-note',
-        text: 'Ремонтный инструмент. Основной канал — источник времени из настроек; '
-          + 'если сдвигать приходится часто, дело в источнике, а не здесь.',
+        text: 'Здесь можно исправить дату и время. '
+          + 'Если это приходится делать часто, проверьте источник времени в настройках.',
       }),
       el('div', { class: 'academy-row' }, [
         el('label', { class: 'academy-field' }, [el('span', { text: 'День' }), day]),
@@ -662,7 +662,7 @@ function manualTimeBlock(host, view, U) {
         view.canSkipToEnd ? el('div', {
           class: 'menu_button academy-btn',
           text: U.skipToEnd,
-          title: 'Промотать время; оставшиеся занятия считаются посещёнными',
+          title: 'Перевести время на конец занятий. Оставшиеся занятия засчитаются как посещённые при любом положении галочки.',
           onclick: (e) => send({}, e.currentTarget, 'skipToDayEnd'),
         }) : null,
         el('div', {

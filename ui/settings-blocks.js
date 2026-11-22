@@ -97,12 +97,12 @@ export function renderApiBlock(host, view) {
     {
       id: 'tavern',
       label: 'Подключение таверны',
-      hint: 'То, чем таверна отвечает прямо сейчас. Ключ вводить не нужно — расширение ничего не отправляет само.',
+      hint: 'Запросы Академии пойдут через подключение SillyTavern. Отдельный ключ вводить не нужно.',
     },
     {
       id: 'own',
       label: 'Свой адрес с ключом',
-      hint: 'Отдельное подключение — нужно, если генерацию хочется пустить на дешёвую модель.',
+      hint: 'Для отдельного подключения укажите адрес, ключ и модель.',
     },
   ];
   const sourceBox = el('div', { class: 'academy-modes' }, SOURCES.map((m) => {
@@ -119,7 +119,7 @@ export function renderApiBlock(host, view) {
   let profileRow = null;
   if (!own && a.profiles.length) {
     const select = el('select', { class: 'text_pole academy-input' }, [
-      el('option', { value: '', text: 'То, что выбрано в таверне сейчас', selected: !a.profile }),
+      el('option', { value: '', text: 'Текущее подключение SillyTavern', selected: !a.profile }),
       ...a.profiles.map((p) => el('option', {
         value: p.id,
         text: p.model ? `${p.name} (${p.model})` : p.name,
@@ -130,39 +130,39 @@ export function renderApiBlock(host, view) {
     select.addEventListener('change', () => {
       safe(() => host.setSettings({ api: { profile: select.value } }, { quiet: true }), null);
       setStatus(status, 'note', select.value
-        ? 'Профиль выбран. Проверьте связь — запрос пойдёт через него.'
-        : 'Выбрано то, что стоит в таверне сейчас.');
+        ? 'Профиль выбран. Нажмите «Проверить связь», чтобы проверить подключение через него.'
+        : 'Выбрано текущее подключение SillyTavern.');
     });
     profileRow = el('label', { class: 'academy-field' }, [el('span', { text: 'Профиль подключения' }), select]);
   }
 
   const modelsBtn = own ? el('div', {
     class: 'menu_button academy-btn academy-btn-small',
-    text: 'Список моделей',
+    text: 'Загрузить список моделей',
     onclick: async (e) => {
       push();
-      const res = await runAction(e.currentTarget, status, () => call(host, 'listModels'), 'Список получен.');
+      const res = await runAction(e.currentTarget, status, () => call(host, 'listModels'), 'Список моделей получен.');
       const list = ((res && res.models) || []).map(String);
       if (list.length) modelCache.set(endpoint.value.trim(), list);
       fillModels(list);
-      const via = res && res.via === 'tavern-backend' ? ' Адрес не пускает запросы из браузера, поэтому список спросил сервер таверны — тем же адресом и ключом.' : '';
-      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Выберите модель в выпадашке под полем «Модель».${via}`);
+      const via = res && res.via === 'tavern-backend' ? ' Список получен через сервер SillyTavern, которому переданы указанные адрес и ключ.' : '';
+      if (list.length) setStatus(status, 'ok', `Моделей: ${list.length}. Выберите нужную в списке под полем «Модель».${via}`);
     },
   }) : null;
 
-  return section('API для генерации', [
+  return section('Подключение к модели', [
     el('p', {
       class: 'academy-note',
       text: own
-        ? 'Если адрес не пускает запросы из браузера, список моделей за вас спросит сервер самой таверны — тем же адресом и ключом.'
-        : 'Генерация пойдёт тем же подключением, которым таверна отвечает в чате. Ключ здесь вводить не нужно и никуда он не уезжает: запрос делает сама таверна.',
+        ? 'Если браузер не получит список моделей, Академия попробует запросить его через сервер SillyTavern. Для этого серверу будут переданы указанные адрес и ключ.'
+        : 'Запросы Академии пойдут через выбранное подключение SillyTavern. Отдельный ключ вводить не нужно.',
     }),
     sourceBox,
     !own && a.connectionAvailable === false
-      ? el('p', { class: 'academy-warn', text: 'Таверна сейчас не отдаёт ни одного подключения: расширению генерировать нечем. Впишите свой адрес либо настройте подключение в самой таверне.' })
+      ? el('p', { class: 'academy-warn', text: 'Академии недоступно подключение SillyTavern. Настройте его или выберите «Свой адрес с ключом».' })
       : null,
     a.profileMissing
-      ? el('p', { class: 'academy-warn', text: 'Выбранный профиль подключения в таверне больше не найден — выберите его заново.' })
+      ? el('p', { class: 'academy-warn', text: 'Сохранённый профиль не найден. Выберите доступный профиль или текущее подключение SillyTavern.' })
       : null,
     profileRow,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Адрес' }), endpoint]) : null,
@@ -170,7 +170,7 @@ export function renderApiBlock(host, view) {
     own ? el('p', { class: 'academy-note academy-key-note', text: KEY_NOTE }) : null,
     own ? el('label', { class: 'academy-field' }, [el('span', { text: 'Модель' }), model]) : null,
     own ? el('div', { class: 'academy-field' }, [models]) : null,
-    !own ? el('p', { class: 'academy-note', text: 'Своего списка моделей у подключения таверны нет: модель задаёт сама таверна (или пресет выбранного профиля).' }) : null,
+    !own ? el('p', { class: 'academy-note', text: 'Модель задаётся в SillyTavern или в пресете выбранного профиля.' }) : null,
     el('div', { class: 'academy-row academy-row-buttons' }, [
       modelsBtn,
       el('div', {
@@ -194,7 +194,7 @@ export function renderAnalysisBlock(host, view) {
       const radio = el('input', { type: 'radio', name: ruleGroup, value: r.id, checked: r.active });
       radio.addEventListener('change', async () => {
         const res = await call(host, 'setExamRule', r.id);
-        if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не вышло.');
+        if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не удалось сохранить настройку.');
         else renderPanel(host);
       });
       return el('label', { class: r.active ? 'academy-mode academy-mode-on' : 'academy-mode' }, [
@@ -203,15 +203,15 @@ export function renderAnalysisBlock(host, view) {
         el('span', { class: 'academy-note', text: r.hint }),
       ]);
     }))
-    : el('p', { class: 'academy-note', text: 'Правило экзаменов выбирается, когда в чате заведён семестр.' });
+    : el('p', { class: 'academy-note', text: 'Правило экзаменов можно выбрать после начала семестра.' });
 
   const auto = el('input', { type: 'checkbox', checked: view.secretaryAuto !== false });
   auto.addEventListener('change', () => safe(() => host.setSettings({ secretaryAuto: auto.checked }, { quiet: true }), null));
-  return section('Секретарь и правило экзаменов', [
-    el('p', { class: 'academy-note', text: 'Секретарь — отдельный запрос через API Академии: читает реплику игрока и ответ модели и записывает оценки, прогулы, отношения, поступки и события для слухов. Последний ответ пересчитывается начисто, старый получает поправку датой того ответа. Каждый вывод можно вычеркнуть или разобрать заново кнопкой на плашке под ответом.' }),
-    el('label', { class: 'academy-check' }, [auto, el('span', { text: 'Разбирать каждый новый ответ сам' })]),
-    el('p', { class: 'academy-note', text: 'Выключено — только по кнопке «Разобрать». Включено — запрос на каждый ответ и каждый новый свайп; слухи выходят уже после разбора.' }),
-    el('p', { class: 'academy-note', text: 'Кто решает исход контрольного в этом чате:' }),
+  return section('Секретарь и экзамены', [
+    el('p', { class: 'academy-note', text: 'Секретарь отдельным запросом читает вашу реплику и ответ рассказчика и предлагает изменения: например, оценки, прогулы или события. Черновик появится под ответом, где можно нажать «Сохранить» или «Отбросить черновик».' }),
+    el('label', { class: 'academy-check' }, [auto, el('span', { text: 'Автоматически разбирать новые ответы' })]),
+    el('p', { class: 'academy-note', text: 'При включении каждый новый ответ и свайп запускают отдельный запрос, а слухи обновляются после разбора. При выключении запускайте разбор кнопкой «Разобрать».' }),
+    el('p', { class: 'academy-note', text: 'Как определяется результат испытания' }),
     rules,
     status,
   ]);
@@ -225,7 +225,7 @@ export function renderPaceBlock(host, view) {
       const radio = el('input', { type: 'radio', name: group, value: p.id, checked: p.active });
       radio.addEventListener('change', async () => {
         const res = await call(host, 'setRelPace', p.id);
-        if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не вышло.');
+        if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не удалось сохранить настройку.');
         else renderPanel(host);
       });
       return el('label', { class: p.active ? 'academy-mode academy-mode-on' : 'academy-mode' }, [
@@ -234,33 +234,33 @@ export function renderPaceBlock(host, view) {
         el('span', { class: 'academy-note', text: p.hint }),
       ]);
     }))
-    : el('p', { class: 'academy-note', text: 'Темп выбирается, когда в чате заведён семестр.' });
+    : el('p', { class: 'academy-note', text: 'Темп отношений можно выбрать после начала семестра.' });
   return section('Темп отношений', [
-    el('p', { class: 'academy-note', text: 'Насколько быстро люди меняют отношение к главному герою. Ссора может быть резкой, дружба копится.' }),
+    el('p', { class: 'academy-note', text: 'Темп определяет, как быстро меняется отношение персонажей к героине.' }),
     paces,
     status,
   ]);
 }
 
 export function bullyHeatFacts(b) {
-  const facts = [`Накал: ${b.heat} из 4${b.heatWord ? ` — планка новых попыток: ${b.heatWord}` : ''}.`];
-  if (b.grow) facts.push(`${b.grow.have} из ${b.grow.need} дней до роста.`);
-  if (b.today === 'fought') facts.push('Сегодня отпор засчитан, задира не отступил.');
-  else if (b.today === 'backed') facts.push(`Сегодня задира отступил (${b.shrink.have} из ${b.shrink.need}).`);
-  else if (b.today === 'weak') facts.push('Сегодня задира отступил, но попытка была слабее накала — не в счёт.');
+  const facts = [`Накал: ${b.heat} из 4${b.heatWord ? `. Уровень новых попыток: ${b.heatWord}` : ''}.`];
+  if (b.grow) facts.push(`До роста накала: прошло ${b.grow.have} из ${b.grow.need} дней.`);
+  if (b.today === 'fought') facts.push('Сегодня был дан отпор, но задира не отступил.');
+  else if (b.today === 'backed') facts.push(`Сегодня задира отступил. Дней подряд: ${b.shrink.have} из ${b.shrink.need}.`);
+  else if (b.today === 'weak') facts.push('Сегодня задира отступил, но попытка была слабее текущего накала. Это отступление не приблизит снижение накала.');
   else if (b.shrink && b.shrink.have) facts.push(`Задира отступал: ${b.shrink.have} из ${b.shrink.need} дней подряд.`);
   const c = b.change;
   if (c) {
     const when = formatDate(c.day);
-    if (c.why === 'press' && c.from === c.to) facts.push(`Накал держится на ${c.to} (${when}): давление продолжается, выше некуда.`);
-    else if (c.why === 'truce' && c.from === c.to) facts.push(`Перемирие (${when}): накал уже на минимуме кампании.`);
+    if (c.why === 'press' && c.from === c.to) facts.push(`Накал остаётся на ${c.to} (${when}): давление продолжается, максимум уже достигнут.`);
+    else if (c.why === 'truce' && c.from === c.to) facts.push(`Перемирие (${when}) не снизило накал: он уже на минимуме.`);
     else if (c.why === 'press') facts.push(`Накал вырос с ${c.from} до ${c.to} (${when}): два учебных дня давления без отступления задиры.`);
     else if (c.why === 'truce') facts.push(`Накал снизился с ${c.from} до ${c.to} (${when}): перемирие.`);
-    else if (c.from === c.to) facts.push(`Давление сдержано (${when}); достигнут минимум этой кампании.`);
-    else facts.push(`Накал снизился с ${c.from} до ${c.to} (${when}): два дня подряд задира вынужденно отступал.`);
+    else if (c.from === c.to) facts.push(`Давление сдержано (${when}), но накал уже на минимуме.`);
+    else facts.push(`Накал снизился с ${c.from} до ${c.to} (${when}): задира отступал два дня подряд.`);
   }
-  if (b.floor > 0) facts.push(`Минимум кампании: накал не ниже ${b.floor}, пока не наступит перемирие.`);
-  if (b.assumed) facts.push('Без секретаря: попытки учитываются автоматически; отступления не распознаются.');
+  if (b.floor > 0) facts.push(`Сейчас накал не может опуститься ниже ${b.floor}.`);
+  if (b.assumed) facts.push('Без подтверждения секретаря попытки учитываются автоматически, а отступления не распознаются.');
   return facts;
 }
 
@@ -269,31 +269,31 @@ export function renderBullyingBlock(host, view) {
   const W = heroWords(safe(() => host.getHeroGender(), 'f') === 'm' ? 'm' : 'f');
   const status = el('div', { class: 'academy-status' });
   if (!b || !b.available) {
-    return section('Травля на курсе', [el('p', { class: 'academy-note', text: 'Травля настраивается, когда в чате заведён семестр.' })]);
+    return section('Травля на курсе', [el('p', { class: 'academy-note', text: 'Травлю можно настроить после начала семестра.' })]);
   }
   const save = async (patch) => {
     const res = await call(host, 'setBullying', patch);
-    if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не вышло.');
+    if (res && res.ok === false) setStatus(status, 'error', res.error || 'Не удалось сохранить настройку.');
     else renderPanel(host);
   };
   const on = el('input', { type: 'checkbox', checked: b.on });
   on.addEventListener('change', () => save({ on: on.checked }));
   const taboo = el('input', {
-    type: 'text', class: 'text_pole academy-input', value: b.taboo || '', maxlength: '240', placeholder: 'через запятую; пусто — без ограничений',
+    type: 'text', class: 'text_pole academy-input', value: b.taboo || '', maxlength: '240', placeholder: 'через запятую; пусто — без дополнительных запретов',
   });
   taboo.value = b.taboo || '';
   taboo.addEventListener('change', () => save({ taboo: taboo.value.trim() }));
   const who = b.lead
-    ? `Сейчас травит: ${b.lead}${b.crew.length ? `; подпевают: ${b.crew.join(', ')}` : ''}${b.manual ? ' (назначено вручную)' : ''}.`
-    : (b.status || 'Пока некому: нужен курс (вкладка «Люди»).');
+    ? `Задира: ${b.lead}${b.crew.length ? `. Подпевалы: ${b.crew.join(', ')}` : ''}${b.manual ? ' (назначено вручную)' : ''}.`
+    : (b.status || 'Зачинщик травли не назначен.');
   const facts = [];
-  if (b.lead && b.why) facts.push(`Основание: ${b.why.motive}${b.why.source ? ` (${b.why.source})` : ''}${b.why.access ? `. Встречаются: ${b.why.access}` : ''}.`);
+  if (b.lead && b.why) facts.push(`Причина выбора: ${b.why.motive}${b.why.source ? ` (${b.why.source})` : ''}${b.why.access ? `. Где встречаются: ${b.why.access}` : ''}.`);
   if (b.lead) {
     facts.push(...bullyHeatFacts(b));
-    if (b.hiddenUntil) facts.push(`Форма: скрытая до ${formatDate(b.hiddenUntil)} — после жалобы всё идёт втихую.`);
-    else if (b.truceUntil) facts.push(`Форма: тихо до ${formatDate(b.truceUntil)} — после перемирия.`);
-    if (b.last) facts.push(`Последний сыгранный акт (${formatDate(b.last.day)}${b.last.levelWord ? `, ${b.last.levelWord}` : ''}): ${b.last.text}.`);
-    if (b.pending) facts.push(`Ждёт своего ответа (${formatDate(b.pending.day)}): ${b.pending.text}`);
+    if (b.hiddenUntil) facts.push(`После жалобы травля скрыта от взрослых до ${formatDate(b.hiddenUntil)}.`);
+    else if (b.truceUntil) facts.push(`Перемирие до ${formatDate(b.truceUntil)}.`);
+    if (b.last) facts.push(`Последний эпизод травли (${formatDate(b.last.day)}${b.last.levelWord ? `, ${b.last.levelWord}` : ''}): ${b.last.text}.`);
+    if (b.pending) facts.push(`Попытка ещё не разыграна (${formatDate(b.pending.day)}): ${b.pending.text}`);
   }
   const mode = el('select', { class: 'text_pole academy-input' }, [
     el('option', { value: 'auto', text: 'подобрать автоматически', selected: b.mode !== 'self' }),
@@ -312,22 +312,22 @@ export function renderBullyingBlock(host, view) {
     class: 'menu_button academy-btn academy-btn-small',
     text: 'Подобрать заново',
     onclick: async (ev) => {
-      const res = await runAction(ev.currentTarget, status, () => call(host, 'rePickBully'), 'Подбор окончен.');
+      const res = await runAction(ev.currentTarget, status, () => call(host, 'rePickBully'), 'Подбор завершён.');
       if (res && res.ok !== false) renderPanel(host);
     },
   });
   return section('Травля на курсе', [
     el('label', { class: 'academy-check' }, [on, el('span', { text: `Травля ${W.heroGen} на курсе` })]),
-    el('p', { class: 'academy-note', text: `Зачинщик изводит ${W.heroAcc} почти каждый учебный день — от насмешек до избиений; накал растёт, пока давление идёт без отступления задиры. Рассказчик получает попытку дня и сам выбирает форму; секретарь отмечает, что было на деле; последствия остаются в ленте, делах и хронике.` }),
+    el('p', { class: 'academy-note', text: `Почти каждый учебный день рассказчик получает повод для травли ${W.heroGen}, от насмешек до избиений, и решает, как разыграть сцену. Секретарь отмечает, что произошло, а если задира не отступает, накал растёт.` }),
     el('p', { class: 'academy-note', text: who }),
     ...facts.map((t) => el('p', { class: 'academy-note', text: t })),
-    ...(b.lead && b.help ? [el('details', { class: 'academy-note' }, [el('summary', { text: 'Как устроен накал' }), ...b.help.map((t) => el('p', { text: t }))])] : []),
+    ...(b.lead && b.help ? [el('details', { class: 'academy-note' }, [el('summary', { text: 'Как меняется накал' }), ...b.help.map((t) => el('p', { text: t }))])] : []),
     el('label', { class: 'academy-field' }, [el('span', { text: 'Запретные темы (для рассказчика и секретаря)' }), taboo]),
     el('label', { class: 'academy-field' }, [el('span', { text: 'Задира' }), mode]),
     b.mode === 'self'
-      ? el('p', { class: 'academy-note', text: 'Зачинщика и подпевал вы назначаете сами: в карточке человека, вкладка «Люди».' })
-      : el('p', { class: 'academy-note', text: `Подбирает модель по мотиву и доступу к ${W.heroDat}; друзей ${W.heroGen} и названных ниже она не берёт. Выбор держится, пока человек на курсе.` }),
-    el('label', { class: 'academy-check' }, [npc, el('span', { text: 'Можно создавать своих NPC (если никто из известных не годится)' })]),
+      ? el('p', { class: 'academy-note', text: 'Назначьте задиру и подпевал в карточках персонажей в списке людей.' })
+      : el('p', { class: 'academy-note', text: `Модель ищет персонажа с мотивом и возможностью встречаться с ${W.heroDat}, исключая друзей ${W.heroGen} и людей из списка ниже. Выбор сохраняется, пока персонаж на курсе.` }),
+    el('label', { class: 'academy-check' }, [npc, el('span', { text: 'Разрешить модели создавать новых персонажей, если среди известных нет подходящих' })]),
     el('label', { class: 'academy-field' }, [el('span', { text: 'Кто точно не травит' }), skip]),
     ...(b.mode === 'self' ? [] : [el('div', { class: 'academy-row academy-row-buttons' }, [again])]),
     status,
@@ -363,7 +363,7 @@ export function renderModeBlock(host, view) {
     view.markerRisk
       ? el('p', {
         class: 'academy-warn',
-        text: 'В настройках таверны включён «Encode tags» — служебная метка станет видна прямо в тексте ответа. Выключите его в настройках пользователя либо перейдите на режим «из контекста».',
+        text: 'Из-за настройки «Encode tags» в SillyTavern служебная метка будет видна в тексте ответа. Выключите «Encode tags» или выберите «Из контекста».',
       })
       : null,
     modeBox,
@@ -371,18 +371,18 @@ export function renderModeBlock(host, view) {
       marker,
       el('span', {
         text: view.injectMarkerLocked
-          ? 'Инжектить инструкцию про метку (в режиме «из контекста» не нужна)'
-          : 'Инжектить инструкцию про метку',
+          ? 'Просить рассказчика добавлять метку — недоступно в режиме «Из контекста»'
+          : 'Просить рассказчика добавлять метку',
       }),
     ]),
     el('label', { class: 'academy-check' }, [
       words,
-      el('span', { text: 'Понимать относительные сдвиги словами («на следующее утро», «через неделю») — самая ненадёжная часть' }),
+      el('span', { text: 'Учитывать фразы вроде «на следующее утро» и «через неделю». Возможны ошибки в дате и времени.' }),
     ]),
     el('label', { class: 'academy-check' }, [
       viaMacro,
       el('span', {
-        text: 'Вставлять строку состояния через макрос {{academy}} — сами поставьте его в системный промпт, заметку автора или карточку; автоинжект строки выключится',
+        text: 'Передавать состояние через {{academy}}. Добавьте макрос в системный промпт, заметку автора или карточку: автоматически строка состояния передаваться не будет.',
       }),
     ]),
   ]);
@@ -524,7 +524,7 @@ function saveFile(text, filename, status) {
     URL.revokeObjectURL(url);
     return true;
   } catch (err) {
-    setStatus(status, 'error', `Файл не отдался браузеру: ${(err && err.message) || err}`);
+    setStatus(status, 'error', `Не удалось передать файл браузеру для скачивания: ${(err && err.message) || err}`);
     return false;
   }
 }
@@ -817,7 +817,7 @@ export function renderTransferBlock(host, view) {
       URL.revokeObjectURL(url);
       setStatus(status, 'ok', fill(U.exportOk, { filename: res.filename }));
     } catch (err) {
-      setStatus(status, 'error', `Файл не отдался браузеру: ${(err && err.message) || err}`);
+      setStatus(status, 'error', `Не удалось передать файл браузеру для скачивания: ${(err && err.message) || err}`);
     }
   };
 
@@ -1201,15 +1201,15 @@ export const LOOK_TEXT = {
   lookDiary: 'Ежедневник',
   lookTavern: 'Цвета таверны',
   material: 'Материал ежедневника',
-  materialAuto: 'Как у сеттинга',
+  materialAuto: 'По сеттингу',
   materialNow: 'сейчас — {name}',
   sample: 'Аа',
-  change: 'Сменить',
+  change: 'Выбрать материал',
   close: 'Закрыть',
-  hint: '«Ежедневник» — страницы и обложка под сеттинг; «Цвета таверны» — те же страницы в красках темы SillyTavern.',
-  tavernNote: 'Сейчас включены цвета таверны, материал не нужен.',
+  hint: '«Ежедневник» — страницы и обложка под сеттинг. «Цвета таверны» — страницы в цветах темы SillyTavern.',
+  tavernNote: 'В режиме «Цвета таверны» выбор материала недоступен.',
   icon: 'Значок кнопки',
-  iconHint: 'Значок плавающей кнопки, которой открывается Академия.',
+  iconHint: 'Значок плавающей кнопки, которая открывает Академию.',
 };
 
 export function lookSummary(settings, preset) {

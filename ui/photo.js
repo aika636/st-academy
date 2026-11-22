@@ -59,7 +59,7 @@ async function start(view, key) {
   if (!now || now.ctrl !== ctrl) return;
   if (res && res.ok && res.path) jobs.set(key, { state: 'preview', path: res.path });
   else if (res && res.code === 'aborted') jobs.set(key, { state: 'note', kind: 'note', text: String(res.error || '') });
-  else jobs.set(key, { state: 'note', kind: 'error', text: String((res && res.error) || 'Не получилось нарисовать.') });
+  else jobs.set(key, { state: 'note', kind: 'error', text: String((res && res.error) || 'Не удалось создать портрет.') });
   repaint(key);
 }
 

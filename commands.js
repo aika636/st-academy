@@ -8,7 +8,7 @@ const served = new WeakSet();
 
 function blocked(host) {
   const preset = host.getPreset();
-  if (!preset) return 'Академия не поднялась: пресет не загружен, расширение молчит.';
+  if (!preset) return 'Академия не готова к работе: пресет не загружен.';
   const health = stateHealth(host.getState(), preset);
   if (health.kind === 'ok') return null;
   const tail = health.errors && health.errors.length ? `\n${health.errors.map((e) => `— ${e}`).join('\n')}` : '';
@@ -48,7 +48,7 @@ function guard(name, fn, context, title) {
       out = typeof res === 'string' ? res : String(res ?? '');
     } catch (err) {
       console.error(`[academy] /${name} сорвалась:`, err);
-      out = `/${name}: команда сорвалась — ${(err && err.message) || err}`;
+      out = `/${name}: не удалось выполнить команду — ${(err && err.message) || err}`;
     }
     if (!yes(args.quiet)) showResult(context, title || `/${name}`, out);
     return out;
@@ -139,8 +139,8 @@ export async function timeText(host, args = {}) {
   const periods = num(args.periods);
   const count = yes(args.count);
 
-  if (args.days !== undefined && args.days !== '' && days === null) return '/academy-time: days — целое число.';
-  if (args.periods !== undefined && args.periods !== '' && periods === null) return '/academy-time: periods — целое число.';
+  if (args.days !== undefined && args.days !== '' && days === null) return '/academy-time: укажите целое число в days.';
+  if (args.periods !== undefined && args.periods !== '' && periods === null) return '/academy-time: укажите целое число в periods.';
   if (days !== null && periods !== null) return uiLabels(host.getPreset()).cmdBothUnits;
 
   const patch = {};
@@ -155,17 +155,17 @@ export async function timeText(host, args = {}) {
     const U = uiLabels(host.getPreset());
     return lines([
       whenText(host),
-      'Как двигать календарь:',
+      'Как изменить календарь:',
       `  day=${day} — перейти на эту дату`,
       '  time=10:30 — поставить это время',
-      '  days=1 — сдвинуть на столько дней (назад — со знаком минус)',
+      '  days=1 — на день вперёд, days=-1 — на день назад',
       `  periods=-2 — ${U.cmdShiftPeriods}`,
-      `  count=yes — ${U.cmdCountArg || 'записать пропущенные занятия посещёнными'}`,
+      `  count=yes — ${U.cmdCountArg || 'отметить занятия за сдвиг как посещённые, если о них ещё нет записи'}`,
     ]);
   }
 
   const res = await host.actions.manualTime(patch);
-  if (!res || !res.ok) return `Календарь не сдвинулся: ${(res && res.error) || 'причина не названа'}.`;
+  if (!res || !res.ok) return `Календарь не изменился: ${(res && res.error) || 'причина не названа'}.`;
 
   const U = uiLabels(host.getPreset());
   return lines([
@@ -195,7 +195,7 @@ export function stateJson(host) {
   try {
     return JSON.stringify(stripSecrets(state), null, 2);
   } catch (err) {
-    return `/academy-state: состояние не сериализуется — ${(err && err.message) || err}`;
+    return `/academy-state: не удалось преобразовать данные семестра в JSON — ${(err && err.message) || err}`;
   }
 }
 
@@ -226,7 +226,7 @@ export async function undoText(host) {
   const stop = blocked(host);
   if (stop) return stop;
   const res = await host.actions.undoReply();
-  return res && res.ok ? res.text : `Не отменено: ${(res && res.error) || 'причина не названа'}`;
+  return res && res.ok ? res.text : (res && res.error) || 'Не удалось откатить ход.';
 }
 
 const str = (v) => (v === undefined || v === null ? '' : String(v).trim());
@@ -269,7 +269,7 @@ export function registerCommands(host, context) {
     ? NA.fromProps({ name, description, typeList, isRequired: false })
     : null);
 
-  const quiet = () => named('quiet', 'yes — не показывать окошко, только вернуть текст в пайп', [T.STRING]);
+  const quiet = () => named('quiet', 'yes — вернуть текст для следующей команды без всплывающего окна', [T.STRING]);
   const defs = [
     {
       name: 'academy',
@@ -290,15 +290,15 @@ export function registerCommands(host, context) {
     },
     {
       name: 'academy-time',
-      returns: 'новая точка календаря или причина отказа',
+      returns: 'дата и время после изменения или причина отказа',
       helpString: U.cmdTimeHelp,
       words: { helpString: 'cmdTimeHelp', periods: 'cmdShiftPeriods', count: 'cmdCountArg' },
       namedArgumentList: [
-        named('day', 'абсолютная дата, ГГГГ-ММ-ДД', [T.STRING]),
-        named('time', 'абсолютное время, ЧЧ:ММ', [T.STRING]),
-        named('days', 'сдвиг в днях, можно отрицательный', [T.NUMBER]),
+        named('day', 'установить дату в формате ГГГГ-ММ-ДД', [T.STRING]),
+        named('time', 'установить время в формате ЧЧ:ММ', [T.STRING]),
+        named('days', 'сдвинуть на указанное число дней (минус — назад)', [T.NUMBER]),
         named('periods', U.cmdShiftPeriods, [T.NUMBER]),
-        named('count', U.cmdCountArg || 'записать пропущенные занятия посещёнными', [T.STRING]),
+        named('count', U.cmdCountArg || 'yes — отметить занятия за сдвиг как посещённые, если о них ещё нет записи', [T.STRING]),
         quiet(),
       ].filter(Boolean),
       callback: guard('academy-time', (args) => timeText(host, args), c, '/academy-time'),
@@ -313,15 +313,15 @@ export function registerCommands(host, context) {
     },
     {
       name: 'academy-undo',
-      returns: 'что отменено или причина отказа',
-      helpString: 'Отменить последний ответ модели: состояние Академии вернётся к тому, что было до него. Заметки, роли и настройки не трогаются. Один шаг.',
+      returns: 'результат отката или причина отказа',
+      helpString: 'Откатывает только последний учтённый ход и возвращает данные Академии к состоянию до него. Текст ответа, заметки, роли и настройки сохраняются.',
       namedArgumentList: [quiet()].filter(Boolean),
       callback: guard('academy-undo', () => undoText(host), c, '/academy-undo'),
     },
     {
       name: 'academy-debug',
-      returns: 'разбор последнего ответа модели',
-      helpString: 'Последний разбор: что разобрано, из какого источника взято время и что ушло в инжекты.',
+      returns: 'обработка последнего ответа рассказчика',
+      helpString: 'Показывает, какие данные Академия распознала в последнем ответе, откуда взяла время и что передала рассказчику.',
       namedArgumentList: [quiet()].filter(Boolean),
       callback: guard('academy-debug', () => debugText(host), c, '/academy-debug'),
     },
