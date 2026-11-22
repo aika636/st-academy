@@ -1283,6 +1283,7 @@ ${text}`);
   const oneShot = [permission, ...injects.map((i) => i.text)].filter(Boolean).join('\n');
   turn.mesId = mesId;
   turn.stamp = mark;
+  turn.swipe = message.swipe_id ?? null;
   turn.analysis = analysisKey;
   turn.oneShot = oneShot;
   turn.holidayLines = holidayLinesOf(injects);
@@ -1511,7 +1512,11 @@ function liveTurnOf(mesId, chat) {
 }
 
 function entryOf(mark, turn) {
-  return ledgerEntry(mark) || (turn && turn.stamp ? ledgerEntry(turn.stamp) : null);
+  const own = ledgerEntry(mark);
+  if (own || !turn || !turn.stamp) return own;
+  const now = chatOf()[turn.mesId];
+  if (now && Number.isInteger(turn.swipe) && now.swipe_id !== turn.swipe) return null;
+  return ledgerEntry(turn.stamp);
 }
 
 function retimeLatestEntry() {

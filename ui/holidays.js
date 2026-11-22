@@ -6,7 +6,7 @@ import { periodPluralWord } from '../core/words.mjs';
 import { goingWith, goingLine } from '../core/invites.mjs';
 import { isDay } from '../core/state.mjs';
 import {
-  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel,
+  fill, formatDate, plural, extraLabels, el, runAction, call, renderPanel, tapButton,
 } from './common.js';
 
 export function holidaysView(state, preset) {
@@ -169,10 +169,11 @@ export function ownEventsBlock(host, view, X) {
             text: [e.dateLine, e.off ? X.holidayOffMark : '', e.auto ? X.eventAuto : '', e.past ? X.eventPast : ''].filter(Boolean).join(' · '),
           }),
         ]),
-        el('div', {
-          class: 'menu_button academy-btn',
+        tapButton(`event-remove:${e.id}`, {
           text: X.eventRemove,
-          onclick: (ev) => runAction(ev.currentTarget, status, () => call(host, 'removeEvent', e.id), X.eventRemoved)
+          sure: X.tapAgain,
+          cls: '',
+          onTap: (btn) => runAction(btn, status, () => call(host, 'removeEvent', e.id), X.eventRemoved)
             .then(() => renderPanel(host)),
         }),
       ]))),

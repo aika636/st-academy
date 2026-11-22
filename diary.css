@@ -559,7 +559,7 @@
 .dia-mpanel .dia-mp-help summary { cursor: pointer; font-size: calc(.82rem * var(--ad-fs-scale, 1)); color: var(--ad-mp-soft); }
 .dia-mpanel .dia-mp-unparsed { font-size: calc(.9rem * var(--ad-fs-scale, 1)); padding: 8px 10px; border-left: 3px solid var(--ad-today); background: var(--ad-now-bg); border-radius: 0 var(--ad-r-card) var(--ad-r-card) 0; margin: 0; line-height: 1.4; }
 .dia-mpanel .dia-mp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
-.dia-mpanel .dia-mp-btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--ad-mp-line); background: transparent; color: var(--ad-mp-ink); border-radius: var(--ad-r-btn); font: 500 calc(.88rem * var(--ad-fs-scale, 1)) var(--ad-f-ui); cursor: pointer; }
+.dia-mpanel .dia-mp-btn { min-height: 36px; padding: 0 12px; border: 1px solid var(--ad-mp-line); background: transparent; color: var(--ad-mp-ink); border-radius: var(--ad-r-btn); font: 500 calc(.88rem * var(--ad-fs-scale, 1)) var(--ad-f-ui); cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 .dia-mpanel .dia-mp-btn.dia-main { background: var(--ad-mp-accent); color: var(--ad-page); border-color: var(--ad-mp-accent); font-weight: 700; }
 .dia-mpanel { border: var(--ad-rule-w) solid var(--ad-mp-border, var(--ad-mp-line)); box-shadow: var(--ad-shadow-attached); text-align: left; line-height: 1.35; }
 .dia-mpanel .dia-mp-top { cursor: pointer; user-select: none; }

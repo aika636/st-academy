@@ -1,4 +1,4 @@
-import { el, clear, runAction, call, safe, fill, setStatus, renderPanel, avatarNode } from './common.js';
+import { el, clear, runAction, call, safe, fill, setStatus, renderPanel, avatarNode, tapButton } from './common.js';
 import { ROUTE_LABELS } from '../core/draw.mjs';
 import { LOOKS_MAX } from '../core/portraits.mjs';
 
@@ -126,9 +126,16 @@ function looksEditor(host, p, X) {
     placeholder: X.looksHint, maxlength: String(LOOKS_MAX),
   });
   input.value = p.looks || '';
-  const save = btn(X.looksSave, async (e) => {
-    const value = String(input.value || '').trim();
-    await runAction(e.currentTarget, status, () => call(host, 'setLooks', p.id, value), value ? X.looksSaved : X.looksCleared);
+  let prev = String(p.looks || '').trim();
+  const save = tapButton(`looks:${p.id}`, {
+    text: X.looksSave,
+    sure: X.tapAgain,
+    need: () => prev !== '' && prev !== String(input.value || '').trim(),
+    onTap: async (b) => {
+      const value = String(input.value || '').trim();
+      const res = await runAction(b, status, () => call(host, 'setLooks', p.id, value), value ? X.looksSaved : X.looksCleared);
+      if (res && res.ok !== false) prev = value;
+    },
   });
   return el('div', { class: 'academy-photo-looks' }, [
     el('label', { class: 'academy-field' }, [el('span', { text: X.looksField }), input]),

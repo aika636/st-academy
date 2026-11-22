@@ -632,6 +632,7 @@ export const EXTRA_UI = {
   castSaved: 'Сохранено.',
   castHit: 'Похоже, это персонаж карточки, а не человек из списка «{course}». Убрать?',
   castHitRemove: 'Убрать',
+  tapAgain: 'Нажмите ещё раз',
 
   molvaWhen: 'Когда обновлять слухи',
   molvaEvery: 'Ответов между обновлениями слухов:',
@@ -1121,6 +1122,43 @@ export function avatarNode(av, opts = {}) {
     img.addEventListener('error', () => { img.hidden = true; });
     node.append(img);
   }
+  return node;
+}
+
+const TAP_MS = 4000;
+const TAP_GUARD_MS = 500;
+const tapAt = new Map();
+const tapNodes = new Map();
+
+export function tapButton(key, { text, sure, onTap, cls = 'academy-btn-small', need = () => true }) {
+  const reset = () => {
+    tapAt.delete(key);
+    for (const n of tapNodes.get(key) || []) n.textContent = text;
+    tapNodes.delete(key);
+  };
+  const track = (n) => { if (!tapNodes.has(key)) tapNodes.set(key, new Set()); tapNodes.get(key).add(n); };
+  const node = el('div', {
+    class: `menu_button academy-btn ${cls}`.trim(),
+    role: 'button',
+    text: tapAt.has(key) ? sure : text,
+    onclick: (e) => {
+      const btn = e.currentTarget;
+      if (!need()) { reset(); return onTap(btn); }
+      const at = tapAt.get(key);
+      if (at === undefined) {
+        const now = Date.now();
+        tapAt.set(key, now);
+        btn.textContent = sure;
+        track(btn);
+        setTimeout(() => { if (tapAt.get(key) === now) reset(); }, TAP_MS);
+        return undefined;
+      }
+      if (Date.now() - at < TAP_GUARD_MS) return undefined;
+      reset();
+      return onTap(btn);
+    },
+  });
+  if (tapAt.has(key)) track(node);
   return node;
 }
 

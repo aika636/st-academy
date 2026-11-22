@@ -4,7 +4,7 @@ import { MEMORY_SIZE, relationLabel, relationMemory, relationOf } from '../core/
 import { personAvatar } from '../core/masks.mjs';
 import { isPortrait } from '../core/portraits.mjs';
 import {
-  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel, safe, loreLinkText, mounted,
+  uiLabels, extraLabels, fill, formatDate, str, el, runAction, setStatus, call, renderPanel, safe, loreLinkText, mounted, tapButton,
 } from './common.js';
 import { photoEditor, keptOpen } from './photo.js';
 import { plural } from '../core/plural.mjs';
@@ -250,22 +250,12 @@ export function loreFoundBlock(host, view, preset) {
       if (res && res.ok !== false) { loreChoice.clear(); loreWhy.clear(); mounted.loreApplyNote = ''; renderPanel(host); }
     },
   }) : null;
-  let sure = false;
-  const clearAll = view && view.count ? el('div', {
-    class: 'menu_button academy-btn academy-btn-small',
+  const clearAll = view && view.count ? tapButton('cm-clear-all', {
     text: X.cmClearAll,
-    onclick: async (e) => {
-      const btn = e.currentTarget;
-      if (!sure) {
-        sure = true;
-        btn.textContent = X.cmClearSure;
-        setTimeout(() => { sure = false; btn.textContent = X.cmClearAll; }, 6000);
-        return;
-      }
-      sure = false;
+    sure: X.cmClearSure,
+    onTap: async (btn) => {
       const res = await runAction(btn, status, () => call(host, 'clearClassmates'), X.cmCleared);
       if (res && res.ok !== false) renderPanel(host);
-      else btn.textContent = X.cmClearAll;
     },
   }) : null;
   return el('div', { class: 'dia-lore' }, [
@@ -282,11 +272,11 @@ function castWarning(host, p, X, course) {
   const status = el('div', { class: 'academy-status' });
   return el('div', { class: 'academy-cast-hit' }, [
     el('span', { class: 'academy-note academy-note-warn', text: fill(X.castHit, { course }) }),
-    el('div', {
-      class: 'menu_button academy-btn academy-btn-small',
+    tapButton(`cm-remove:${p.id}`, {
       text: X.castHitRemove,
-      onclick: async (e) => {
-        const res = await runAction(e.currentTarget, status, () => call(host, 'removeClassmate', p.id), X.cmRemoved);
+      sure: X.tapAgain,
+      onTap: async (btn) => {
+        const res = await runAction(btn, status, () => call(host, 'removeClassmate', p.id), X.cmRemoved);
         if (res && res.ok !== false) renderPanel(host);
       },
     }),

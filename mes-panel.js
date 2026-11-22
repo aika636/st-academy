@@ -19,6 +19,8 @@ export const PANEL_TEXT = {
   slow: 'Секретарь ждёт ответа модели дольше обычного — запрос мог встать в очередь. Можно отменить и разобрать позже.',
   afterMolva: 'Секретарь читает ответ… (слухи ещё пишутся, запрос может ждать своей очереди)',
   saving: 'Записываю разбор…',
+  savingBtn: 'Сохраняю…',
+  sure: 'Точно? Нажмите ещё раз',
   waitGen: 'Секретарь начнёт, когда закончится генерация.',
   waitStart: 'Секретарь вот-вот начнёт читать этот ответ.',
   waitLost: 'Автоматический разбор не дошёл до конца. Нажмите «Разобрать».',
@@ -214,6 +216,9 @@ export function forgetPanelState() {
   open.clear();
   saved.clear();
   jumpErrors.clear();
+  pendingSave.clear();
+  lockUntil.clear();
+  armed.clear();
 }
 
 function el(tag, attrs = {}, children = []) {
@@ -301,7 +306,9 @@ function place(mes, panel) {
 function buildPanel(host, mesId, view, look) {
   const isOpen = open.has(mesId) || Boolean(view.draft) || Boolean(view.error) || Boolean(view.invite) || Boolean(view.jumpAsk) || Boolean(view.promises && view.promises.length) || Boolean(view.decisions && view.decisions.length);
   if (view.draft || view.error) open.add(mesId);
-  const busy = Boolean(view.busy);
+  const pend = pendingSave.has(mesId);
+  const busy = Boolean(view.busy) || pend;
+  const locked = busy || Date.now() < (lockUntil.get(mesId) || 0);
   const content = el('div', { class: 'dia-mp-body' });
   if (!isOpen) content.hidden = true;
   const footer = el('div', { class: 'dia-mp-footer' });
@@ -340,7 +347,7 @@ function buildPanel(host, mesId, view, look) {
   }, [
     el('span', { class: 'dia-mp-st', title: stateTitle }, [icon(stateKind)]),
     el('span', { class: 'dia-mp-sum', title: [parts.what, parts.when].filter(Boolean).join(' · ') }, [
-      busy ? (view.progress || PANEL_TEXT.analyzing) : (view.error || view.cancelled || view.wait || parts.what),
+      busy ? (view.progress || (pend ? PANEL_TEXT.saving : PANEL_TEXT.analyzing)) : (view.error || view.cancelled || view.wait || parts.what),
     ]),
     el('span', { class: 'dia-mp-chev', 'aria-hidden': 'true' }, [icon('chev')]),
     busy && view.cancellable && host.cancelAnalysis ? el('button', {
@@ -354,7 +361,7 @@ function buildPanel(host, mesId, view, look) {
       class: 'dia-mp-go',
       title: analyzedNow ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
       'aria-label': analyzedNow ? PANEL_TEXT.reanalyze : PANEL_TEXT.analyze,
-      disabled: busy,
+      disabled: locked,
       onclick: analyze,
     }, [
       icon(busy ? 'dash' : 'wand', busy ? 'dia-spin' : ''),
@@ -541,14 +548,8 @@ function buildPanel(host, mesId, view, look) {
   const buttons = [
     view.draft ? el('button', {
       type: 'button', class: 'dia-mp-btn dia-main', disabled: busy,
-      onclick: () => run(Promise.resolve(host.saveAnalysis(mesId)).then((res) => {
-        if (res && res.ok) {
-          saved.add(mesId);
-          open.add(mesId);
-          renderMessagePanels(host);
-        }
-      })),
-    }, [PANEL_TEXT.save]) : null,
+      onclick: (e) => saveNow(host, mesId, e.currentTarget),
+    }, [pend ? PANEL_TEXT.savingBtn : PANEL_TEXT.save]) : null,
     view.draft ? el('button', {
       type: 'button', class: 'dia-mp-btn', disabled: busy,
       onclick: () => { saved.delete(mesId); run(host.discardAnalysis(mesId)); },
@@ -558,15 +559,15 @@ function buildPanel(host, mesId, view, look) {
         type: 'button',
         class: 'dia-mp-btn',
         title: PANEL_TEXT.undoAllHint,
-        disabled: busy,
-        onclick: () => { saved.delete(mesId); run(host.clearAnalysis(mesId)); },
-      }, [PANEL_TEXT.undoAll])
+        disabled: locked,
+        onclick: (e) => confirmTap(host, mesId, 'all', e.currentTarget, () => { saved.delete(mesId); run(host.clearAnalysis(mesId)); }),
+      }, [armed.has(`${mesId}:all`) ? PANEL_TEXT.sure : PANEL_TEXT.undoAll])
       : null,
     showUndoReply
       ? el('button', {
-        type: 'button', class: 'dia-mp-btn', title: PANEL_TEXT.undoReplyHint, disabled: busy,
-        onclick: () => run(host.undoReply()),
-      }, [PANEL_TEXT.undoReply])
+        type: 'button', class: 'dia-mp-btn', title: PANEL_TEXT.undoReplyHint, disabled: locked,
+        onclick: (e) => confirmTap(host, mesId, 'reply', e.currentTarget, () => run(host.undoReply())),
+      }, [armed.has(`${mesId}:reply`) ? PANEL_TEXT.sure : PANEL_TEXT.undoReply])
       : null,
   ].filter(Boolean);
   if (buttons.length) {
@@ -614,6 +615,51 @@ export function humanName(raw) {
   const s = String(raw || '').trim();
   if (!/^[a-z][a-z0-9]*(?:[-_.][a-z0-9]+)*$/.test(s)) return s;
   return s.split(/[-_.]+/).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+
+const pendingSave = new Set();
+const lockUntil = new Map();
+const armed = new Map();
+export const LOCK_MS = 1500;
+export const ARM_MS = 4000;
+const ARM_GUARD_MS = 500;
+
+const later = (fn, ms) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); };
+
+async function saveNow(host, mesId, btn) {
+  if (pendingSave.has(mesId)) return;
+  pendingSave.add(mesId);
+  const panel = btn && btn.closest ? btn.closest(`.${PANEL_CLASS}`) : null;
+  if (panel) for (const b of panel.querySelectorAll('button')) b.disabled = true;
+  if (btn) btn.textContent = PANEL_TEXT.savingBtn;
+  try {
+    const res = await host.saveAnalysis(mesId);
+    if (res && res.ok) {
+      saved.add(mesId);
+      open.add(mesId);
+      lockUntil.set(mesId, Date.now() + LOCK_MS);
+      later(() => renderMessagePanels(host), LOCK_MS + 50);
+    }
+  } catch (err) {
+    console.warn('[academy] сохранение разбора не удалось:', err);
+  } finally {
+    pendingSave.delete(mesId);
+    renderMessagePanels(host);
+  }
+}
+
+function confirmTap(host, mesId, kind, btn, action) {
+  const key = `${mesId}:${kind}`;
+  const at = armed.get(key);
+  if (at === undefined) {
+    armed.set(key, Date.now());
+    if (btn) btn.textContent = PANEL_TEXT.sure;
+    later(() => { if (armed.delete(key)) renderMessagePanels(host); }, ARM_MS);
+    return;
+  }
+  if (Date.now() - at < ARM_GUARD_MS) return;
+  armed.delete(key);
+  action();
 }
 
 function run(promise) {

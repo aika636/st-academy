@@ -120,7 +120,20 @@ function leadOf(h) {
 
 function allOf(preset, state) {
   const { holidays, vacations } = mergeVacations(holidaysOf(preset, state), vacationsOf(preset, state));
-  return [...holidays, ...eventsOf(state), ...vacations];
+  return [...holidays, ...withPresetTexts(eventsOf(state), [...holidays, ...vacations]), ...vacations];
+}
+
+const TEXT_KEYS = ['about', 'buzz', 'buzzNear', 'today', 'hook'];
+
+function withPresetTexts(events, base) {
+  return events.map((e) => {
+    if (!e.auto || e.pause || TEXT_KEYS.every((k) => e[k])) return e;
+    const src = base.find((h) => sameName(h.name, e.name));
+    if (!src) return e;
+    const out = { ...e };
+    for (const k of TEXT_KEYS) if (!out[k] && src[k]) out[k] = src[k].slice(0, EVENT_TEXT_MAX[k]);
+    return out;
+  });
 }
 
 export function mergeVacations(holidays, vacations) {
@@ -327,6 +340,11 @@ export function knownEvent(state, preset, name, from, to = from) {
   const others = [...holidaysOf(preset, state), ...vacationsOf(preset, state)];
   for (let day = from; day <= last; day = addDays(day, 1)) {
     const hit = others.find((h) => covers(h, day) && sameName(h.name, name));
+    if (hit) return hit;
+  }
+  if (!others.length) return null;
+  for (let day = addDays(from, -3); day <= addDays(last, 3); day = addDays(day, 1)) {
+    const hit = others.find((h) => !h.off && covers(h, day) && sameName(h.name, name));
     if (hit) return hit;
   }
   return null;
