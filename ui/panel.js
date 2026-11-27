@@ -687,7 +687,7 @@ export function mountSettings(host) {
   const block = el('div', { id: ID.settings, class: 'academy-ext-block' }, [
     el('div', { class: 'inline-drawer' }, [
       el('div', { class: 'inline-drawer-toggle inline-drawer-header' }, [
-        el('b', { text: 'Академия' }),
+        el('b', { text: '🎓 Академия' }),
         el('div', { class: 'inline-drawer-icon fa-solid fa-circle-chevron-down down' }),
       ]),
       el('div', { class: 'inline-drawer-content academy-ext-content' }),
